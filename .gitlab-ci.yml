@@ -1,0 +1,13 @@
+# GitLab Pages — 研究报告自动发布
+# public/ 目录下的所有文件自动部署为静态站点
+pages:
+  stage: deploy
+  script:
+    - echo "Deploying research reports..."
+    - ls -la public/
+    - ls -la public/reports/ 2>/dev/null || echo "(no reports yet)"
+  artifacts:
+    paths:
+      - public
+  only:
+    - main
