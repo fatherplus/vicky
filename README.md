@@ -70,16 +70,16 @@ bash scripts/deploy.sh
 | 约束 | 位置 | 内容 |
 |------|------|------|
 | **内容规范**（怎么写） | `skill/SKILL.md` | ⭐ 第一原则：先讲「为什么」再讲「是什么」；黄金结构（定位→场景痛点→为什么→方案→细节）；技术决策三问；反模式清单 |
-| **风格规范**（长什么样） | `template/report.html` | 唯一 CSS 来源：Apple-style、主色 `#0C4A6E`、卡片圆角 18px、响应式 |
+| **风格规范**（长什么样） | `skill/BOOK-STYLE.md` + `template/report.html` | 「书」风格硬约束：宋体标题 + 书眉 + 藏书章 + 书签丝带；纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂 `#A63A2E`；模板是唯一 CSS 来源 |
 
 > ⚠️ **技术方案/架构汇报**：必须先写「场景与痛点」「为什么是这套方案」，再讲架构。
 > 详见 `skill/SKILL.md` 的「第一原则」。不要「硬甲架构图」。
 
-## 设计规范
+## 设计规范（书风格）
 
-所有报告使用统一模板 `template/report.html`，特点：
-- Apple-style 极简设计
-- 主色调 `#0C4A6E`（深蓝灰）
-- 卡片圆角 18px，无边框
-- 响应式布局（移动端单列）
-- 中文字体优先（PingFang SC / Microsoft YaHei）
+整个仓库呈现为一本书：每篇报告 = 书的一页（风格统一），索引页 = 封面 + 目录。
+所有报告使用统一模板 `template/report.html`，硬约束见 `skill/BOOK-STYLE.md`：
+- 宋体标题（Noto Serif SC）+ 黑体正文（Noto Sans SC）+ 等宽元信息（JetBrains Mono）
+- 纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂印章 `#A63A2E`（只用于小面积）
+- 书眉（running head）+ 书签丝带（滚动进度）+ 章节开头带藏书章
+- 720px 正文栏、大量留白、克制动效、尊重 prefers-reduced-motion

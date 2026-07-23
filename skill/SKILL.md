@@ -3,8 +3,9 @@ name: research-report
 description: >-
   Create research reports on open-source projects, technologies, or industry trends.
   Use when the user asks to research a GitHub project, technology, or topic and produce
-  a structured report. All reports use the unified Apple-style template from the
-  ai-report platform (https://github.com/fatherplus/vicky).
+  a structured report. All reports use the unified book-style template from the
+  ai-report platform (https://github.com/fatherplus/vicky). Visual
+  style is governed by skill/BOOK-STYLE.md (the "book" design spec).
 ---
 
 # Research Report — 统一研究平台
@@ -12,7 +13,8 @@ description: >-
 ## 平台定位
 
 `ai-report` 是一个**集中式研究报告管理平台**，包含：
-- **统一模板**：`template/report.html` — Apple-style 设计，所有报告共享同一份 CSS
+- **统一模板**：`template/report.html` — “书”页设计（宋体标题 + 书眉 + 藏书章 + 书签丝带），所有报告共享同一份 CSS
+- **风格规范**：`skill/BOOK-STYLE.md` — 书风格的硬约束（字体/配色/版式/动效/绝对禁止清单）
 - **GitLab Pages**：`public/` 目录自动发布为静态站点
 - **Skill**：本文件 — 定义报告生成的标准工作流
 
@@ -109,20 +111,14 @@ The template uses `{{PLACEHOLDER}}` markers:
 
 **File naming**: `public/reports/YYYY-MM-DD-slug.html`
 
-**Design conventions** (from template):
-- Hero section with tag, title, subtitle, date
-- Sections: `<section>...</section>`, separated by `border-top: 1px solid #f0f0f0`
-- Section labels: `<div class="section-label">LABEL</div>` — uppercase, #0C4A6E
-- Card grids: `<div class="card-grid">` or `three-col` / `four-col`
-- Cards: `border-radius: 18px`, subtle shadow, no borders
-- `highlight` cards: gradient background
-- `data-table` for comparison data
-- `quote-block` for notable quotes
-- `concern-box` (amber) for warnings/caveats
-- `code-block` with dark background (#1d1d1f)
-- `ladder-list` / `ladder-rung` for step-by-step
-- `phase-list` / `phase` for numbered phases
-- Responsive: single column on mobile
+**Design conventions** (book style — full spec in `skill/BOOK-STYLE.md`):
+- 模板是一页“书”：书眉（running head）+ 书签丝带（滚动进度）+ 章节开头（带藏书章）+ 720px 正文栏 + 页脚
+- 字体：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽元信息 `JetBrains Mono`
+- 配色：纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂印章 `#A63A2E`（只用于小面积）
+- 组件：`.card` 卡片、三线表 `table`、`blockquote` 引用、`pre` 代码、`.callout.note/.warn` 强调框、`.tag` 标签
+- 章节：`<section class="reveal">` + `.section-label`（等宽小字）+ `h2`（宋体）
+- 动效：克制的滚动进入 + 书签进度条，尊重 `prefers-reduced-motion`
+- ⚠️ 硬约束：写之前读 BOOK-STYLE.md，对照其“绝对禁止”清单自查，违反即返工
 
 **Content structure** (tailor to the topic, but typical sections):
 1. 项目概述 — what it is, core stats, key metrics
