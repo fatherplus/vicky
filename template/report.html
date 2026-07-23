@@ -139,6 +139,19 @@ ul li::marker{color:var(--accent)}
 .reveal.in{opacity:1;transform:none}
 @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}
 </style>
+<style>
+/* 跨页过渡（目录 → 文章）—— 浏览器原生 View Transitions API，零 JS；
+   不支持的浏览器（Safari/Firefox）自动降级为直接跳转。规范见 BOOK-STYLE §8 */
+@view-transition{navigation:auto}
+html{background:var(--paper)}
+::view-transition-image-pair(root){isolation:isolate}
+::view-transition-old(root),::view-transition-new(root){mix-blend-mode:normal;animation-duration:.45s;animation-timing-function:cubic-bezier(.4,0,.2,1)}
+::view-transition-old(root){animation-name:vt-old}
+::view-transition-new(root){animation-name:vt-new}
+@keyframes vt-old{to{opacity:0;transform:translateX(-20px)}}
+@keyframes vt-new{from{opacity:0;transform:translateX(20px)}}
+@media(prefers-reduced-motion:reduce){::view-transition-old(root),::view-transition-new(root){animation:none}}
+</style>
 </head>
 <body>
 <div id="ribbon"></div>

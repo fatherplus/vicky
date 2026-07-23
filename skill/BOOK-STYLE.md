@@ -154,6 +154,9 @@ description: >-
   `cubic-bezier(0.16, 1, 0.3, 1)`，用 `IntersectionObserver`（禁止 scroll 监听硬算）
 - **目录/卡片 hover**：`200ms` 的颜色/位移过渡，不要弹跳、不要 3D
 - **书签进度条**：随滚动变宽（这是唯一"持续"的动效，且极安静）
+- **跨页过渡**（目录 ⇄ 文章）：浏览器原生 View Transitions API（`@view-transition{navigation:auto}`），
+  `450ms` 淡入淡出 + 横移 `20px`，方向即隐喻——进文章 = 从右往左翻，回目录 = 从左往右翻。
+  零 JS；不支持的浏览器自动降级为直接跳转，不得为此写 polyfill
 - **只动 `transform` 和 `opacity`**，不动 layout 属性
 - **尊重 `prefers-reduced-motion`**：用户关闭动效时，全部静态
 
