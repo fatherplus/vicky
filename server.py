@@ -242,6 +242,20 @@ si.addEventListener('input',function(){
 /* Agent 接入：API 地址随当前主机推导（同主机 :9091）*/
 var API=location.protocol+'//'+location.hostname+':9091';
 document.getElementById('skillLink').href=API+'/api/skill';
+function copyText(s){
+  if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(s);
+  return new Promise(function(res,rej){
+    var ta=document.createElement('textarea');ta.value=s;
+    ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    var ok=false;try{ok=document.execCommand('copy');}catch(e){}
+    ta.remove();ok?res():rej(new Error('copy failed'));
+  });
+}
+function toast(msg){
+  var t=document.createElement('div');t.className='atoast show';t.textContent=msg;document.body.appendChild(t);
+  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
+}
 function copyPrompt(){
   var p=`当你需要写技术研究报告时，使用 ai-report 平台。
 1. 读取写作规范：GET ${API}/api/guide
@@ -249,10 +263,8 @@ function copyPrompt(){
 3. 按规范写内容，提交：POST ${API}/api/reports
    Body: {"title":"标题", "slug":"slug", "tag":"标签", "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
 4. 查看已发布报告：GET ${API}/api/reports`;
-  navigator.clipboard.writeText(p).then(function(){
-    var t=document.createElement('div');t.className='atoast show';t.textContent='已复制到剪贴板';document.body.appendChild(t);
-    setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
-  });
+  copyText(p).then(function(){toast('已复制到剪贴板');})
+    .catch(function(){toast('复制失败，请手动选择文本');});
 }
 </script>
 </body>
