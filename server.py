@@ -33,6 +33,7 @@ TEMPLATE_PATH = REPO_DIR / "template" / "report.html"
 REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"
 NGINX_DIR = Path("/var/www/vicky/research")
+PUBLIC_DIR = REPO_DIR / "public"
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9091
 GUIDE_PATH = REPO_DIR / "skill" / "AGENT-GUIDE.md"
 
@@ -435,6 +436,35 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_static(self):
+        """Serve static files from PUBLIC_DIR (index + reports)"""
+        # Normalize path
+        req = self.path.split("?")[0].rstrip("/")
+        if req == "" or req == "/":
+            req = "/index.html"
+        # Security: no path traversal
+        target = (PUBLIC_DIR / req.lstrip("/")).resolve()
+        if not str(target).startswith(str(PUBLIC_DIR.resolve())):
+            self._json({"error": "forbidden"}, 403)
+            return
+        if target.is_dir():
+            target = target / "index.html"
+        if not target.exists():
+            self._json({"error": "not found"}, 404)
+            return
+        # MIME
+        ext = target.suffix.lower()
+        mime = {".html": "text/html", ".css": "text/css", ".js": "application/javascript",
+                ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg",
+                ".svg": "image/svg+xml", ".ico": "image/x-icon", ".woff2": "font/woff2"}.get(ext, "application/octet-stream")
+        body = target.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", f"{mime}; charset=utf-8" if ext in (".html", ".css", ".js", ".json") else mime)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache" if ext == ".html" else "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -454,7 +484,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/template":
             self._serve_file(TEMPLATE_PATH, "text/html; charset=utf-8")
         else:
-            self._json({"error": "not found"}, 404)
+            self._serve_static()
 
     def do_POST(self):
         if self.path != "/api/reports":
