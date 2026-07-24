@@ -86,6 +86,19 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 .volume{margin-top:44px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px;color:var(--sub);letter-spacing:.05em}
 .volume .sep{color:var(--hairline)}
 .volume .vtag{border:1px solid var(--accent);color:var(--accent);padding:2px 10px;border-radius:4px;font-size:11px}
+/* 卷首 · 关于本书（META 文档，自动归此，不进时间目录） */
+.frontmatter{padding:34px 0 6px}
+.fm-label{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.22em;margin-bottom:14px;display:flex;align-items:center;gap:14px}
+.fm-label::after{content:'';flex:1;height:1px;background:var(--hairline)}
+.fm-item{display:flex;align-items:center;gap:20px;background:#fff;border:1px solid rgba(0,0,0,.06);border-left:3px solid var(--accent);border-radius:10px;padding:20px 24px;text-decoration:none;color:var(--ink);box-shadow:0 2px 10px rgba(0,0,0,.04);transition:transform .22s cubic-bezier(.16,1,.3,1),box-shadow .22s}
+.fm-item:hover{transform:translateX(6px);box-shadow:0 10px 28px rgba(12,74,110,.13)}
+.fm-seal{flex-shrink:0;width:48px;height:48px;background:var(--accent);color:#FBFAF7;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:23px;transform:rotate(-4deg);box-shadow:0 3px 10px rgba(12,74,110,.3),inset 0 0 0 2px rgba(251,250,247,.3);transition:transform .3s cubic-bezier(.16,1,.3,1)}
+.fm-item:hover .fm-seal{transform:rotate(0deg)}
+.fm-body{flex:1;min-width:0}
+.fm-title{font-family:var(--serif);font-weight:900;font-size:19px;display:block;line-height:1.4}
+.fm-desc{font-size:13.5px;color:var(--sub);line-height:1.7;display:block;margin-top:4px}
+.fm-arrow{flex-shrink:0;font-family:var(--mono);color:var(--accent);font-size:19px;transition:transform .22s}
+.fm-item:hover .fm-arrow{transform:translateX(5px)}
 
 /* 目录 */
 .contents{padding:56px 0 40px;border-top:1px solid var(--hairline)}
@@ -182,10 +195,10 @@ html{background:var(--paper)}
       <span>共 __TOTAL__ 篇</span>
     </div>
   </div>
-
+  __FRONTMATTER__
   <div class="contents">
     <div class="chead"><h2>目录</h2></div>
-    <div class="csub">CONTENTS · 按时间倒序</div>
+    <div class="csub">CONTENTS · 按时间倒序 · 技术研究</div>
 
     <div class="searchbox reveal">
       <span class="search-ic">检</span>
@@ -271,13 +284,30 @@ function copyPrompt(){
 
 
 def build_index(reports: list[dict]) -> str:
-    """生成书风格索引页（目录从 reports 动态生成，含 Agent 接入入口）"""
+    """生成书风格索引页。tag 以 META 开头的文档归入「卷首」（关于本书），
+    其余按时间倒序进目录。"""
     total = len(reports)
+    front = [r for r in reports if r.get("tag", "").upper().startswith("META")]
+    research = [r for r in reports if not r.get("tag", "").upper().startswith("META")]
+    # 卷首区（关于本书）
+    fm = [
+        f'<a class="fm-item reveal" href="reports/{r["file"]}">'
+        f'<span class="fm-seal" aria-hidden="true">序</span>'
+        f'<span class="fm-body"><span class="fm-title">{html.escape(r["title"])}</span>'
+        f'<span class="fm-desc">{html.escape(r.get("subtitle") or "关于这个平台本身的设计说明。")}</span></span>'
+        f'<span class="fm-arrow">→</span></a>'
+        for r in front
+    ]
+    frontmatter = ""
+    if fm:
+        frontmatter = ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
+                       + "\n    ".join(fm) + "\n  </div>")
+    # 目录（仅研究类，按时间倒序）
     months = {}
-    for r in reports:
+    for r in research:
         months[r["date"][:7]] = months.get(r["date"][:7], 0) + 1
     toc, cur = [], None
-    for i, r in enumerate(reports):
+    for i, r in enumerate(research):
         ym = r["date"][:7]
         if ym != cur:
             cur = ym
@@ -286,13 +316,14 @@ def build_index(reports: list[dict]) -> str:
         delay = (i % 12) * 0.04
         toc.append(
             f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}">'
-            f'<span class="toc-num">{total - i:02d}</span>'
+            f'<span class="toc-num">{len(research) - i:02d}</span>'
             f'<span class="toc-title">{html.escape(r["title"])}</span>'
             f'<span class="toc-dots"></span>'
             f'<span class="toc-date">{r["date_display"]}</span></a>'
         )
     year = reports[0]["date"][:4] if reports else str(datetime.now().year)
     return (_INDEX_TPL
+            .replace("__FRONTMATTER__", frontmatter)
             .replace("__TOC__", "\n    ".join(toc))
             .replace("__TOTAL__", str(total))
             .replace("__YEAR__", year))
@@ -316,7 +347,12 @@ def list_reports() -> list[dict]:
         content = f.read_text(encoding="utf-8")
         title_match = re.search(r"<title>(.+?)</title>", content)
         title = title_match.group(1) if title_match else name
-        result.append({"file": name, "title": title, "date": date, "date_display": date_display})
+        # 提取 tag（kicker）与副标题，用于卷首分流（META → 卷首）
+        tag_match = re.search(r'<div class="kicker">([^<]*)</div>', content)
+        tag = tag_match.group(1).strip() if tag_match else ""
+        sub_match = re.search(r'<p class="subtitle">([^<]*)</p>', content)
+        subtitle = sub_match.group(1).strip() if sub_match else ""
+        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display})
     return result
 
 
