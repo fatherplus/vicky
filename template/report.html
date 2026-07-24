@@ -76,7 +76,7 @@ a{color:var(--accent)}
 .colophon a{color:#8FBEDB;text-decoration:none}
 .colophon a:hover{text-decoration:underline}
 
-/* ===== 旧报告组件兼容（统一为书风格）===== */
+/* ===== 标准组件库 v1（9 个标准 · 铁律：文档写的 = 模板有的）=====
 .card-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:26px 0}
 .card-grid.three-col{grid-template-columns:repeat(3,1fr)}
 .card-grid.four-col{grid-template-columns:repeat(2,1fr)}
@@ -106,29 +106,48 @@ a{color:var(--accent)}
 .data-table .num{font-family:var(--mono);font-size:14px}
 .data-table .win{color:#2e7d32;font-weight:600}
 .data-table .loss{color:var(--seal);font-weight:600}
-.quote-block{border-left:3px solid var(--accent);background:rgba(12,74,110,.05);padding:22px 28px;margin:26px 0;border-radius:0 10px 10px 0}
-.quote-block p{font-family:var(--serif);font-size:17.5px;line-height:1.85;margin:0}
-.quote-block .attr{font-family:var(--mono);font-size:12.5px;color:var(--sub);margin-top:10px}
+/* 引用（原生 blockquote，替代已弃用的 .quote-block） */
+blockquote{border-left:3px solid var(--accent);background:rgba(12,74,110,.05);padding:22px 28px;margin:26px 0;border-radius:0 10px 10px 0}
+blockquote p{font-family:var(--serif);font-size:17.5px;line-height:1.85;margin:0}
+blockquote .attr{font-family:var(--mono);font-size:12.5px;color:var(--sub);margin-top:10px}
 .code-block{background:#1D1F24;border-radius:12px;padding:24px 28px;overflow-x:auto;margin:26px 0}
 .code-block pre{font-family:var(--mono);font-size:13.5px;line-height:1.8;color:#E8E6E1;white-space:pre;margin:0;background:none;padding:0}
 .code-block .cm{color:#8a8f98}
 pre{background:#1D1F24;color:#E8E6E1;border-radius:12px;padding:24px 28px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.8;margin:26px 0}
 p code,li code{font-family:var(--mono);font-size:.85em;background:rgba(12,74,110,.08);color:var(--accent);padding:2px 7px;border-radius:5px}
-.concern-box{background:rgba(166,58,46,.06);border-left:3px solid var(--seal);border-radius:0 12px 12px 0;padding:24px 28px;margin:26px 0}
-.concern-box h4{font-family:var(--serif);font-size:17px;color:var(--seal);margin-bottom:8px}
-.concern-box p{font-size:15.5px;line-height:1.8;margin:0}
-.ladder-list{display:flex;flex-direction:column;gap:16px;margin:26px 0}
-.ladder-rung{display:flex;gap:20px;align-items:flex-start;background:#fff;border:1px solid var(--hair);border-radius:12px;padding:24px 26px;box-shadow:0 2px 12px rgba(32,36,44,.05);transition:transform .22s}
-.ladder-rung:hover{transform:translateX(5px)}
-.ladder-num{flex-shrink:0;width:42px;height:42px;border-radius:11px;background:var(--accent);color:#fff;font-family:var(--serif);font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center}
-.ladder-content h4{font-family:var(--serif);font-size:17.5px;font-weight:700;margin-bottom:6px}
-.ladder-content p{font-size:15.5px;color:var(--sub);line-height:1.75;margin:0}
-.phase-list{display:flex;flex-direction:column;gap:20px;margin:26px 0}
-.phase{display:flex;gap:22px;align-items:flex-start;background:#fff;border:1px solid var(--hair);border-radius:12px;padding:28px 30px;box-shadow:0 2px 12px rgba(32,36,44,.05);transition:transform .22s}
-.phase:hover{transform:translateX(5px)}
-.phase-num{flex-shrink:0;width:46px;height:46px;border-radius:12px;background:var(--accent);color:#fff;font-family:var(--serif);font-weight:900;font-size:20px;display:flex;align-items:center;justify-content:center}
-.phase-content h3{font-family:var(--serif);font-size:19px;font-weight:700;margin:0 0 8px}
-.phase-content p{font-size:15.5px;color:var(--sub);line-height:1.75;margin:0}
+/* 强调框（.callout，替代已弃用的 .concern-box）：note=靛蓝 / warn=朱砂 */
+.callout{border-radius:0 12px 12px 0;padding:24px 28px;margin:26px 0}
+.callout h4{font-family:var(--serif);font-size:17px;margin-bottom:8px}
+.callout p{font-size:15.5px;line-height:1.8;margin:0}
+.callout.note{background:rgba(12,74,110,.06);border-left:3px solid var(--accent)}
+.callout.note h4{color:var(--accent)}
+.callout.warn{background:rgba(166,58,46,.06);border-left:3px solid var(--seal)}
+.callout.warn h4{color:var(--seal)}
+/* 对比表（.cmp-table）：有“选谁”的问题就用它——必须标推荐列、统一取值符号、必填结论区 */
+.cmp{margin:26px 0}
+.cmp-table{width:100%;border-collapse:collapse;font-size:15.5px;background:#fff;border-radius:12px 12px 0 0;overflow:hidden;box-shadow:0 2px 12px rgba(32,36,44,.05)}
+.cmp-table th,.cmp-table td{padding:13px 18px;text-align:left;border-bottom:1px solid var(--hair)}
+.cmp-table thead th{font-family:var(--mono);font-size:11.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--sub);border-bottom:2px solid var(--ink);background:#fff}
+.cmp-table tbody tr:last-child td{border-bottom:none}
+.cmp-table tr:hover td{background:rgba(12,74,110,.035)}
+.cmp-table .dim{font-weight:600;white-space:nowrap}
+.cmp-table .rec{background:rgba(12,74,110,.055)}
+.cmp-table thead th.rec{color:var(--accent)}
+.cmp-rec-tag{display:inline-block;font-family:var(--sans);font-size:11px;font-weight:700;background:var(--accent);color:var(--paper);padding:2px 8px;border-radius:4px;margin-left:8px}
+.cmp-v{font-family:var(--mono);font-size:14px;white-space:nowrap}
+.cmp-v .g{color:#2e7d32;font-weight:600}
+.cmp-v .r{color:var(--seal);font-weight:600}
+.cmp-v .m{color:var(--sub)}
+.cmp-v .q{color:var(--ink)}
+.cmp-verdict{background:#fff;border-top:2px solid var(--accent);border-radius:0 0 12px 12px;padding:16px 20px;font-size:15px;line-height:1.8;box-shadow:0 2px 12px rgba(32,36,44,.05)}
+.cmp-verdict .vk{font-family:var(--mono);font-size:11px;letter-spacing:.14em;color:var(--accent);display:block;margin-bottom:4px}
+/* 步骤（.steps，合并已弃用的 .ladder-rung + .phase）：编号+标题+描述，编号用宋体数字 */
+.steps{display:flex;flex-direction:column;gap:16px;margin:26px 0}
+.step{display:flex;gap:20px;align-items:flex-start;background:#fff;border:1px solid var(--hair);border-radius:12px;padding:24px 26px;box-shadow:0 2px 12px rgba(32,36,44,.05);transition:transform .22s}
+.step:hover{transform:translateX(5px)}
+.step-num{flex-shrink:0;width:42px;height:42px;border-radius:11px;background:var(--accent);color:#fff;font-family:var(--serif);font-weight:900;font-size:18px;display:flex;align-items:center;justify-content:center}
+.step h4{font-family:var(--serif);font-size:17.5px;font-weight:700;margin-bottom:6px}
+.step p{font-size:15.5px;color:var(--sub);line-height:1.75;margin:0}
 ul,ol{margin:0 0 18px 28px}
 li{margin-bottom:9px}
 ul li::marker{color:var(--accent)}
@@ -171,7 +190,7 @@ html{background:var(--paper)}
       <div class="kicker">{{HERO_TAG}}</div>
       <h1>{{TITLE}}</h1>
       <p class="subtitle">{{SUBTITLE}}</p>
-      <div class="meta"><span>{{DATE}}</span><i>·</i><span>{{AUTHOR}}</span><i>·</i><span>AI 研究报告集</span></div>
+      <div class="meta"><span>{{DATE}}</span><i>·</i><span>AI 研究报告集</span></div>
     </div>
     <div class="seal" aria-hidden="true">藏</div>
     <div class="ghost" aria-hidden="true">藏</div>
@@ -182,7 +201,7 @@ html{background:var(--paper)}
   <footer class="colophon">
     <div class="wrap">
       <div class="book">《AI 研究报告集》</div>
-      <div class="pg">{{DATE}} · {{AUTHOR}} · <a href="../index.html">返回目录</a></div>
+      <div class="pg">{{DATE}} · <a href="../index.html">返回目录</a></div>
     </div>
   </footer>
 </main>

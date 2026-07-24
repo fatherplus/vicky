@@ -15,6 +15,7 @@ curl -X POST http://<HOST>:9091/api/reports \
     "title": "报告标题",
     "slug": "url-slug-english",
     "tag": "分类标签",
+    "subtitle": "一行副标题（可选）",
     "content": "<section class=\"reveal\"><div class=\"wrap\">...</div></section>"
   }'
 ```
@@ -59,6 +60,36 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 ---
 
+## 文档类型骨架（按类型套用）
+
+平台内容分三类，各有标准章节骨架。**顺序不可颠倒**（先讲为什么，再讲是什么）。
+
+### 技术研究（介绍一个已有技术）
+1. 定位与边界
+2. 核心机制
+3. **场景演练**（必选：小数据集 + 逐步计算 + 类比）
+4. 实战效果 / 数据
+5. 竞品对比（**强制用 `.cmp-table`**）
+6. 局限与批判
+7. 结论与建议
+
+### 技术方案（提出待建系统 · 黄金结构）
+1. 定位与边界
+2. 场景与痛点（谁、什么情况、什么问题、损失什么）
+3. 为什么是这套方案（每个决策答三问）
+4. 方案与架构（此时才讲）
+5. 细节与验证
+
+### 数据分析
+1. 背景与问题
+2. 数据与方法
+3. 发现
+4. 建议
+
+> 写之前先判断类型。技术方案缺了「场景痛点 / 为什么」= 不及格。
+
+---
+
 ## HTML 结构
 
 `content` 字段由若干 `<section>` 组成，每个 section 是一章：
@@ -75,14 +106,26 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 ### 可用组件
 
-| 组件 | 写法 |
-|------|------|
-| 卡片 | `<div class="card">...</div>` |
-| 三线表 | `<table><thead>...<tbody>...` |
-| 引用 | `<blockquote>...</blockquote>` |
-| 代码块 | `<pre><code>...</code></pre>` |
-| 强调框 | `<div class="callout note">` 或 `<div class="callout warn">` |
-| 标签 | `<span class="tag">标签文字</span>` |
+### 标准组件库（9 个 · 写对类名就有样式）
+
+| 组件 | 写法 | 何时用 |
+|------|------|--------|
+| 章节 | `<p class="section-label">` + `<h2>` | 结构单元，h2 自动进导航 |
+| 卡片 | `<div class="card">` | 并列介绍条目 |
+| 数据表 | `<table class="data-table">` | **只摆数据、不给结论** |
+| 对比表 | `<div class="cmp">` 包 `<table class="cmp-table">` + `<div class="cmp-verdict">` | **有“选谁”的问题就用它**，见下 |
+| 引用 | `<blockquote>` | 引述 / 关键论断 |
+| 强调框 | `<div class="callout note">` / `<div class="callout warn">` | 注意（靖蓝）/ 警告（朱砂） |
+| 代码 | `<pre><code>` | 代码块 |
+| 标签 | `<span class="tag">` | 分类徽章 |
+| 步骤 | `<div class="steps">` 包 `<div class="step">` | 有序步骤 / 阶段 |
+
+**对比表三条硬规则**（违反即不合格）：
+1. 必须标出推荐列（`<th class="rec">选项<span class="cmp-rec-tag">推荐</span></th>`，整列加 `.rec`）；无单一最优就在结论里明说。
+2. 取值统一：布尔写 `✓ 支持` / `✗ 需重建`；三档着色 `.g`（好）/ `.r`（差）/ `.m`（中性）。
+3. 表尾必须接 `<div class="cmp-verdict">`（带 `怎么选 · VERDICT`）——**没有结论的对比表不合格**。
+
+**数据表 vs 对比表**：摆数据用 `.data-table`（无结论）；要回答“选谁”用 `.cmp-table`（必须有结论）。
 
 ### 自定义组件
 
@@ -99,7 +142,7 @@ curl -X POST http://<HOST>:9091/api/reports \
 - **字体**：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽 `JetBrains Mono`
 - **版式**：1100px 宽版心，大量留白
 - **页面框架**：书眉（返回索引 + 标题 + 藏书章）、章节 tab 导航、书签丝带（滚动进度）、页脚
-- **基础组件样式**：card / table / blockquote / pre / callout / tag
+- **标准组件样式**：card / data-table / cmp-table / blockquote / callout / pre / tag / steps
 
 ## 什么是自由的（发挥空间）
 
@@ -108,6 +151,11 @@ curl -X POST http://<HOST>:9091/api/reports \
 - 内容组织方式（黄金结构是底线，在此基础上灵活调整）
 - 插图、数据可视化、代码演示
 - 任何让报告更生动、更易理解的东西
+
+## 平台如何演进（两条通道）
+
+- **硬通道**：模板 CSS。组件长什么样，由 `template/report.html` 强制，你改不了也不用改。
+- **软通道**：本指南。每形成一个最佳实践就往里补一条规则——你读到的这些规范，就是这样攒出来的。
 
 ## 禁止清单
 

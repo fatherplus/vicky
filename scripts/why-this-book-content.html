@@ -1,0 +1,276 @@
+<style>
+/* 本文特有组件（平台标准组件库之外的演示用组件） */
+.swatches{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:30px 0 8px}
+@media(max-width:900px){.swatches{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.swatches{grid-template-columns:1fr}}
+.sw{background:#fff;border:1px solid var(--hair);border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(32,36,44,.05);transition:transform .25s cubic-bezier(.16,1,.3,1),box-shadow .25s}
+.sw:hover{transform:translateY(-5px);box-shadow:0 14px 32px rgba(32,36,44,.12)}
+.sw-block{height:92px;position:relative;transition:height .3s cubic-bezier(.16,1,.3,1)}
+.sw:hover .sw-block{height:116px}
+.sw-block .hex{position:absolute;bottom:10px;left:14px;font-family:var(--mono);font-size:12px;opacity:.85}
+.sw-body{padding:15px 18px 17px}
+.sw-name{font-family:var(--serif);font-weight:900;font-size:19px;margin-bottom:2px}
+.sw-role{font-family:var(--mono);font-size:11.5px;color:var(--sub);margin-bottom:10px}
+.sw-why{font-size:13.5px;line-height:1.7}
+.sw-whynot{font-size:12.5px;line-height:1.65;color:var(--seal);max-height:0;opacity:0;overflow:hidden;transition:max-height .35s,opacity .3s,margin .3s}
+.sw:hover .sw-whynot{max-height:90px;opacity:1;margin-top:9px}
+.sw-whynot b{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--sub);margin-bottom:2px}
+.hint{font-family:var(--mono);font-size:11.5px;color:var(--sub);margin-bottom:20px}
+.specimen{background:#fff;border:1px solid var(--hair);border-radius:12px;overflow:hidden;margin:26px 0;box-shadow:0 2px 12px rgba(32,36,44,.05)}
+.spec-row{display:flex;align-items:baseline;gap:24px;padding:22px 28px;border-bottom:1px solid var(--hair)}
+.spec-row:last-child{border-bottom:none}
+.spec-label{font-family:var(--mono);font-size:11.5px;color:var(--sub);width:180px;flex-shrink:0;line-height:1.6}
+.spec-serif{font-family:var(--serif);font-weight:900;font-size:30px}
+.spec-sans{font-size:17px;line-height:1.9}
+.spec-mono{font-family:var(--mono);font-size:14px;color:var(--accent)}
+.scale{margin:20px 0}
+.scale-item{display:flex;align-items:baseline;gap:20px;padding:8px 0;border-bottom:1px dashed var(--hair)}
+.scale-px{font-family:var(--mono);font-size:11.5px;color:var(--sub);width:70px;flex-shrink:0}
+.scale-text{font-family:var(--serif);font-weight:900;line-height:1.3}
+.anatomy{margin:28px 0}
+.an-row{display:flex;gap:20px;align-items:stretch;margin-bottom:10px}
+.an-zone{flex:0 0 300px;border-radius:8px;padding:12px 16px;font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;justify-content:center;text-align:center;border:1px solid var(--hair);transition:transform .25s}
+.an-row:hover .an-zone{transform:translateX(6px)}
+.an-ribbon{height:8px;background:var(--seal);padding:0;border-radius:4px}
+.an-bar{background:#fff;color:var(--ink)}
+.an-tabs{background:#fff;color:var(--sub);font-size:10.5px;justify-content:flex-start;gap:10px}
+.an-opener{background:var(--dark);color:#F5F2EA;flex-direction:column;gap:4px;padding:18px}
+.an-opener .mini-seal{display:inline-block;background:var(--seal);color:var(--paper);border-radius:4px;font-family:var(--serif);font-weight:900;font-size:11px;padding:2px 6px;transform:rotate(4deg)}
+.an-content{background:var(--paper);color:var(--sub)}
+.an-content.b{background:var(--paper-alt)}
+.an-colophon{background:var(--dark);color:rgba(245,242,234,.7)}
+.an-note{flex:1;font-size:14px;line-height:1.7;color:var(--sub);align-self:center}
+.an-note b{color:var(--ink);font-family:var(--serif)}
+@media(max-width:760px){.an-row{flex-direction:column;gap:8px}.an-zone{flex-basis:auto}}
+.demo-row{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0 8px}
+.demo-card{flex:1;min-width:150px;background:#fff;border:1px solid var(--hair);border-radius:10px;padding:22px 18px;text-align:center;font-family:var(--serif);font-weight:700;font-size:16px;box-shadow:0 2px 10px rgba(32,36,44,.05)}
+.demo-card code{display:block;margin-top:8px;font-size:11px}
+.spec-note{font-family:var(--mono);font-size:11.5px;color:var(--sub);margin:4px 0 8px}
+.hover-card{flex:1;min-width:150px;background:#fff;border:1px solid var(--hair);border-radius:10px;padding:22px 18px;text-align:center;font-family:var(--serif);font-weight:700;transition:transform .2s,box-shadow .2s;cursor:default}
+.hover-card:hover{transform:translateY(-4px);box-shadow:0 12px 26px rgba(32,36,44,.12)}
+.hover-card code{display:block;margin-top:8px;font-size:11px}
+.hover-tab{font-size:14px;color:var(--sub);text-decoration:none;padding:22px 10px;border-bottom:2.5px solid transparent;transition:color .2s,border-color .2s;cursor:pointer;align-self:center}
+.hover-tab:hover{color:var(--accent);border-bottom-color:var(--seal)}
+.hover-btn{font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid rgba(12,74,110,.32);padding:10px 18px;border-radius:7px;text-decoration:none;transition:all .25s;align-self:center;cursor:pointer}
+.hover-btn:hover{background:var(--accent);color:#fff;transform:translateX(-3px)}
+.vt-demo{position:relative;height:130px;max-width:420px;margin:20px 0 8px;overflow:hidden;border-radius:10px;background:var(--paper-alt);border:1px solid var(--hair)}
+.vt-page{position:absolute;top:22px;left:10%;width:42%;height:86px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:700;font-size:15px;box-shadow:0 6px 20px rgba(0,0,0,.14)}
+.vt-a{background:#fff;color:var(--sub);animation:vtA 3.2s cubic-bezier(.4,0,.2,1) infinite}
+.vt-b{background:var(--accent);color:#fff;animation:vtB 3.2s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes vtA{0%,38%{transform:translateX(0);opacity:1}58%,100%{transform:translateX(-140%);opacity:0}}
+@keyframes vtB{0%,38%{transform:translateX(140%);opacity:0}58%,100%{transform:translateX(0);opacity:1}}
+.rm-btn{font-family:var(--sans);font-size:14px;font-weight:700;color:var(--accent);background:none;border:1px solid var(--accent);padding:10px 22px;border-radius:8px;cursor:pointer;transition:all .2s}
+.rm-btn:hover{background:var(--accent);color:#fff}
+body.reduce *{transition:none!important;animation:none!important}
+body.reduce .reveal{opacity:1!important;transform:none!important}
+.tricks{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin:28px 0}
+@media(max-width:860px){.tricks{grid-template-columns:1fr}}
+.trick{background:#fff;border:1px solid var(--hair);border-radius:12px;padding:28px 24px;box-shadow:0 2px 12px rgba(32,36,44,.05);transition:transform .25s,box-shadow .25s}
+.trick:hover{transform:translateY(-4px);box-shadow:0 14px 30px rgba(32,36,44,.1)}
+.trick h3{margin:18px 0 8px;font-size:18px}
+.trick p{font-size:14px;line-height:1.8;color:var(--sub);margin:0}
+.trick p b{color:var(--ink)}
+.trick-seal{width:76px;height:76px;background:var(--seal);color:var(--paper);border-radius:11px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:32px;transform:rotate(5deg);transition:transform .45s cubic-bezier(.16,1,.3,1);box-shadow:0 8px 24px rgba(166,58,46,.35),inset 0 0 0 2.5px rgba(251,250,247,.3)}
+.trick:hover .trick-seal{transform:rotate(0deg)}
+.trick-ghost{width:76px;height:76px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:64px;color:var(--ink);opacity:.06;background:var(--dark);border-radius:11px}
+.trick-toc{display:flex;align-items:baseline;gap:10px;height:76px;background:var(--paper-alt);border-radius:11px;padding:0 18px;font-size:14px}
+.trick-toc .n{font-family:var(--serif);font-weight:900;color:var(--accent)}
+.trick-toc .t{font-family:var(--serif);font-weight:600}
+.trick-toc .dots{flex:1;border-bottom:2px dotted rgba(0,0,0,.22);transform:translateY(-4px)}
+.trick-toc .pg{font-family:var(--mono);font-size:12px;color:var(--sub)}
+.idx{width:100%;border-collapse:collapse;font-size:14.5px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 12px rgba(32,36,44,.05);margin:24px 0}
+.idx th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--sub);text-align:left;padding:12px 18px;border-bottom:2px solid var(--ink)}
+.idx td{padding:12px 18px;border-bottom:1px solid var(--hair);vertical-align:top}
+.idx tr:last-child td{border-bottom:none}
+.idx .cls{font-family:var(--mono);font-size:12.5px;color:var(--accent)}
+.idx tr:hover td{background:rgba(12,74,110,.035)}
+@media(prefers-reduced-motion:reduce){.vt-a,.vt-b{animation:none}}
+</style>
+
+<section><div class="wrap">
+  <span class="section-label reveal">01 · 定位</span>
+  <h2 class="reveal">先说这本书解决什么问题</h2>
+  <p class="lead reveal">不同的 agent、不同的时间写出来的报告，风格五花八门。读者翻开像进了旧书摊，而不是图书馆。</p>
+  <p class="reveal">解法是把"视觉 taste"从 agent 手里收走，由平台模板统一强制；而"内容 taste"通过写作指南传递。这本书，就是这套机制长出来的样子。</p>
+  <blockquote class="reveal">
+    <p>「只写了方案和技术，没写技术的原因和解决的场景，理解不了这套技术的优势。」</p>
+    <div class="attr">— GameKB 方案汇报 · 领导反馈 · 2026-07</div>
+  </blockquote>
+  <p class="reveal">这条反馈是全书方法论的起点：<strong>先讲为什么，再讲是什么</strong>。它不只约束报告，也约束这本书自己——下面每个设计决定，都先回答"为什么"。</p>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">02 · 配色</span>
+  <h2 class="reveal">颜色是稀缺资源</h2>
+  <p class="lead reveal">整本书只许四种颜色。不是没有色板，而是<strong>克制本身就是风格</strong>——读者翻开任何一页，不用看 logo 就知道是同一本书。</p>
+  <div class="swatches">
+    <div class="sw reveal" style="--d:0s"><div class="sw-block" style="background:#FBFAF7;border-bottom:1px solid var(--hair)"><span class="hex" style="color:#6E7278">#FBFAF7</span></div><div class="sw-body"><div class="sw-name">纸</div><div class="sw-role">背景 · PAPER</div><p class="sw-why">暖白如书页。长文阅读，背景必须"消失"。</p><div class="sw-whynot"><b>为什么不是纯白</b>#FFFFFF 刺眼，读三千字就累。</div></div></div>
+    <div class="sw reveal" style="--d:.06s"><div class="sw-block" style="background:#23272E"><span class="hex" style="color:#FBFAF7">#23272E</span></div><div class="sw-body"><div class="sw-name">墨</div><div class="sw-role">正文 · INK</div><p class="sw-why">墨色正文，沉得住、读得进。</p><div class="sw-whynot"><b>为什么不是纯黑</b>#000 对比过硬，边缘发虚。</div></div></div>
+    <div class="sw reveal" style="--d:.12s"><div class="sw-block" style="background:#0C4A6E"><span class="hex" style="color:#FBFAF7">#0C4A6E</span></div><div class="sw-body"><div class="sw-name">靛蓝</div><div class="sw-role">主色 · ACCENT</div><p class="sw-why">链接、章节号、强调线。冷静、可信的学术色。</p><div class="sw-whynot"><b>为什么不是紫渐变</b>靛紫粉渐变是 AI 默认审美，一眼机器味。</div></div></div>
+    <div class="sw reveal" style="--d:.18s"><div class="sw-block" style="background:#A63A2E"><span class="hex" style="color:#FBFAF7">#A63A2E</span></div><div class="sw-body"><div class="sw-name">朱砂</div><div class="sw-role">印章 · SEAL</div><p class="sw-why">只用于丝带与藏书章，一页最多两处。</p><div class="sw-whynot"><b>为什么不能铺开</b>一铺开就从"印章"变"装饰色"，签名归零。</div></div></div>
+  </div>
+  <p class="hint reveal">↑ 悬停色块，看"为什么不是别的"</p>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">03 · 字体</span>
+  <h2 class="reveal">宋题黑身</h2>
+  <p class="lead reveal">标题用宋体，正文用黑体——中文书籍最经典的搭配。宋体有笔锋、有书卷气，撑得起"骨架"；黑体均匀清晰，经得起屏幕逐字阅读。</p>
+  <div class="specimen reveal">
+    <div class="spec-row"><span class="spec-label">标题<br>Noto Serif SC · 900</span><span class="spec-serif">研究是一门手艺</span></div>
+    <div class="spec-row"><span class="spec-label">正文<br>Noto Sans SC · 400</span><span class="spec-sans">研究是一门手艺，需要耐心与克制。屏幕上的中文正文，行高要给到 1.9 才透气。</span></div>
+    <div class="spec-row"><span class="spec-label">等宽<br>JetBrains Mono</span><span class="spec-mono">2026-07-23 · v1.0 · #FBFAF7 · GET /api/guide</span></div>
+  </div>
+  <h3 class="reveal">字号阶梯：靠对比建立秩序</h3>
+  <p class="reveal">不靠装饰，靠<strong>极致的字号字重对比</strong>分出层次。下面按真实比例排列：</p>
+  <div class="scale reveal">
+    <div class="scale-item"><span class="scale-px">52px / 900</span><span class="scale-text" style="font-size:44px">章标题</span></div>
+    <div class="scale-item"><span class="scale-px">33px / 900</span><span class="scale-text" style="font-size:33px">节标题</span></div>
+    <div class="scale-item"><span class="scale-px">20px / 700</span><span class="scale-text" style="font-size:20px">小节标题</span></div>
+    <div class="scale-item"><span class="scale-px">17px / 400</span><span style="font-size:17px">正文（行高 1.95）</span></div>
+    <div class="scale-item"><span class="scale-px">12px / mono</span><span style="font-family:var(--mono);font-size:12px;color:var(--sub)">元信息 · 页码 · 标签</span></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">04 · 版式</span>
+  <h2 class="reveal">一页书的解剖</h2>
+  <p class="lead reveal">每篇报告都是同一页"书"。把它拆开，每一层都有名字和理由：</p>
+  <div class="anatomy reveal">
+    <div class="an-row"><div class="an-zone an-ribbon"></div><div class="an-note"><b>书签丝带</b> · 3px 朱砂，随滚动变长——读到哪了，一目了然</div></div>
+    <div class="an-row"><div class="an-zone an-bar">← 返回目录 &nbsp;《为什么是这本书》&nbsp; 藏</div><div class="an-note"><b>书眉</b> · 吸顶，返回 + 书名 + 藏书章，永远知道自己在哪本书里</div></div>
+    <div class="an-row"><div class="an-zone an-tabs">定位 配色 字体 版式 动效 巧思</div><div class="an-note"><b>章节 tab</b> · 由 h2 自动生成，滚动定位——本书此刻正在用它</div></div>
+    <div class="an-row"><div class="an-zone an-opener"><span class="mini-seal">藏</span>为什么是这本书</div><div class="an-note"><b>章节扉页</b> · 深色全宽，大标题 + 藏书章 + 淡水印，每章的"门面"</div></div>
+    <div class="an-row"><div class="an-zone an-content">正文 · 纸白</div><div class="an-note"><b>内容节</b> · 1100 宽版心，大字大行距，阅读轻松</div></div>
+    <div class="an-row"><div class="an-zone an-content b">正文 · 暖米</div><div class="an-note"><b>交替底色</b> · 纸白 / 暖米轮替，形成翻页般的节奏</div></div>
+    <div class="an-row"><div class="an-zone an-colophon">《AI 研究报告集》</div><div class="an-note"><b>跋</b> · 深色页脚，书名 + 返回目录，有始有终</div></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">05 · 动效</span>
+  <h2 class="reveal">克制即风格</h2>
+  <p class="lead reveal">这本书不是没有动效——是每一种动效都被问过"有必要吗"。留下来的每一个，都<strong>安静、有理由、可以关掉</strong>。这一节，它们全部现场演示。</p>
+
+  <h3 class="reveal">① 滚动进入</h3>
+  <p class="reveal">元素进入视口才醒来：淡入 + 上移，错峰出现。下面三张卡片正在演示这件事。</p>
+  <div class="demo-row">
+    <div class="demo-card reveal">淡入<code>opacity 0 → 1</code></div>
+    <div class="demo-card reveal" style="--d:.12s">上移<code>translateY 16px → 0</code></div>
+    <div class="demo-card reveal" style="--d:.24s">错峰<code>delay +0.12s / 张</code></div>
+  </div>
+  <p class="spec-note reveal">650ms · cubic-bezier(0.16,1,0.3,1) · IntersectionObserver（不监听 scroll 硬算）</p>
+
+  <h3 class="reveal">② 书签丝带</h3>
+  <div class="callout note reveal">
+    <h4>抬头看页面最顶部</h4>
+    <p>那根随滚动变长的朱砂细线，是全书<b>唯一的持续动效</b>。它安静到可以被忽略，但合上"书"的那一刻，你会知道读到了哪里。</p>
+  </div>
+
+  <h3 class="reveal">③ 悬停过渡</h3>
+  <p class="reveal">把手放上去试试——每一种反馈都是 200ms 级别的颜色或位移，不弹跳、不 3D。</p>
+  <div class="demo-row reveal">
+    <div class="hover-card">卡片上浮<code>translateY(-4px)</code></div>
+    <a class="hover-tab">标签下划线</a>
+    <a class="hover-btn">← 返回按钮位移</a>
+  </div>
+  <p class="spec-note reveal">只动 transform / opacity，绝不动 layout 属性——动了就会触发重排，卡顿就是这么来的</p>
+
+  <h3 class="reveal">④ 跨页过渡</h3>
+  <p class="reveal">从目录点进文章，页面从右往左滑入；返回则从左往右。<strong>方向即隐喻</strong>——像真的在翻书。</p>
+  <div class="vt-demo reveal">
+    <div class="vt-page vt-a">目录</div>
+    <div class="vt-page vt-b">文章</div>
+  </div>
+  <p class="spec-note reveal">浏览器原生 View Transitions API · 零 JS · 450ms · 不支持的浏览器安静降级，不写 polyfill</p>
+
+  <h3 class="reveal">⑤ 全部可以关掉</h3>
+  <p class="reveal">系统设置了"减少动态效果"，所有动效自动静态。点下面的按钮，提前体验一下：</p>
+  <button class="rm-btn reveal" id="rmToggle">体验 prefers-reduced-motion</button>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">06 · 巧思</span>
+  <h2 class="reveal">签名细节</h2>
+  <p class="lead reveal">书的可信，往往藏在不起眼处。这几个小东西，是这本书的"防伪标记"——每一个都经得起追问。</p>
+  <div class="tricks">
+    <div class="trick reveal" style="--d:0s">
+      <div class="trick-seal">藏</div>
+      <h3>歪 5° 的藏书章</h3>
+      <p>印章故意旋转 3–5°。把鼠标放上去，它会回正——<b>回正了反而假</b>。那一点点歪，是"手工盖上去"的证据。</p>
+    </div>
+    <div class="trick reveal" style="--d:.08s">
+      <div class="trick-ghost">藏</div>
+      <h3>4.5% 的水印</h3>
+      <p>扉页右下角有个巨大的"藏"，透明度只有 4.5%。<b>你几乎看不见它，但少了它，扉页就空了一块。</b></p>
+    </div>
+    <div class="trick reveal" style="--d:.16s">
+      <div class="trick-toc"><span class="n">01</span><span class="t">为什么是这本书</span><span class="dots"></span><span class="pg">03</span></div>
+      <h3>点状引导线</h3>
+      <p>目录用点线把标题引向页码——纸质书目录的经典做法。<b>眼睛顺着点走，不会迷路。</b></p>
+    </div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">07 · 组件</span>
+  <h2 class="reveal">九个标准，都在解释自己</h2>
+  <p class="lead reveal">这本书用到的每个组件，同时也在论证它自己。下面是索引——你读过的每一节，都是组件的活体示例。</p>
+  <table class="idx reveal">
+    <tr><th>组件</th><th>类名</th><th>在本书何处</th></tr>
+    <tr><td>引用块</td><td class="cls">blockquote</td><td>01 节 · GameKB 教训</td></tr>
+    <tr><td>强调框</td><td class="cls">.callout.note / .warn</td><td>05 节 · "抬头看丝带"</td></tr>
+    <tr><td>对比表</td><td class="cls">.cmp-table + .cmp-verdict</td><td>10 节 · 书风格 vs AI 默认审美</td></tr>
+    <tr><td>步骤</td><td class="cls">.steps</td><td>09 节 · 两条演进通道</td></tr>
+    <tr><td>数据表</td><td class="cls">.data-table</td><td>只摆数据不给结论时用</td></tr>
+    <tr><td>卡片 / 标签 / 代码</td><td class="cls">.card / .tag / pre</td><td>并列条目 / 分类 / 代码</td></tr>
+  </table>
+  <div class="callout warn reveal">
+    <h4>一条铁律：文档写的 = 模板里有的</h4>
+    <p>曾经文档叫 agent 写 <code>.callout</code>，模板里却只有 <code>.concern-box</code>——照做的 agent 得到了一个没有样式的裸框。现在原生标签直接上样式，类名与文档一一对应，写对就有样式。</p>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">08 · 首页</span>
+  <h2 class="reveal">封面 + 目录，不是落地页</h2>
+  <p class="lead reveal">首页是这本书的封面与目录，所以它<strong>不做卡片网格、不做居中 hero</strong>——目录就是目录，一行一条，带点状引导线。</p>
+  <p class="reveal">也正因如此，首页不署任何单一作者：这是共享基础设施，任何 agent 研究完都往这里交。卷信息只写"第一卷 · 2026 · 共 N 篇"——<b>书在那里，不需要署名来证明。</b></p>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">09 · 演进</span>
+  <h2 class="reveal">这本书靠"攒规则"长大</h2>
+  <p class="lead reveal">平台不是一次设计完的，它有两条演进通道：</p>
+  <div class="steps">
+    <div class="step reveal"><span class="step-num">硬</span><div><h4>模板 CSS</h4><p>组件长什么样，改 template/report.html，全站生效。视觉 taste 在这里强制。</p></div></div>
+    <div class="step reveal" style="--d:.1s"><span class="step-num">软</span><div><h4>写作指南</h4><p>每踩一个坑、每形成一个最佳实践，就往 skill/ 里补一条规则。内容 taste 在这里沉淀。</p></div></div>
+  </div>
+  <p class="reveal">这本书本身，就是软通道里最新的一条规则。</p>
+</div></section>
+
+<section><div class="wrap">
+  <span class="section-label reveal">10 · 方法</span>
+  <h2 class="reveal">为什么不是 AI 默认审美</h2>
+  <p class="lead reveal">最后，用这本书自己的对比表，回答"为什么选书风格"：</p>
+  <table class="cmp-table reveal">
+    <thead><tr><th>维度</th><th class="rec">书风格<span class="cmp-rec-tag">选用</span></th><th>AI 默认审美</th></tr></thead>
+    <tbody>
+      <tr><td class="dim">配色</td><td class="rec cmp-v"><span class="g">纸墨 + 靛蓝 + 朱砂，4 色</span></td><td class="cmp-v"><span class="r">靛紫粉渐变堆砌</span></td></tr>
+      <tr><td class="dim">字体</td><td class="rec cmp-v"><span class="g">宋题黑身 + 等宽</span></td><td class="cmp-v"><span class="r">Inter 单字体</span></td></tr>
+      <tr><td class="dim">版式</td><td class="rec cmp-v"><span class="g">1100 版心 · 大留白</span></td><td class="cmp-v"><span class="r">居中 hero 三件套</span></td></tr>
+      <tr><td class="dim">动效</td><td class="rec cmp-v"><span class="g">克制 · 可关闭</span></td><td class="cmp-v"><span class="r">循环微动画</span></td></tr>
+    </tbody>
+  </table>
+  <div class="cmp-verdict reveal">
+    <span class="vk">怎么选 · VERDICT</span>
+    给需要逐字阅读、反复引用的研究报告，选"安静"——<strong>可信来自克制</strong>。炫技的页面适合落地页，不适合要存档的技术判断。
+  </div>
+</div></section>
+
+<script>
+document.getElementById('rmToggle').addEventListener('click',function(){
+  document.body.classList.toggle('reduce');
+  this.textContent=document.body.classList.contains('reduce')?'恢复正常动效':'体验 prefers-reduced-motion';
+});
+</script>

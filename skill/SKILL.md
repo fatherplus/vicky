@@ -115,12 +115,12 @@ The template uses `{{PLACEHOLDER}}` markers:
 - 模板是一页“书”：书眉（running head）+ 书签丝带（滚动进度）+ 章节开头（带藏书章）+ 720px 正文栏 + 页脚
 - 字体：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽元信息 `JetBrains Mono`
 - 配色：纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂印章 `#A63A2E`（只用于小面积）
-- 组件：`.card` 卡片、三线表 `table`、`blockquote` 引用、`pre` 代码、`.callout.note/.warn` 强调框、`.tag` 标签
+- 组件（9 个标准）：`.card` 卡片、`.data-table` 数据表（只摆数据）、`.cmp-table`+`.cmp-verdict` 对比表（必须有结论）、`blockquote` 引用、`.callout.note/.warn` 强调框、`pre` 代码、`.tag` 标签、`.steps` 步骤
 - 章节：`<section class="reveal">` + `.section-label`（等宽小字）+ `h2`（宋体）
 - 动效：克制的滚动进入 + 书签进度条，尊重 `prefers-reduced-motion`
 - ⚠️ 硬约束：写之前读 BOOK-STYLE.md，对照其“绝对禁止”清单自查，违反即返工
 
-**Content structure** (tailor to the topic, but typical sections):
+**Content structure** — 先判断文档类型，套用 `AGENT-GUIDE.md` 的对应骨架（技术研究 / 技术方案 / 数据分析）。技术研究类的典型章节：
 1. 项目概述 — what it is, core stats, key metrics
 2. 核心机制 — how it works
 3. **场景演练**（必选）— ⚠️ 对技术/算法类主题这是最重要的章节。用小规模数据集逐步演示，带实际数字计算。加类比。结尾对比暴力搜索 vs 该算法的计算量。用户反馈："没有一个具体的例子和场景，我还是无法理解他的方式"

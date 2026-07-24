@@ -174,12 +174,11 @@ html{background:var(--paper)}
     <div class="titleblock">
       <div class="seal" aria-hidden="true">藏</div>
       <h1>AI <span class="mark">研究</span>报告集</h1>
-      <p class="subtitle">技术研究与方案归档 —— 开源项目、算法机制与工程实践的深度研究，由 AI 整理成册。</p>
+      <p class="subtitle">技术研究与方案归档 —— 开源项目、算法机制与工程实践的深度研究。</p>
     </div>
     <div class="volume">
       <span class="vtag">第一卷</span><span class="sep">·</span>
       <span>__YEAR__</span><span class="sep">·</span>
-      <span>Hermes Agent 编</span><span class="sep">·</span>
       <span>共 __TOTAL__ 篇</span>
     </div>
   </div>
@@ -321,7 +320,7 @@ def list_reports() -> list[dict]:
     return result
 
 
-def create_report(title: str, slug: str, tag: str, content: str) -> dict:
+def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "") -> dict:
     """创建一篇新报告"""
     # 1. 读取模板
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
@@ -332,9 +331,8 @@ def create_report(title: str, slug: str, tag: str, content: str) -> dict:
     html = render(template,
         TITLE=title,
         HERO_TAG=tag,
-        SUBTITLE="",
+        SUBTITLE=subtitle,
         DATE=today,
-        AUTHOR="Hermes Agent",
         CONTENT=content,
     )
 
@@ -441,6 +439,7 @@ class Handler(BaseHTTPRequestHandler):
         slug = data.get("slug", "").strip()
         tag = data.get("tag", "研究报告")
         content = data.get("content", "")
+        subtitle = data.get("subtitle", "").strip()
 
         if not title or not slug or not content:
             self._json({"ok": False, "error": "title, slug, content 都是必填"}, 400)
@@ -450,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
 
         try:
-            result = create_report(title, slug, tag, content)
+            result = create_report(title, slug, tag, content, subtitle)
             self._json(result, 201)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
