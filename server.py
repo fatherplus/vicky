@@ -22,7 +22,7 @@ import sys
 import shutil
 import subprocess
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 # ============================================================
@@ -530,7 +530,8 @@ if __name__ == "__main__":
     print(f"   Reports:  {REPORTS_DIR}")
     print(f"   Index:    {INDEX_PATH}")
     print(f"   Nginx:    {NGINX_DIR}")
-    server = HTTPServer(("0.0.0.0", PORT), Handler)
+    # ThreadingHTTPServer: 一个挂住的连接（慢客户端/未完成请求）不能把单线程 HTTPServer 堵死，经历过一次
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
