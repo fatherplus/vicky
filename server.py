@@ -370,6 +370,14 @@ def validate_content(content: str) -> list:
     # 2. 对比表必须有结论：没有 VERDICT 的对比不合格
     if "cmp-table" in content and "cmp-verdict" not in content:
         errors.append("cmp-table 缺少结论区：表尾必须接 <div class=\"cmp-verdict\">（带「怎么选 · VERDICT」）")
+    # 3. 弃用组件：模板已删除其样式，用了就裸奔（weknora 的 .ladder-* 事故）
+    deprecated = {"ladder-list": ".steps", "ladder-rung": ".step", "ladder-num": ".step-num", "ladder-content": ".step",
+                  "quote-block": "blockquote", "concern-box": ".callout", "phase": ".steps"}
+    used = set()
+    for attr in re.findall(r"class\s*=\s*[\"']([^\"']*)[\"']", content):
+        used |= set(attr.split())
+    for c in sorted(used & deprecated.keys()):
+        errors.append(f"已弃用组件 .{c}（模板已删除其样式）：改用 {deprecated[c]}")
     return errors
 
 

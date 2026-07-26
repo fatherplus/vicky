@@ -46,6 +46,8 @@
 
 模板没有裸表格样式，裸表格会渲染成浏览器默认样子（无内边距、无字体、无线条），直接破坏全书观感。**server 会拒收带裸表格的内容。** 这不是建议，是门禁。
 
+同理，**弃用组件类名也被拒收**：`.ladder-list/.ladder-rung/.ladder-num/.ladder-content`（→ `.steps`/`.step`/`.step-num`）、`.quote-block`（→ `blockquote`）、`.concern-box`（→ `.callout`）、`.phase`（→ `.steps`）。这些类已从模板删除，用了就裸奔——模板注释里标了 "已弃用" 的就是黑名单。
+
 ---
 
 ## 第二层：语义词汇（全书同义）
@@ -106,7 +108,7 @@
 
 | 强度 | 机制 | 管什么 |
 |------|------|--------|
-| **拒收**（server 400） | `POST /api/reports` 提交校验 | 裸 `<table>`；`cmp-table` 无 `cmp-verdict` |
+| **拒收**（server 400） | `POST /api/reports` 提交校验 | 裸 `<table>`；`cmp-table` 无 `cmp-verdict`；弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`） |
 | **兜底**（模板 CSS） | 漏网裸表格按 data-table 渲染 | 防御纵深：即使绕过校验也不裸奔 |
 | **规则**（本文件 + /api/guide） | agent 自觉 + review | 形态判定、必答问题、颜色语义、图题图注 |
 | **结构**（黄金结构） | agent 自觉 | 章节顺序（见 AGENT-GUIDE.md） |

@@ -54,6 +54,7 @@ GET  /api/health    健康检查
 **门禁约束（server 校验，`POST /api/reports` 400 拒收）**：
 - 裸 `<table>`——必须带 `data-table` 或 `cmp-table`
 - `cmp-table` 无 `cmp-verdict`——对比必须有结论
+- 弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`）——模板已删除其样式
 - 模板对漏网裸表格有兜底样式（按 data-table 渲染），但门禁才是主防线
 
 **软约束（`/api/guide` 指导，agent 自觉遵循）**：

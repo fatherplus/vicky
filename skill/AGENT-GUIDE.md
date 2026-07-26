@@ -139,6 +139,8 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 **裸 `<table>` 会被 server 拒收**——模板没有裸表格样式，渲染必裸奔。这不是建议，是门禁。
 
+**弃用类名同样被拒收**：`.ladder-*`（用 `.steps`）、`.quote-block`（用 `blockquote`）、`.concern-box`（用 `.callout`）、`.phase`（用 `.steps`）。
+
 ### 自定义组件
 
 你可以在 content 中加 `<style>` 和 `<script>` 来实现自定义组件（图表、动画、交互 demo 等）——**发挥上限不受限制**，只有三条规矩：
