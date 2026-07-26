@@ -7,7 +7,10 @@ AI Report Service — 轻量 HTTP API
 启动: python3 server.py [--port 9091]
 API:
   POST /api/reports   — 创建报告
+  POST /api/templates — 创建模板（门禁通过即收录，provisional）
   GET  /api/reports   — 列出所有报告
+  GET  /api/templates — 模板目录
+  GET  /api/principles— 叙事宪法（markdown）
   GET  /api/guide     — Agent 写作指南（markdown）
   GET  /api/skill     — 下载写作指南（.md 文件）
   GET  /api/template  — 查看 HTML 模板
@@ -333,6 +336,32 @@ FIGURE_RE = re.compile(r'<figure\b[^>]*>([\s\S]*?)</figure>', re.I)
 AI_WORDS = ("赋能", "闭环", "打通", "一站式", "全方位", "引领")
 EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
 
+# 门禁（validate 之前，常量区附近）
+ROOT_TOKEN_RE = re.compile(
+    r':root[^}]*--(?:paper|ink|sub|accent|seal|dark|hair|serif|sans|mono)\s*:', re.I)
+
+
+def validate_template(name: str, manifest: dict, tpl_html: str, rationale: str) -> list:
+    """模板创建门禁（机器可判定）：占位符齐全 / 不重定义视觉 token / 契约条目合法"""
+    violations = []
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", name or ""):
+        violations.append("模板名须为小写字母数字连字符（≤40 字符）")
+    missing = [ph for ph in REQUIRED_PLACEHOLDERS if ph not in (tpl_html or "")]
+    if missing:
+        violations.append(f"模板缺少必需占位符：{' '.join(missing)}")
+    if ROOT_TOKEN_RE.search(tpl_html or ""):
+        violations.append("模板不得重定义 :root 视觉 token（调色板/字体由平台 book-style.css 拥有）")
+    unknown = sorted(set(manifest.get("narrative_contract") or []) - NARRATIVE_CONTRACTS)
+    if unknown:
+        violations.append(f"未知契约条目：{unknown}（合法条目见 GET /api/principles §3）")
+    if not (manifest.get("purpose") or "").strip():
+        violations.append("manifest.purpose 必填：这个模板为哪类文档的什么目的而生")
+    if not manifest.get("document_types"):
+        violations.append("manifest.document_types 必填：至少一种文档类型")
+    if not (rationale or "").strip():
+        violations.append("rationale 必填：论证现有模板为何承载不了这个目的")
+    return violations
+
 
 def validate_content(content: str, title: str = "") -> tuple:
     """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
@@ -593,11 +622,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._serve_file(template_path(name), "text/html; charset=utf-8")
             except KeyError as e:
                 self._json({"ok": False, "error": str(e)}, 404)
+        elif self.path == "/api/templates":
+            self._json({"ok": True, "templates": list_templates()})
+        elif self.path == "/api/principles":
+            self._serve_file(REPO_DIR / "skill" / "NARRATIVE-PRINCIPLES.md",
+                             "text/markdown; charset=utf-8")
         else:
             self._serve_static()
 
     def do_POST(self):
-        if self.path not in ("/api/reports", "/api/validate"):
+        if self.path not in ("/api/reports", "/api/validate", "/api/templates"):
             self._json({"error": "not found"}, 404)
             return
 
@@ -609,6 +643,29 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(body)
         except json.JSONDecodeError:
             self._json({"ok": False, "error": "invalid JSON"}, 400)
+            return
+
+        if self.path == "/api/templates":
+            name = (data.get("name") or "").strip()
+            manifest = data.get("manifest") or {}
+            tpl_html = data.get("template") or ""
+            rationale = data.get("rationale") or ""
+            violations = validate_template(name, manifest, tpl_html, rationale)
+            if not violations and (TEMPLATES_DIR / name).exists():
+                self._json({"ok": False, "error": f"模板 '{name}' 已存在（模板不经 API 覆盖；演进走 git）"}, 400)
+                return
+            if violations:
+                self._json({"ok": False, "violations": violations}, 400)
+                return
+            tdir = TEMPLATES_DIR / name
+            tdir.mkdir(parents=True, exist_ok=True)
+            (tdir / "template.html").write_text(tpl_html, encoding="utf-8")
+            stored = {**manifest, "name": name, "default": False,
+                      "provisional": True, "rationale": rationale.strip()}
+            (tdir / "manifest.json").write_text(
+                json.dumps(stored, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._json({"ok": True, "name": name, "provisional": True,
+                        "message": "已收录（provisional）。模板是叙事结构的执行点——大标题顺序须可从契约条目推出。"}, 201)
             return
 
         title = data.get("title", "").strip()
@@ -688,7 +745,7 @@ class Handler(BaseHTTPRequestHandler):
             result.setdefault("warnings", []).extend(warnings)
             self._json(result, 201)
         except KeyError as e:
-            self._json({"ok": False, "error": str(e)}, 400)
+            self._json({"ok": False, "error": e.args[0] if e.args else str(e)}, 400)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
 

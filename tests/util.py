@@ -1,6 +1,7 @@
 """测试公共：从文件加载 server 模块 + 临时目录环境。"""
 import contextlib
 import importlib.util
+import shutil
 import tempfile
 from pathlib import Path
 from unittest import mock
@@ -17,14 +18,16 @@ def load_server():
 
 @contextlib.contextmanager
 def tmp_env(server):
-    """把 REPORTS_DIR/INDEX_PATH/NGINX_DIR 指到临时目录，subprocess.run 打桩为记录器。"""
+    """把 REPORTS_DIR/INDEX_PATH/NGINX_DIR/TEMPLATES_DIR 指到临时目录，subprocess.run 打桩为记录器。"""
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "reports").mkdir()
-        orig = (server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR)
+        shutil.copytree(REPO / "templates", tmp / "templates")  # 预置 book，create_report 默认模板可用
+        orig = (server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR, server.TEMPLATES_DIR)
         server.REPORTS_DIR = tmp / "reports"
         server.INDEX_PATH = tmp / "index.html"
         server.NGINX_DIR = tmp / "nginx"
+        server.TEMPLATES_DIR = tmp / "templates"
         with mock.patch.object(server.subprocess, "run") as run:
             yield tmp, run
-        server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR = orig
+        server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR, server.TEMPLATES_DIR = orig
