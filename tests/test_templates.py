@@ -81,3 +81,24 @@ def _post(server, path, body):
         out = (e.code, json.loads(e.read()))
     srv.shutdown()
     return out
+
+
+class TestBriefTemplate(unittest.TestCase):
+    def test_brief_registered(self):
+        server = load_server()
+        brief = next(t for t in server.list_templates() if t["name"] == "brief")
+        self.assertFalse(brief["default"])
+        self.assertIn("why-first", brief["narrative_contract"])
+        self.assertIn("type-determines-narrative", brief["narrative_contract"])
+
+    def test_brief_renders_with_all_placeholders_resolved(self):
+        server = load_server()
+        with tmp_env(server) as (tmp, _):
+            r = server.create_report("决策简报", "brief-render", "Executive Brief",
+                '<section><div class="wrap"><div class="callout note"><h4>TL;DR</h4>'
+                '<p>结论。</p></div><p>依据。</p></div></section>', template="brief")
+            html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
+        self.assertIn('<meta name="template" content="brief">', html)
+        self.assertNotIn("{{", html)                      # 占位符全部解析
+        self.assertIn("../assets/book-style.css", html)   # 共享视觉语言
+        self.assertNotIn("bar-tabs", html)                # brief 无章节 tab（单次阅读）
