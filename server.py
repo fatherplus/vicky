@@ -28,7 +28,8 @@ from pathlib import Path
 # 配置
 # ============================================================
 REPO_DIR = Path(__file__).resolve().parent
-TEMPLATE_PATH = REPO_DIR / "template" / "report.html"
+TEMPLATES_DIR = REPO_DIR / "templates"
+DEFAULT_TEMPLATE = "book"
 REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"
 NGINX_DIR = Path("/var/www/vicky/research")
@@ -44,9 +45,36 @@ def _parse_port() -> int:
 PORT = _parse_port()
 GUIDE_PATH = REPO_DIR / "skill" / "AGENT-GUIDE.md"
 
+# 契约条目单一真相（与 NARRATIVE-PRINCIPLES.md §3 逐字一致）
+NARRATIVE_CONTRACTS = {
+    "type-determines-narrative", "why-first", "three-questions",
+    "evidence-for-claims", "scenario-exercise",
+    "verdict-on-comparison", "figure-caption",
+}
+
+REQUIRED_PLACEHOLDERS = ("{{TITLE}}", "{{CONTENT}}", "{{HERO_TAG}}", "{{SUBTITLE}}",
+                         "{{DATE}}", "{{META}}", "{{COMPONENT_HEAD}}",
+                         "{{SERIES_BADGE}}", "{{VOLUME_NAV}}")
+
 # ============================================================
 # 模板渲染
 # ============================================================
+def template_path(name: str) -> Path:
+    """解析模板文件；未知模板抛 KeyError（handler 层转 400）"""
+    p = TEMPLATES_DIR / name / "template.html"
+    if not p.exists():
+        raise KeyError(f"模板 '{name}' 不存在（GET /api/templates 查看可用模板）")
+    return p
+
+
+def list_templates() -> list:
+    """模板目录：manifest 列表，default 排首"""
+    out = []
+    if TEMPLATES_DIR.exists():
+        for m in sorted(TEMPLATES_DIR.glob("*/manifest.json")):
+            out.append(json.loads(m.read_text(encoding="utf-8")))
+    return sorted(out, key=lambda t: not t.get("default"))
+
 def render(template: str, **kwargs) -> str:
     """替换 {{KEY}} 占位符"""
     for key, val in kwargs.items():
@@ -269,10 +297,12 @@ def list_reports() -> list[dict]:
         series_match = re.search(r'<meta name="series" content="([^"]*)"', content)
         order_match = re.search(r'<meta name="series-order" content="(\d+)"', content)
         total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
+        tpl_match = re.search(r'<meta name="template" content="([^"]*)"', content)
         result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated,
                        "series": html.unescape(series_match.group(1)) if series_match else "",  # 烙入用了 html.escape，刮回需还原
                        "series_order": int(order_match.group(1)) if order_match else 0,
-                       "series_total": int(total_match.group(1)) if total_match else 0})
+                       "series_total": int(total_match.group(1)) if total_match else 0,
+                       "template": tpl_match.group(1) if tpl_match else "book"})  # 存量无 meta → book
     return result
 
 
@@ -403,9 +433,10 @@ def _existing_for_slug(slug: str) -> list:
 
 
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
-                  series: str = "", order: int = 0) -> dict:
+                  series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE) -> dict:
     """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
-    template = TEMPLATE_PATH.read_text(encoding="utf-8")
+    tpl_path = template_path(template)          # 未知模板在此抛 KeyError
+    tpl = tpl_path.read_text(encoding="utf-8")
     today = datetime.now().strftime("%Y-%m-%d")
 
     existing = _existing_for_slug(slug)
@@ -420,6 +451,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         created = True
 
     meta_tags = []
+    meta_tags.append(f'<meta name="template" content="{template}">')   # 恒烙，保证可重渲染
     if not created:
         meta_tags.append(f'<meta name="updated" content="{today}">')
     series = normalize_series(series)
@@ -435,7 +467,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     volume_nav = f'<nav class="volume-nav" data-series="{html.escape(series)}"></nav>' if series else ""
 
     comp_head, comp_hits = component_head(content)
-    html_out = render(template,
+    html_out = render(tpl,
         TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=today,
         CONTENT=content, COMPONENT_HEAD=comp_head, META=meta_html,
         SERIES_BADGE=series_badge, VOLUME_NAV=volume_nav,
@@ -554,8 +586,13 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file(GUIDE_PATH, "text/markdown; charset=utf-8")
         elif self.path == "/api/skill":
             self._serve_file(GUIDE_PATH, "text/markdown; charset=utf-8", "ai-report-skill.md")
-        elif self.path == "/api/template":
-            self._serve_file(TEMPLATE_PATH, "text/html; charset=utf-8")
+        elif self.path.split("?")[0] == "/api/template":
+            from urllib.parse import urlparse, parse_qs
+            name = parse_qs(urlparse(self.path).query).get("name", [DEFAULT_TEMPLATE])[0]
+            try:
+                self._serve_file(template_path(name), "text/html; charset=utf-8")
+            except KeyError as e:
+                self._json({"ok": False, "error": str(e)}, 404)
         else:
             self._serve_static()
 
@@ -643,11 +680,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": conflict}, 400)
                 return
 
+        template = data.get("template") or DEFAULT_TEMPLATE
+
         try:
             result = create_report(title, slug, tag, content, subtitle,
-                                   series=series, order=order or 0)
+                                   series=series, order=order or 0, template=template)
             result.setdefault("warnings", []).extend(warnings)
             self._json(result, 201)
+        except KeyError as e:
+            self._json({"ok": False, "error": str(e)}, 400)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
 
@@ -657,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
 # ============================================================
 if __name__ == "__main__":
     print(f"📄 ai-report service starting on :{PORT}")
-    print(f"   Template: {TEMPLATE_PATH}")
+    print(f"   Templates: {TEMPLATES_DIR} (default: {DEFAULT_TEMPLATE})")
     print(f"   Reports:  {REPORTS_DIR}")
     print(f"   Index:    {INDEX_PATH}")
     print(f"   Nginx:    {NGINX_DIR}")
