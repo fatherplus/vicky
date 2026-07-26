@@ -19,7 +19,6 @@ import os
 import html
 import re
 import sys
-import shutil
 import subprocess
 from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -397,13 +396,19 @@ def maintain_series_siblings(series: str):
             path.write_text(new, encoding="utf-8")
 
 
+def _existing_for_slug(slug: str) -> list:
+    """按文件名格式精确匹配同 slug 报告（杜绝后缀误命中）"""
+    pat = re.compile(rf"^\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(slug)}\.html$")
+    return sorted(f for f in REPORTS_DIR.glob("*.html") if pat.match(f.name))
+
+
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
                   series: str = "", order: int = 0) -> dict:
     """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     today = datetime.now().strftime("%Y-%m-%d")
 
-    existing = sorted(REPORTS_DIR.glob(f"*-{slug}.html"))
+    existing = _existing_for_slug(slug)
     warnings = []
     if existing:
         filename = existing[-1].name                 # 保留原文件名（原日期）
@@ -593,7 +598,7 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     # upsert 本卷自己占自己的卷号不算冲突（spec §2.6）：slug 给了就按同款逻辑算 exclude
                     clean_slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
-                    existing = sorted(REPORTS_DIR.glob(f"*-{clean_slug}.html")) if clean_slug else []
+                    existing = _existing_for_slug(clean_slug) if clean_slug else []
                     exclude_file = existing[-1].name if existing else None
                     conflict = check_series_conflict(series, order, exclude_file=exclude_file,
                                                      reports=list_reports())
@@ -630,7 +635,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": "order 必须是 ≥1 的整数"}, 400)
                 return
             # upsert 本卷自己占自己的卷号不算冲突（spec §2.6：同 slug upsert 且 order 不变 → 允许）
-            existing = sorted(REPORTS_DIR.glob(f"*-{slug}.html"))
+            existing = _existing_for_slug(slug)
             exclude_file = existing[-1].name if existing else None
             conflict = check_series_conflict(series, order, exclude_file=exclude_file,
                                              reports=list_reports())

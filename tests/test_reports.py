@@ -35,6 +35,19 @@ class TestUpsert(unittest.TestCase):
         self.assertTrue(any("历史文件" in w for w in r["warnings"]))
         self.assertEqual(r["file"], "2026-01-02-dup.html")  # 覆盖最新一份
 
+    def test_suffix_slug_no_clobber(self):
+        """短 slug 是长 slug 的后缀 → 必须新建第二份，不得覆盖前者（数据丢失回归）"""
+        with tmp_env(server) as (tmp, _):
+            r1 = server.create_report("长 slug", "top-k-adaptive-retrieval", "测试", CONTENT)
+            r2 = server.create_report("短 slug", "adaptive-retrieval", "测试", CONTENT)
+            files = sorted(f.name for f in (tmp / "reports").glob("*.html"))
+            long_html = (tmp / "reports" / r1["file"]).read_text(encoding="utf-8")
+        self.assertTrue(r1["created"])
+        self.assertTrue(r2["created"])                  # 第二次是新建，不是覆盖
+        self.assertNotEqual(r1["file"], r2["file"])
+        self.assertEqual(len(files), 2)                 # 两文件都在
+        self.assertIn("长 slug", long_html)             # 前者内容未被覆盖
+
 
 class TestListReportsUpdated(unittest.TestCase):
     def test_updated_scraped_and_badge(self):
