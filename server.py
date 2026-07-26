@@ -270,20 +270,24 @@ def component_head(content: str) -> tuple:
     return head, hits
 
 
-def validate_content(content: str) -> list:
-    """表述规范门禁（skill/EXPRESSION-GRAMMAR.md）：只拦机器可判定的硬伤，返回错误列表"""
+FIGURE_RE = re.compile(r'<figure\b[^>]*>([\s\S]*?)</figure>', re.I)
+AI_WORDS = ("赋能", "闭环", "打通", "一站式", "全方位", "引领")
+EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
+
+
+def validate_content(content: str, title: str = "") -> tuple:
+    """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
+    errors 触发 400 拒收；warnings 只随响应返回，agent 自觉修订。"""
     errors = []
-    # 1. 裸 <table>：模板无裸表格样式，渲染必裸奔。数据用 .data-table，选型用 .cmp-table
+    # --- errors：机器可判定的硬伤（原三条保留）---
     for tag in re.findall(r"<table\b[^>]*>", content, re.I):
         m = re.search(r"class\s*=\s*[\"']([^\"']*)[\"']", tag)
         classes = set(m.group(1).split()) if m else set()
         if not classes & {"data-table", "cmp-table"}:
             errors.append("裸 <table> 没有样式：摆数据用 <table class=\"data-table\">，回答\"选谁\"用 .cmp-table（见 GET /api/guide「对比表三条硬规则」）")
             break
-    # 2. 对比表必须有结论：没有 VERDICT 的对比不合格
     if "cmp-table" in content and "cmp-verdict" not in content:
         errors.append("cmp-table 缺少结论区：表尾必须接 <div class=\"cmp-verdict\">（带「怎么选 · VERDICT」）")
-    # 3. 弃用组件：模板已删除其样式，用了就裸奔（weknora 的 .ladder-* 事故）
     deprecated = {"ladder-list": ".steps", "ladder-rung": ".step", "ladder-num": ".step-num", "ladder-content": ".step",
                   "quote-block": "blockquote", "concern-box": ".callout", "phase": ".steps"}
     used = set()
@@ -291,7 +295,24 @@ def validate_content(content: str) -> list:
         used |= set(attr.split())
     for c in sorted(used & deprecated.keys()):
         errors.append(f"已弃用组件 .{c}（模板已删除其样式）：改用 {deprecated[c]}")
-    return errors
+
+    # --- warnings：零误伤取向的提醒（宁可漏报不误报）---
+    warnings = []
+    for i, fig in enumerate(FIGURE_RE.findall(content), 1):
+        if "fig-cap" not in fig:
+            warnings.append(f"第 {i} 个 figure 缺图题（图 N · 标题）")
+        if "fig-note" not in fig:
+            warnings.append(f"第 {i} 个 figure 缺图注（所以呢）")
+    text = title + content
+    hit = [w for w in AI_WORDS if w in text]
+    if hit:
+        warnings.append(f"AI 腔词 ×{sum(text.count(w) for w in hit)}：{'、'.join(hit)}（禁止清单）")
+    emoji = EMOJI_RE.findall(text)
+    if emoji:
+        warnings.append(f"标题/正文含 emoji ×{len(emoji)}")
+    if COMPONENTS["mermaid"]["detect"](content) and 'class="figure"' not in content:
+        warnings.append("检测到 mermaid 但无任何 figure 装裱")
+    return errors, warnings
 
 
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "") -> dict:
@@ -425,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_static()
 
     def do_POST(self):
-        if self.path != "/api/reports":
+        if self.path not in ("/api/reports", "/api/validate"):
             self._json({"error": "not found"}, 404)
             return
 
@@ -445,12 +466,26 @@ class Handler(BaseHTTPRequestHandler):
         content = data.get("content", "")
         subtitle = data.get("subtitle", "").strip()
 
+        if self.path == "/api/validate":
+            violations, warnings = validate_content(content, title)
+            # 可选字段：给了就检
+            slug = data.get("slug", "").strip()
+            if slug and not re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-"):
+                violations.append("slug 清理后为空：至少包含一个字母或数字")
+            series, order = data.get("series"), data.get("order")
+            if bool(series) != (order is not None):
+                violations.append("series 与 order 必须同时提供")
+            _, hits = component_head(content)
+            self._json({"ok": not violations, "violations": violations,
+                        "warnings": warnings, "components": hits})
+            return
+
         if not title or not slug or not content:
             self._json({"ok": False, "error": "title, slug, content 都是必填"}, 400)
             return
 
         # 表述规范门禁（EXPRESSION-GRAMMAR.md）：硬伤直接拒收，错误信息即写作指导
-        violations = validate_content(content)
+        violations, warnings = validate_content(content, title)
         if violations:
             self._json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
             return
@@ -460,6 +495,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             result = create_report(title, slug, tag, content, subtitle)
+            result["warnings"] = warnings
             self._json(result, 201)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
