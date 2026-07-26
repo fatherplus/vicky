@@ -66,6 +66,12 @@ h2{font-family:var(--serif);font-weight:900;font-size:34px;line-height:1.32;lett
 h3{font-family:var(--serif);font-weight:700;font-size:22px;margin:40px 0 14px}
 p{margin-bottom:18px}
 .section-desc,.lead{font-size:18.5px;color:var(--sub);line-height:1.85}
+/* 正文栏（书籍排印核心、SKILL.md 承诺的 720px）：散文收进 720px 阅读栏居中，
+   表格/卡片/图/步骤/代码保持全宽——宽版心给参考资料，窄栏给连续阅读 */
+.wrap > .section-label,.wrap > h2,.wrap > h3,.wrap > p,.wrap > blockquote,.wrap > .callout,.wrap > ul,.wrap > ol{max-width:720px;margin-left:auto;margin-right:auto}
+/* 中文两端对齐 + 孤行控制：右缘齐平是书排印的底线 */
+.wrap > p,.wrap > .lead,.wrap li{text-align:justify;text-justify:inter-ideograph}
+.wrap > p{orphans:3;widows:3}
 strong{font-weight:700;color:var(--ink)}
 a{color:var(--accent)}
 
