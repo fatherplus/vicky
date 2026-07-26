@@ -297,19 +297,15 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")
 
-    # 5. 部署到 Nginx（需要 sudo）
-    nginx_report = NGINX_DIR / filename
-    nginx_index = NGINX_DIR / "index.html"
-    nginx_reports_dir = NGINX_DIR / "reports"
+    # 5. 部署到 Nginx（canonical：reports/ 直传 + assets 同步；平铺由 nginx 301）
     deployed = False
     try:
-        subprocess.run(["sudo", "cp", str(report_path), str(nginx_report)], check=True)
-        subprocess.run(["sudo", "chmod", "644", str(nginx_report)], check=True)
-        subprocess.run(["sudo", "cp", str(INDEX_PATH), str(nginx_index)], check=True)
-        subprocess.run(["sudo", "chmod", "644", str(nginx_index)], check=True)
-        # 确保 reports/ 子目录也有软链接
-        subprocess.run(["sudo", "mkdir", "-p", str(nginx_reports_dir)], check=True)
-        subprocess.run(["sudo", "ln", "-sf", f"../{filename}", str(nginx_reports_dir / filename)], check=True)
+        subprocess.run(["sudo", "mkdir", "-p", str(NGINX_DIR / "reports"), str(NGINX_DIR / "assets")], check=True)
+        subprocess.run(["sudo", "cp", str(report_path), str(NGINX_DIR / "reports" / filename)], check=True)
+        subprocess.run(["sudo", "chmod", "644", str(NGINX_DIR / "reports" / filename)], check=True)
+        subprocess.run(["sudo", "cp", str(INDEX_PATH), str(NGINX_DIR / "index.html")], check=True)
+        subprocess.run(["sudo", "chmod", "644", str(NGINX_DIR / "index.html")], check=True)
+        subprocess.run(["sudo", "cp", "-r", str(PUBLIC_DIR / "assets") + "/.", str(NGINX_DIR / "assets")], check=True)
         deployed = True
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"[warn] Nginx deploy failed: {e}", file=sys.stderr)
@@ -317,7 +313,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     return {
         "ok": True,
         "file": filename,
-        "url": f"http://192.168.1.100:9090/research/{filename}",
+        "url": f"http://192.168.1.100:9090/research/reports/{filename}",
         "deployed": deployed,
     }
 
