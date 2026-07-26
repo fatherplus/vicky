@@ -246,7 +246,13 @@ def list_reports() -> list[dict]:
         subtitle = sub_match.group(1).strip() if sub_match else ""
         updated_match = re.search(r'<meta name="updated" content="([^"]*)"', content)
         updated = updated_match.group(1) if updated_match else ""
-        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated})
+        series_match = re.search(r'<meta name="series" content="([^"]*)"', content)
+        order_match = re.search(r'<meta name="series-order" content="(\d+)"', content)
+        total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
+        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated,
+                       "series": series_match.group(1) if series_match else "",
+                       "series_order": int(order_match.group(1)) if order_match else 0,
+                       "series_total": int(total_match.group(1)) if total_match else 0})
     return result
 
 
@@ -318,7 +324,60 @@ def validate_content(content: str, title: str = "") -> tuple:
     return errors, warnings
 
 
-def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "") -> dict:
+def normalize_series(name: str) -> str:
+    return re.sub(r"\s+", " ", (name or "").strip())
+
+
+def check_series_conflict(series: str, order: int, exclude_file, reports: list) -> str | None:
+    """同丛书同卷号已被其他文件占用 → 返回错误文案；否则 None。"""
+    series = normalize_series(series)
+    for r in reports:
+        if (r.get("series") and normalize_series(r["series"]) == series
+                and r.get("series_order") == order and r["file"] != exclude_file):
+            return f"《{series}》第 {order} 卷已被 {r['file']} 占用"
+    return None
+
+
+def _series_siblings(series: str, reports: list) -> list:
+    series = normalize_series(series)
+    sibs = [r for r in reports if r.get("series") and normalize_series(r["series"]) == series]
+    return sorted(sibs, key=lambda r: r["series_order"])
+
+
+def volume_nav_html(series: str, order: int, siblings: list) -> str:
+    prev_r = next((r for r in siblings if r["series_order"] == order - 1), None)
+    next_r = next((r for r in siblings if r["series_order"] == order + 1), None)
+    links = ""
+    if prev_r:
+        links += f'<a class="vol prev" href="{prev_r["file"]}">← 上一卷 · {html.escape(prev_r["title"])}</a>'
+    if next_r:
+        links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html.escape(next_r["title"])} →</a>'
+    return f'<nav class="volume-nav" data-series="{html.escape(normalize_series(series))}">{links}</nav>'
+
+
+NAV_RE = re.compile(r'<nav class="volume-nav"[\s\S]*?</nav>')
+TOTAL_META_RE = re.compile(r'(<meta name="series-total" content=")\d+(")')
+BADGE_TOTAL_RE = re.compile(r'(第 \d+ 卷 · 共 )\d+( 卷)')
+
+
+def maintain_series_siblings(series: str):
+    """重算同丛书所有卷的导航/总数/徽章片段（定向替换，不碰正文与 head 资源）。"""
+    reports = list_reports()
+    siblings = _series_siblings(series, reports)
+    total = len(siblings)
+    for r in siblings:
+        path = REPORTS_DIR / r["file"]
+        text = path.read_text(encoding="utf-8")
+        nav = volume_nav_html(series, r["series_order"], siblings)
+        new = NAV_RE.sub(nav, text)
+        new = TOTAL_META_RE.sub(rf"\g<1>{total}\g<2>", new)
+        new = BADGE_TOTAL_RE.sub(rf"\g<1>{total}\g<2>", new)
+        if new != text:
+            path.write_text(new, encoding="utf-8")
+
+
+def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
+                  series: str = "", order: int = 0) -> dict:
     """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
     today = datetime.now().strftime("%Y-%m-%d")
@@ -337,27 +396,36 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     meta_tags = []
     if not created:
         meta_tags.append(f'<meta name="updated" content="{today}">')
+    series = normalize_series(series)
+    if series:
+        meta_tags.append(f'<meta name="series" content="{html.escape(series)}">')
+        meta_tags.append(f'<meta name="series-order" content="{order}">')
+        meta_tags.append(f'<meta name="series-total" content="1">')  # 占位，maintain 会重算
     meta_html = "\n".join(meta_tags)
 
+    series_badge = (f'<span class="series-badge">《{html.escape(series)}》第 {order} 卷 · 共 1 卷</span>'
+                    if series else "")
+    # 导航先烙空锚（maintain 统一重算，含本卷）
+    volume_nav = f'<nav class="volume-nav" data-series="{html.escape(series)}"></nav>' if series else ""
+
     comp_head, comp_hits = component_head(content)
-    html = render(template,
-        TITLE=title,
-        HERO_TAG=tag,
-        SUBTITLE=subtitle,
-        DATE=today,
-        CONTENT=content,
-        COMPONENT_HEAD=comp_head,
-        META=meta_html,
+    html_out = render(template,
+        TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=today,
+        CONTENT=content, COMPONENT_HEAD=comp_head, META=meta_html,
+        SERIES_BADGE=series_badge, VOLUME_NAV=volume_nav,
     )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / filename
-    report_path.write_text(html, encoding="utf-8")
+    report_path.write_text(html_out, encoding="utf-8")
 
     # 4. 重建索引
     reports = list_reports()
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")
+
+    if series:
+        maintain_series_siblings(series)
 
     # 5. 部署到 Nginx（canonical：reports/ 直传 + assets 同步；平铺由 nginx 301）
     deployed = False
@@ -495,6 +563,17 @@ class Handler(BaseHTTPRequestHandler):
             series, order = data.get("series"), data.get("order")
             if bool(series) != (order is not None):
                 violations.append("series 与 order 必须同时提供")
+            elif series:
+                try:
+                    order = int(order)
+                    assert order >= 1
+                except (TypeError, ValueError, AssertionError):
+                    violations.append("order 必须是 ≥1 的整数")
+                else:
+                    conflict = check_series_conflict(series, order, exclude_file=None,
+                                                     reports=list_reports())
+                    if conflict:
+                        violations.append(conflict)
             _, hits = component_head(content)
             self._json({"ok": not violations, "violations": violations,
                         "warnings": warnings, "components": hits})
@@ -510,11 +589,30 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
             return
 
+        series = (data.get("series") or "").strip()
+        order = data.get("order")
+        if bool(series) != (order is not None):
+            self._json({"ok": False, "error": "series 与 order 必须同时提供"}, 400)
+            return
+        if series:
+            try:
+                order = int(order)
+                assert order >= 1
+            except (TypeError, ValueError, AssertionError):
+                self._json({"ok": False, "error": "order 必须是 ≥1 的整数"}, 400)
+                return
+            conflict = check_series_conflict(series, order, exclude_file=None,
+                                             reports=list_reports())
+            if conflict:
+                self._json({"ok": False, "error": conflict}, 400)
+                return
+
         # 清理 slug
         slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
 
         try:
-            result = create_report(title, slug, tag, content, subtitle)
+            result = create_report(title, slug, tag, content, subtitle,
+                                   series=series, order=order or 0)
             result.setdefault("warnings", []).extend(warnings)
             self._json(result, 201)
         except Exception as e:

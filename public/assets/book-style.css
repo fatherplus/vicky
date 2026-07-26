@@ -182,3 +182,12 @@ html{background:var(--paper)}
 .figure pre.mermaid{background:none;padding:0;margin:0;color:inherit;font-size:13px}
 .figure .mermaid{text-align:center}
 .figure .mermaid svg{max-width:100%;height:auto}
+
+/* ===== 丛书（series）：opener 徽章 + 卷间导航 ===== */
+.series-badge{font-family:var(--mono);font-size:12px;color:#8FBEDB;border:1px solid rgba(143,190,219,.4);padding:3px 12px;border-radius:5px;margin-left:4px}
+.volume-nav{max-width:1100px;margin:-36px auto 0;padding:0 40px;display:flex;justify-content:space-between;gap:14px}
+.volume-nav:empty{display:none}
+.volume-nav .vol{font-family:var(--mono);font-size:12.5px;color:var(--accent);text-decoration:none;border:1px solid rgba(12,74,110,.32);background:var(--paper);padding:8px 16px;border-radius:7px;transition:all .25s;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.volume-nav .vol:hover{background:var(--accent);color:#fff;transform:translateY(-2px)}
+.volume-nav .next{margin-left:auto}
+@media(max-width:640px){.volume-nav{padding:0 22px;margin-top:-24px}}
