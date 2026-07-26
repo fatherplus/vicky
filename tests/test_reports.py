@@ -87,6 +87,24 @@ class TestSeries(unittest.TestCase):
                                                reports=server.list_reports())
         self.assertIsNone(err)
 
+    def test_handler_exclude_path_allows_upsert_same_slug(self):
+        """handler 同款 exclude 计算（glob 取 [-1].name）：修订本卷不误报，另一 slug 占同卷号仍冲突。"""
+        with tmp_env(server) as (tmp, _):
+            server.create_report("卷一", "s-ch1", "测试", CONTENT, series="丛书D", order=1)
+            # 与 do_POST /api/reports 完全相同的 exclude 计算路径
+            slug = "s-ch1"
+            existing = sorted(server.REPORTS_DIR.glob(f"*-{slug}.html"))
+            exclude_file = existing[-1].name if existing else None
+            err = server.check_series_conflict("丛书D", 1, exclude_file=exclude_file,
+                                               reports=server.list_reports())
+            self.assertIsNone(err)                       # 修订本卷不自我冲突
+            # 另一 slug 占同卷号 → 仍冲突（exclude 只排除本卷）
+            other = sorted(server.REPORTS_DIR.glob("*-s-other.html"))
+            other_exclude = other[-1].name if other else None
+            err2 = server.check_series_conflict("丛书D", 1, exclude_file=other_exclude,
+                                                reports=server.list_reports())
+        self.assertIn("占用", err2)
+
     def test_normalize_series(self):
         self.assertEqual(server.normalize_series("  测试   丛书 "), "测试 丛书")
 

@@ -570,7 +570,11 @@ class Handler(BaseHTTPRequestHandler):
                 except (TypeError, ValueError, AssertionError):
                     violations.append("order 必须是 ≥1 的整数")
                 else:
-                    conflict = check_series_conflict(series, order, exclude_file=None,
+                    # upsert 本卷自己占自己的卷号不算冲突（spec §2.6）：slug 给了就按同款逻辑算 exclude
+                    clean_slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
+                    existing = sorted(REPORTS_DIR.glob(f"*-{clean_slug}.html")) if clean_slug else []
+                    exclude_file = existing[-1].name if existing else None
+                    conflict = check_series_conflict(series, order, exclude_file=exclude_file,
                                                      reports=list_reports())
                     if conflict:
                         violations.append(conflict)
@@ -589,6 +593,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
             return
 
+        # 清理 slug（提前到丛书校验之前：校验要用清理后的 slug 匹配 upsert 本卷文件名）
+        slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
+
         series = (data.get("series") or "").strip()
         order = data.get("order")
         if bool(series) != (order is not None):
@@ -601,14 +608,14 @@ class Handler(BaseHTTPRequestHandler):
             except (TypeError, ValueError, AssertionError):
                 self._json({"ok": False, "error": "order 必须是 ≥1 的整数"}, 400)
                 return
-            conflict = check_series_conflict(series, order, exclude_file=None,
+            # upsert 本卷自己占自己的卷号不算冲突（spec §2.6：同 slug upsert 且 order 不变 → 允许）
+            existing = sorted(REPORTS_DIR.glob(f"*-{slug}.html"))
+            exclude_file = existing[-1].name if existing else None
+            conflict = check_series_conflict(series, order, exclude_file=exclude_file,
                                              reports=list_reports())
             if conflict:
                 self._json({"ok": False, "error": conflict}, 400)
                 return
-
-        # 清理 slug
-        slug = re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
 
         try:
             result = create_report(title, slug, tag, content, subtitle,
