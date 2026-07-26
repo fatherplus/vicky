@@ -34,7 +34,15 @@ REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"
 NGINX_DIR = Path("/var/www/vicky/research")
 PUBLIC_DIR = REPO_DIR / "public"
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9091
+
+def _parse_port() -> int:
+    try:
+        return int(sys.argv[1])
+    except (IndexError, ValueError):
+        return 9091
+
+
+PORT = _parse_port()
 GUIDE_PATH = REPO_DIR / "skill" / "AGENT-GUIDE.md"
 
 # ============================================================
@@ -56,125 +64,7 @@ _INDEX_TPL = """<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-:root{
-  --paper:#FBFAF7; --ink:#23272E; --sub:#6E7278;
-  --accent:#0C4A6E; --seal:#A63A2E; --hairline:rgba(0,0,0,.08);
-  --serif:'Noto Serif SC',serif; --sans:'Noto Sans SC',-apple-system,'PingFang SC',sans-serif;
-  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
-}
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-height:1.8;-webkit-font-smoothing:antialiased}
-::selection{background:var(--accent);color:#fff}
-#ribbon{position:fixed;top:0;left:0;height:3px;width:0;background:var(--seal);z-index:200}
-.runninghead{position:sticky;top:0;z-index:100;background:rgba(251,250,247,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--hairline)}
-.runninghead .inner{max-width:880px;margin:0 auto;padding:13px 32px;display:flex;justify-content:space-between;align-items:baseline}
-.runninghead .book{font-family:var(--serif);font-weight:600;font-size:14px;letter-spacing:.06em}
-.runninghead .chapter{font-family:var(--mono);font-size:11.5px;color:var(--sub)}
-.page{max-width:880px;margin:0 auto;padding:0 32px}
-
-/* 扉页（封面） */
-.frontispiece{padding:100px 0 70px;position:relative}
-.frontispiece .kicker{font-family:var(--mono);font-size:12.5px;color:var(--accent);letter-spacing:.24em;margin-bottom:30px;display:flex;align-items:center;gap:14px}
-.frontispiece .kicker::after{content:'';flex:1;height:1px;background:var(--hairline)}
-.titleblock{position:relative}
-.frontispiece h1{font-family:var(--serif);font-weight:900;font-size:clamp(44px,7vw,68px);line-height:1.2;letter-spacing:.02em}
-.frontispiece h1 .mark{color:var(--accent)}
-.frontispiece .subtitle{font-size:18px;color:var(--sub);margin-top:20px;max-width:520px;line-height:1.7}
-.seal{position:absolute;top:-10px;right:0;width:84px;height:84px;background:var(--seal);color:#FBFAF7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:34px;transform:rotate(4deg);box-shadow:0 4px 16px rgba(166,58,46,.3),inset 0 0 0 2.5px rgba(251,250,247,.35);user-select:none}
-@media(max-width:640px){.seal{width:56px;height:56px;font-size:22px}}
-.volume{margin-top:44px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;font-family:var(--mono);font-size:12.5px;color:var(--sub);letter-spacing:.05em}
-.volume .sep{color:var(--hairline)}
-.volume .vtag{border:1px solid var(--accent);color:var(--accent);padding:2px 10px;border-radius:4px;font-size:11px}
-/* 卷首 · 关于本书（META 文档，自动归此，不进时间目录） */
-.frontmatter{padding:34px 0 6px}
-.fm-label{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.22em;margin-bottom:14px;display:flex;align-items:center;gap:14px}
-.fm-label::after{content:'';flex:1;height:1px;background:var(--hairline)}
-.fm-item{display:flex;align-items:center;gap:20px;background:#fff;border:1px solid rgba(0,0,0,.06);border-left:3px solid var(--accent);border-radius:10px;padding:20px 24px;text-decoration:none;color:var(--ink);box-shadow:0 2px 10px rgba(0,0,0,.04);transition:transform .22s cubic-bezier(.16,1,.3,1),box-shadow .22s}
-.fm-item:hover{transform:translateX(6px);box-shadow:0 10px 28px rgba(12,74,110,.13)}
-.fm-seal{flex-shrink:0;width:48px;height:48px;background:var(--accent);color:#FBFAF7;border-radius:9px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:23px;transform:rotate(-4deg);box-shadow:0 3px 10px rgba(12,74,110,.3),inset 0 0 0 2px rgba(251,250,247,.3);transition:transform .3s cubic-bezier(.16,1,.3,1)}
-.fm-item:hover .fm-seal{transform:rotate(0deg)}
-.fm-body{flex:1;min-width:0}
-.fm-title{font-family:var(--serif);font-weight:900;font-size:19px;display:block;line-height:1.4}
-.fm-desc{font-size:13.5px;color:var(--sub);line-height:1.7;display:block;margin-top:4px}
-.fm-arrow{flex-shrink:0;font-family:var(--mono);color:var(--accent);font-size:19px;transition:transform .22s}
-.fm-item:hover .fm-arrow{transform:translateX(5px)}
-
-/* 目录 */
-.contents{padding:56px 0 40px;border-top:1px solid var(--hairline)}
-.contents .chead{display:flex;align-items:baseline;gap:18px;margin-bottom:8px}
-.contents h2{font-family:var(--serif);font-weight:900;font-size:30px}
-.contents .chead::after{content:'';width:52px;height:3px;background:var(--accent);align-self:center}
-.contents .csub{font-family:var(--mono);font-size:12px;color:var(--sub);margin-bottom:34px;letter-spacing:.05em}
-.fascicle{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.18em;margin:34px 0 6px;display:flex;align-items:center;gap:12px}
-.fascicle::after{content:'';flex:1;height:1px;background:var(--hairline)}
-.fascicle .cnt{color:var(--sub)}
-.searchbox{display:flex;align-items:center;gap:14px;margin:8px 0 26px;background:#fff;border:1px solid rgba(0,0,0,.06);border-bottom:2px solid var(--accent);border-radius:10px 10px 0 0;padding:4px 18px 4px 6px;transition:box-shadow .25s}
-.searchbox:focus-within{box-shadow:0 6px 20px rgba(12,74,110,.1)}
-.search-ic{flex-shrink:0;width:34px;height:34px;background:var(--accent);color:#FBFAF7;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:16px}
-.searchbox input{flex:1;border:none;background:none;font-family:var(--sans);font-size:15.5px;color:var(--ink);outline:none;padding:10px 0}
-.searchbox input::placeholder{color:#a8aab0}
-.search-hint{font-family:var(--mono);font-size:12px;color:var(--accent);white-space:nowrap}
-.noresult{display:none;text-align:center;color:var(--sub);font-family:var(--serif);font-size:16px;padding:44px 0}
-.toc-item{display:flex;align-items:baseline;gap:14px;padding:13px 10px;text-decoration:none;color:var(--ink);border-radius:8px;transition:background .2s,transform .2s}
-.toc-item:hover{background:rgba(12,74,110,.045);transform:translateX(5px)}
-.toc-item:hover .toc-title{color:var(--accent)}
-.toc-item:hover .toc-dots{border-color:rgba(12,74,110,.4)}
-.toc-num{font-family:var(--serif);font-weight:900;font-size:15px;color:var(--accent);width:30px;flex-shrink:0}
-.toc-title{font-family:var(--serif);font-size:16.5px;font-weight:600;line-height:1.5;transition:color .2s}
-.toc-title .en{display:block;font-family:var(--mono);font-size:11px;font-weight:400;color:var(--sub);margin-top:2px}
-.toc-dots{flex:1;border-bottom:2px dotted rgba(0,0,0,.18);transform:translateY(-5px);transition:border-color .2s;min-width:24px}
-.toc-date{font-family:var(--mono);font-size:12px;color:var(--sub);flex-shrink:0}
-@media(max-width:560px){.toc-dots{display:none}}
-
-/* Agent 接入（书签卡片） */
-.agentpage{padding:20px 0 56px}
-.acard{position:relative;background:#fff;border:1px solid rgba(0,0,0,.06);border-top:3px solid var(--accent);border-radius:10px;padding:38px 40px 34px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
-.aseal{position:absolute;top:-16px;right:26px;width:52px;height:52px;background:var(--seal);color:#FBFAF7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:900;font-size:22px;transform:rotate(4deg);box-shadow:0 4px 14px rgba(166,58,46,.28),inset 0 0 0 2px rgba(251,250,247,.35);user-select:none}
-.akicker{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.22em;margin-bottom:14px;display:flex;align-items:center;gap:12px}
-.akicker::after{content:'';flex:1;height:1px;background:var(--hairline)}
-.atitle{font-family:var(--serif);font-weight:900;font-size:26px;margin-bottom:12px}
-.adesc{font-size:15.5px;color:var(--sub);line-height:1.8;max-width:640px;margin-bottom:26px}
-.asteps{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:28px}
-.astep{flex:1;min-width:170px;display:flex;gap:12px;align-items:flex-start;background:var(--paper);border:1px solid var(--hairline);border-radius:8px;padding:14px 16px;transition:transform .2s,box-shadow .2s}
-.astep:hover{transform:translateY(-3px);box-shadow:0 6px 16px rgba(12,74,110,.08)}
-.anum{font-family:var(--serif);font-weight:900;color:var(--accent);font-size:17px;line-height:1.4}
-.astep b{display:block;font-size:14px;font-weight:700;margin-bottom:3px}
-.astep code{font-family:var(--mono);font-size:11.5px;color:var(--accent);background:rgba(12,74,110,.06);padding:2px 6px;border-radius:4px}
-.abtns{display:flex;gap:12px;flex-wrap:wrap}
-.abtn{font-family:var(--sans);font-size:14.5px;font-weight:700;padding:11px 26px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:all .18s ease;border:1px solid transparent}
-.abtn.primary{background:var(--accent);color:#FBFAF7}
-.abtn.primary:hover{background:#0a3d5c;transform:translateY(-2px);box-shadow:0 6px 16px rgba(12,74,110,.25)}
-.abtn.ghost{background:none;border-color:var(--accent);color:var(--accent)}
-.abtn.ghost:hover{background:rgba(12,74,110,.06);transform:translateY(-2px)}
-.atoast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(90px);background:var(--ink);color:#FBFAF7;font-size:14px;padding:11px 26px;border-radius:8px;transition:transform .35s cubic-bezier(.16,1,.3,1);pointer-events:none;z-index:300;box-shadow:0 8px 24px rgba(0,0,0,.2)}
-.atoast.show{transform:translateX(-50%) translateY(0)}
-@media(max-width:640px){.acard{padding:28px 22px}.aseal{width:42px;height:42px;font-size:18px;top:-12px;right:16px}}
-
-/* 跋 */
-.colophon{border-top:1px solid var(--hairline);padding:48px 0 60px;text-align:center}
-.colophon .book{font-family:var(--serif);font-weight:600;font-size:15px;letter-spacing:.08em}
-.colophon .pg{font-family:var(--mono);font-size:12px;color:var(--sub);margin-top:10px}
-.colophon a{color:var(--accent);text-decoration:none}
-
-.reveal{opacity:0;transform:translateY(14px);transition:opacity .6s cubic-bezier(.16,1,.3,1),transform .6s cubic-bezier(.16,1,.3,1);transition-delay:var(--d,0s)}
-.reveal.in{opacity:1;transform:none}
-@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
-</style>
-<style>
-/* 跨页过渡（文章 → 目录）—— 浏览器原生 View Transitions API，零 JS；
-   不支持的浏览器（Safari/Firefox）自动降级为直接跳转。规范见 BOOK-STYLE §8 */
-@view-transition{navigation:auto}
-html{background:var(--paper)}
-::view-transition-image-pair(root){isolation:isolate}
-::view-transition-old(root),::view-transition-new(root){mix-blend-mode:normal;animation-duration:.45s;animation-timing-function:cubic-bezier(.4,0,.2,1)}
-::view-transition-old(root){animation-name:vt-old}
-::view-transition-new(root){animation-name:vt-new}
-@keyframes vt-old{to{opacity:0;transform:translateX(20px)}}
-@keyframes vt-new{from{opacity:0;transform:translateX(-20px)}}
-@media(prefers-reduced-motion:reduce){::view-transition-old(root),::view-transition-new(root){animation:none}}
-</style>
+<link rel="stylesheet" href="assets/index.css">
 </head>
 <body>
 <div id="ribbon"></div>
@@ -485,7 +375,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", f"{mime}; charset=utf-8" if ext in (".html", ".css", ".js", ".json") else mime)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-cache" if ext == ".html" else "public, max-age=86400")
+        no_cache = ext == ".html" or req.startswith("/assets")
+        self.send_header("Cache-Control", "no-cache" if no_cache else "public, max-age=86400")
         self.end_headers()
         self.wfile.write(body)
 
