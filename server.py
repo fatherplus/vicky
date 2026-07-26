@@ -205,12 +205,13 @@ def build_index(reports: list[dict]) -> str:
             y, m = ym.split("-")
             toc.append(f'<div class="fascicle">{y} 年 {int(m)} 月 <span class="cnt">· {months[ym]} 篇</span></div>')
         delay = (i % 12) * 0.04
+        badge = f' <span class="toc-date" style="color:var(--seal)">· {r["updated"][5:]} 订</span>' if r.get("updated") else ""
         toc.append(
             f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}">'
             f'<span class="toc-num">{len(research) - i:02d}</span>'
             f'<span class="toc-title">{html.escape(r["title"])}</span>'
             f'<span class="toc-dots"></span>'
-            f'<span class="toc-date">{r["date_display"]}</span></a>'
+            f'<span class="toc-date">{r["date_display"]}</span>{badge}</a>'
         )
     year = reports[0]["date"][:4] if reports else str(datetime.now().year)
     return (_INDEX_TPL
@@ -243,7 +244,9 @@ def list_reports() -> list[dict]:
         tag = tag_match.group(1).strip() if tag_match else ""
         sub_match = re.search(r'<p class="subtitle">([^<]*)</p>', content)
         subtitle = sub_match.group(1).strip() if sub_match else ""
-        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display})
+        updated_match = re.search(r'<meta name="updated" content="([^"]*)"', content)
+        updated = updated_match.group(1) if updated_match else ""
+        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated})
     return result
 
 
@@ -316,13 +319,26 @@ def validate_content(content: str, title: str = "") -> tuple:
 
 
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "") -> dict:
-    """创建一篇新报告"""
-    # 1. 读取模板
+    """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
-
-    # 2. 渲染
     today = datetime.now().strftime("%Y-%m-%d")
-    filename = f"{today}-{slug}.html"
+
+    existing = sorted(REPORTS_DIR.glob(f"*-{slug}.html"))
+    warnings = []
+    if existing:
+        filename = existing[-1].name                 # 保留原文件名（原日期）
+        created = False
+        if len(existing) > 1:
+            warnings.append(f"同 slug 存在 {len(existing)} 份历史文件，覆盖最新 {filename}，其余建议人工清理")
+    else:
+        filename = f"{today}-{slug}.html"
+        created = True
+
+    meta_tags = []
+    if not created:
+        meta_tags.append(f'<meta name="updated" content="{today}">')
+    meta_html = "\n".join(meta_tags)
+
     comp_head, comp_hits = component_head(content)
     html = render(template,
         TITLE=title,
@@ -331,9 +347,9 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         DATE=today,
         CONTENT=content,
         COMPONENT_HEAD=comp_head,
+        META=meta_html,
     )
 
-    # 3. 保存到 repo
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / filename
     report_path.write_text(html, encoding="utf-8")
@@ -356,14 +372,18 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
         print(f"[warn] Nginx deploy failed: {e}", file=sys.stderr)
 
-    return {
+    result = {
         "ok": True,
         "file": filename,
-        "created": True,
+        "created": created,
         "components": comp_hits,
+        "warnings": warnings,
         "url": f"http://192.168.1.100:9090/research/reports/{filename}",
         "deployed": deployed,
     }
+    if not created:
+        result["updated"] = today
+    return result
 
 
 # ============================================================
@@ -495,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             result = create_report(title, slug, tag, content, subtitle)
-            result["warnings"] = warnings
+            result.setdefault("warnings", []).extend(warnings)
             self._json(result, 201)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
