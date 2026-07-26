@@ -119,7 +119,7 @@ _INDEX_TPL = """<!DOCTYPE html>
   __FRONTMATTER__
   <div class="contents">
     <div class="chead"><h2>目录</h2></div>
-    <div class="csub">CONTENTS · 按时间倒序 · 技术研究</div>
+    <div class="csub">CONTENTS · 按时间倒序 · 点类型筹码筛选，可与搜索叠加</div>
 
     <div class="searchbox reveal">
       <span class="search-ic">检</span>
@@ -127,6 +127,8 @@ _INDEX_TPL = """<!DOCTYPE html>
       <span class="search-hint" id="searchHint"></span>
     </div>
     <div class="noresult" id="noresult">没有匹配的报告</div>
+
+    <div class="chips reveal" id="chips">__CHIPS__</div>
 
     __TOC__
   </div>
@@ -161,16 +163,37 @@ function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scroll
 addEventListener('scroll',setRibbon,{passive:true});setRibbon();
 var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
 document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
-/* 目录检索（模糊匹配标题）*/
+/* 目录筛选：类型筹码 × 关键词搜索叠加生效 */
 var si=document.getElementById('tocSearch'),hint=document.getElementById('searchHint'),nores=document.getElementById('noresult');
 var items=Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
-var fasc=Array.prototype.slice.call(document.querySelectorAll('.fascicle'));
-si.addEventListener('input',function(){
-  var q=this.value.trim().toLowerCase(),shown=0;
-  items.forEach(function(it){var hit=!q||it.textContent.toLowerCase().indexOf(q)>=0;it.style.display=hit?'':'none';if(hit)shown++;});
-  hint.textContent=q?shown+' 篇匹配':'';
-  fasc.forEach(function(f){var n=f.nextElementSibling,any=false;while(n&&!n.classList.contains('fascicle')){if(n.classList.contains('toc-item')&&n.style.display!=='none')any=true;n=n.nextElementSibling;}f.style.display=any?'':'none';});
-  nores.style.display=(q&&shown===0)?'block':'none';
+var chips=Array.prototype.slice.call(document.querySelectorAll('.chip'));
+var fTag=null,fSeries=null;
+function applyFilter(pop){
+  var q=si.value.trim().toLowerCase(),shown=0,active=!!(q||fTag||fSeries);
+  items.forEach(function(it){
+    var hit=(!q||it.textContent.toLowerCase().indexOf(q)>=0)
+      &&(!fTag||it.getAttribute('data-tag')===fTag)
+      &&(!fSeries||it.getAttribute('data-series')===fSeries);
+    it.style.display=hit?'':'none';
+    if(hit){shown++;if(pop){it.classList.remove('pop');void it.offsetWidth;it.classList.add('pop');}}
+  });
+  hint.textContent=active?shown+' 篇匹配':'';
+  nores.style.display=(active&&shown===0)?'block':'none';
+}
+chips.forEach(function(c){c.addEventListener('click',function(){
+  chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');
+  fTag=c.getAttribute('data-type')==='tag'?c.getAttribute('data-f'):null;
+  fSeries=c.getAttribute('data-type')==='series'?c.getAttribute('data-f'):null;
+  applyFilter(true);
+});});
+si.addEventListener('input',function(){applyFilter(false);});
+/* 行内 tag / 丛书徽章点击 = 选中对应筹码 */
+Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series'),function(b){
+  b.addEventListener('click',function(e){
+    e.preventDefault();e.stopPropagation();
+    for(var i=0;i<chips.length;i++){var c=chips[i];
+      if(c.getAttribute('data-type')===b.getAttribute('data-type')&&c.getAttribute('data-f')===b.getAttribute('data-f')){c.click();break;}}
+  });
 });
 /* Agent 接入：API 地址随当前主机推导（同主机 :9091）*/
 var API=location.protocol+'//'+location.hostname+':9091';
@@ -205,8 +228,8 @@ function copyPrompt(){
 
 
 def build_index(reports: list[dict]) -> str:
-    """生成书风格索引页。tag 以 META 开头的文档归入「卷首」（关于本书），
-    其余按时间倒序进目录。"""
+    """生成书风格索引页。tag 以 META 开头的文档钉住「卷首」（关于本书），
+    其余按时间倒序进目录流，类型筹码（tag / 丛书）前端筛选。"""
     total = len(reports)
     front = [r for r in reports if r.get("tag", "").upper().startswith("META")]
     research = [r for r in reports if not r.get("tag", "").upper().startswith("META")]
@@ -223,51 +246,52 @@ def build_index(reports: list[dict]) -> str:
     if fm:
         frontmatter = ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
                        + "\n    ".join(fm) + "\n  </div>")
-    # 目录：丛书函 → tag 函（月度分册退役；函头复用 .fascicle 使搜索 JS 零改动）
-    SMALL_TAG_THRESHOLD = 3
-    series_reports = [r for r in research if r.get("series")]
-    solo = [r for r in research if not r.get("series")]
-    toc = []
+    # 时间流（新在上；list_reports 已按日期倒序）+ 类型筹码（tag / 丛书）
+    tag_count, series_count = {}, {}
+    for r in research:
+        tag = (r.get("tag") or "研究报告").strip() or "研究报告"
+        r["_tag"] = tag
+        tag_count[tag] = tag_count.get(tag, 0) + 1
+        sname = normalize_series(r["series"]) if r.get("series") else ""
+        r["_series"] = sname
+        if sname:
+            series_count[sname] = series_count.get(sname, 0) + 1
 
     def toc_row(r, num):
         delay = (num % 12) * 0.04
-        badge = (f' <span class="toc-date" style="color:var(--seal)">· {r["updated"][5:]} 订</span>'
-                 if r.get("updated") else "")
-        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}">'
+        esc_tag = html.escape(r["_tag"], quote=True)
+        esc_series = html.escape(r["_series"], quote=True)
+        badges = f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>'
+        if r["_series"]:
+            badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
+                       f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
+        sub = (f'<span class="toc-sub">{html.escape(r["subtitle"])}</span>'
+               if r.get("subtitle") else "")
+        updated = (' <span class="toc-date toc-updated">· 订</span>' if r.get("updated") else "")
+        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}"'
+                f' data-tag="{esc_tag}" data-series="{esc_series}">'
                 f'<span class="toc-num">{num:02d}</span>'
-                f'<span class="toc-title">{html.escape(r["title"])}</span>'
+                f'<span class="toc-main"><span class="toc-line">'
+                f'<span class="toc-title">{html.escape(r["title"])}</span>{badges}</span>{sub}</span>'
                 f'<span class="toc-dots"></span>'
-                f'<span class="toc-date">{r["date_display"]}</span>{badge}</a>')
+                f'<span class="toc-date">{r["date_display"]}</span>{updated}</a>')
 
-    # 丛书函（组间按首卷日期倒序；函内按卷序升序）
-    by_series = {}
-    for r in series_reports:
-        by_series.setdefault(normalize_series(r["series"]), []).append(r)
-    for name, vols in sorted(by_series.items(), key=lambda kv: kv[1][0]["date"], reverse=True):
-        vols.sort(key=lambda r: r["series_order"])
-        toc.append(f'<div class="fascicle">{html.escape(name)} <span class="cnt">· 共 {len(vols)} 卷</span></div>')
-        toc.extend(toc_row(r, i) for i, r in enumerate(vols, 1))
+    rows = [toc_row(r, i) for i, r in enumerate(research, 1)]
 
-    # tag 函（小 tag 并入「其他」；组间按组内最新日期倒序；函内日期倒序）
-    by_tag = {}
-    for r in solo:
-        key = (r.get("tag") or "研究报告").strip() or "研究报告"
-        by_tag.setdefault(key, []).append(r)
-    other = []
-    for key, rows in list(by_tag.items()):
-        if len(rows) < SMALL_TAG_THRESHOLD:
-            other.extend(rows)
-            del by_tag[key]
-    if other:
-        by_tag["其他"] = sorted(other, key=lambda r: r["date"], reverse=True)
-    for key, rows in sorted(by_tag.items(), key=lambda kv: kv[1][0]["date"], reverse=True):
-        toc.append(f'<div class="fascicle">{html.escape(key)} <span class="cnt">· {len(rows)} 篇</span></div>')
-        toc.extend(toc_row(r, i) for i, r in enumerate(rows, 1))
+    # 筹码：全部 + tag（按数量降序）+ 丛书（按数量降序）；小 tag 不再合并——数量诚实展示
+    chips = [f'<span class="chip on" data-type="all" data-f="">全部<span class="n">{len(research)}</span></span>']
+    for tag, n in sorted(tag_count.items(), key=lambda kv: (-kv[1], kv[0])):
+        chips.append(f'<span class="chip" data-type="tag" data-f="{html.escape(tag, quote=True)}">'
+                     f'{html.escape(tag)}<span class="n">{n}</span></span>')
+    for sname, n in sorted(series_count.items(), key=lambda kv: (-kv[1], kv[0])):
+        chips.append(f'<span class="chip chip-series" data-type="series" data-f="{html.escape(sname, quote=True)}">'
+                     f'《{html.escape(sname)}》<span class="n">{n}</span></span>')
 
     year = reports[0]["date"][:4] if reports else str(datetime.now().year)
     return (_INDEX_TPL
             .replace("__FRONTMATTER__", frontmatter)
-            .replace("__TOC__", "\n    ".join(toc))
+            .replace("__CHIPS__", "\n    ".join(chips))
+            .replace("__TOC__", "\n    ".join(rows))
             .replace("__TOTAL__", str(total))
             .replace("__YEAR__", year))
 

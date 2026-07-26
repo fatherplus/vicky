@@ -137,32 +137,36 @@ class TestIndexGrouping(unittest.TestCase):
     def _mk(self, tmp, title, slug, tag, series="", order=0, date="2026-07-26"):
         server.create_report(title, slug, tag, CONTENT, series=series, order=order)
 
-    def test_grouping_order_and_membership(self):
+    def test_chronological_stream_and_filter_attrs(self):
         with tmp_env(server) as (tmp, _):
-            self._mk(tmp, "卷一", "bk-ch1", "深度解析", series="丛书X", order=1)
-            self._mk(tmp, "卷二", "bk-ch2", "深度解析", series="丛书X", order=2)
-            self._mk(tmp, "甲", "r1", "向量检索", None)
-            self._mk(tmp, "乙", "r2", "向量检索", None)
-            self._mk(tmp, "丙", "r3", "向量检索", None)
-            self._mk(tmp, "孤", "r4", "冷门tag", None)
+            self._mk(tmp, "卷一", "bk-ch1", "深度解析", "丛书X", 1)
+            self._mk(tmp, "卷二", "bk-ch2", "深度解析", "丛书X", 2)
+            self._mk(tmp, "甲", "r1", "向量检索", None, 0)
+            self._mk(tmp, "孤", "r4", "冷门tag", None, 0)
             idx = server.build_index(server.list_reports())
-        # 丛书函在 tag 函之前
-        self.assertLess(idx.index("丛书X"), idx.index("向量检索"))
-        # 丛书函内按卷序：卷一先于卷二
-        self.assertLess(idx.index("卷一"), idx.index("卷二"))
-        # 丛书报告不进 tag 函：深度解析不作为 tag 函头出现
-        self.assertNotIn("深度解析 <span", idx)
-        # 冷门 tag（<3 篇）并入其他
-        self.assertIn("其他", idx)
-        self.assertNotIn("冷门tag", idx)
-
-    def test_search_fascicle_headers_reuse_class(self):
+        # 时间流：同日期按文件名倒序（新在上），丛书卷不再单独分函
+        self.assertLess(idx.index("孤"), idx.index("甲"))
+        self.assertLess(idx.index("卷二"), idx.index("卷一"))
+        self.assertNotIn("fascicle", idx)
+        # 筹码：全部 + tag + 丛书；小 tag 不再合并进「其他」，诚实展示
+        self.assertIn('data-type="all"', idx)
+        self.assertIn('data-f="向量检索"', idx)
+        self.assertIn('data-f="冷门tag"', idx)
+        self.assertNotIn("其他", idx)
+        self.assertIn("《丛书X》", idx)
+        # 行携带筛选属性
+        self.assertIn('data-tag="深度解析"', idx)
+        self.assertIn('data-series="丛书X"', idx)
+class TestIndexChips(unittest.TestCase):
+    def test_chip_counts(self):
         with tmp_env(server) as (tmp, _):
-            self._mk(tmp, "卷一", "bk-ch1", "t", series="丛书Y", order=1)
+            server.create_report("甲", "c1", "向量检索", CONTENT)
+            server.create_report("乙", "c2", "向量检索", CONTENT)
+            server.create_report("丙", "c3", "向量检索", CONTENT, series="丛书Z", order=1)
             idx = server.build_index(server.list_reports())
-        # 函头复用 .fascicle → 搜索框空组隐藏 JS 零改动兼容
-        self.assertIn('<div class="fascicle">丛书Y', idx)
-
+        self.assertIn('data-f="向量检索">向量检索<span class="n">3</span>', idx)
+        self.assertIn('data-f="丛书Z">《丛书Z》<span class="n">1</span>', idx)
+        self.assertIn('全部<span class="n">3</span>', idx)
 
 if __name__ == "__main__":
     unittest.main()
