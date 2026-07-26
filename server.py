@@ -247,6 +247,29 @@ def list_reports() -> list[dict]:
     return result
 
 
+# ============================================================
+# 按需组件注入（spec §5）：agent 写语义契约，server 检测并按篇注入资源
+# 新增组件 = 本表加一条；agent 永不碰资源路径/版本/CDN
+# ============================================================
+COMPONENTS = {
+    "mermaid": {
+        "detect": lambda content: bool(re.search(
+            r'<pre\b[^>]*\bclass=["\'][^"\']*\bmermaid\b', content, re.I)),
+        "head": (
+            '<script src="../assets/components/mermaid/mermaid-11.9.0.min.js" defer></script>',
+            '<script src="../assets/components/mermaid/init.v1.js" defer></script>',
+        ),
+    },
+}
+
+
+def component_head(content: str) -> tuple:
+    """返回 (head 注入片段, 命中的组件名列表)。"""
+    hits = [name for name, comp in COMPONENTS.items() if comp["detect"](content)]
+    head = "\n    ".join(tag for name in hits for tag in COMPONENTS[name]["head"])
+    return head, hits
+
+
 def validate_content(content: str) -> list:
     """表述规范门禁（skill/EXPRESSION-GRAMMAR.md）：只拦机器可判定的硬伤，返回错误列表"""
     errors = []
@@ -279,12 +302,14 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     # 2. 渲染
     today = datetime.now().strftime("%Y-%m-%d")
     filename = f"{today}-{slug}.html"
+    comp_head, comp_hits = component_head(content)
     html = render(template,
         TITLE=title,
         HERO_TAG=tag,
         SUBTITLE=subtitle,
         DATE=today,
         CONTENT=content,
+        COMPONENT_HEAD=comp_head,
     )
 
     # 3. 保存到 repo
@@ -313,6 +338,8 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     return {
         "ok": True,
         "file": filename,
+        "created": True,
+        "components": comp_hits,
         "url": f"http://192.168.1.100:9090/research/reports/{filename}",
         "deployed": deployed,
     }
