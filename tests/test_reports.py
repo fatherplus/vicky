@@ -105,6 +105,17 @@ class TestSeries(unittest.TestCase):
                                                 reports=server.list_reports())
         self.assertIn("占用", err2)
 
+    def test_conflict_detected_with_special_chars(self):
+        """丛书名含 & < > 时：刮取侧 unescape 后，卷号门禁不漏判、兄弟导航不碎片化。"""
+        with tmp_env(server) as (tmp, _):
+            server.create_report("卷一", "a1", "测试", CONTENT, series="ML & 系统", order=1)
+            err = server.check_series_conflict("ML & 系统", 1, exclude_file=None,
+                                               reports=server.list_reports())
+            self.assertIn("占用", err)  # 转义不击穿门禁
+            r2 = server.create_report("卷二", "a2", "测试", CONTENT, series="ML & 系统", order=2)
+            h2 = (tmp / "reports" / r2["file"]).read_text(encoding="utf-8")
+        self.assertIn("上一卷", h2)  # 兄弟集合不碎片化，maintain 正确互链
+
     def test_normalize_series(self):
         self.assertEqual(server.normalize_series("  测试   丛书 "), "测试 丛书")
 

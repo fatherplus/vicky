@@ -250,7 +250,7 @@ def list_reports() -> list[dict]:
         order_match = re.search(r'<meta name="series-order" content="(\d+)"', content)
         total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
         result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated,
-                       "series": series_match.group(1) if series_match else "",
+                       "series": html.unescape(series_match.group(1)) if series_match else "",  # 烙入用了 html.escape，刮回需还原
                        "series_order": int(order_match.group(1)) if order_match else 0,
                        "series_total": int(total_match.group(1)) if total_match else 0})
     return result
