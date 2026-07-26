@@ -357,6 +357,22 @@ def list_reports() -> list[dict]:
     return result
 
 
+def validate_content(content: str) -> list:
+    """表述规范门禁（skill/EXPRESSION-GRAMMAR.md）：只拦机器可判定的硬伤，返回错误列表"""
+    errors = []
+    # 1. 裸 <table>：模板无裸表格样式，渲染必裸奔。数据用 .data-table，选型用 .cmp-table
+    for tag in re.findall(r"<table\b[^>]*>", content, re.I):
+        m = re.search(r"class\s*=\s*[\"']([^\"']*)[\"']", tag)
+        classes = set(m.group(1).split()) if m else set()
+        if not classes & {"data-table", "cmp-table"}:
+            errors.append("裸 <table> 没有样式：摆数据用 <table class=\"data-table\">，回答\"选谁\"用 .cmp-table（见 GET /api/guide「对比表三条硬规则」）")
+            break
+    # 2. 对比表必须有结论：没有 VERDICT 的对比不合格
+    if "cmp-table" in content and "cmp-verdict" not in content:
+        errors.append("cmp-table 缺少结论区：表尾必须接 <div class=\"cmp-verdict\">（带「怎么选 · VERDICT」）")
+    return errors
+
+
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "") -> dict:
     """创建一篇新报告"""
     # 1. 读取模板
@@ -509,6 +525,12 @@ class Handler(BaseHTTPRequestHandler):
 
         if not title or not slug or not content:
             self._json({"ok": False, "error": "title, slug, content 都是必填"}, 400)
+            return
+
+        # 表述规范门禁（EXPRESSION-GRAMMAR.md）：硬伤直接拒收，错误信息即写作指导
+        violations = validate_content(content)
+        if violations:
+            self._json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
             return
 
         # 清理 slug

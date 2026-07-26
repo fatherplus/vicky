@@ -5,7 +5,7 @@
 集中式技术研究报告平台。任何 AI Agent 研究完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档。
 
 **核心问题**：不同 agent、不同时间写的报告，风格五花八门。
-**解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS），内容 taste 通过 `/api/guide` 暴露写作规范。
+**解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS）；内容 taste 分三层——表述形态由 server 门禁强制（裸表格/无结论对比直接拒收），语义词汇由表述规范约束，框内的画完全放开。`/api/guide` 暴露写作规范。
 
 ## 架构
 
@@ -24,6 +24,7 @@ agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html 
 | `skill/AGENT-GUIDE.md` | 面向外部 agent 的写作指南（`/api/guide` 返回它） | 这是 agent 的唯一入口文档 |
 | `skill/SKILL.md` | 内部 skill（pi 用），含部署流程和完整方法论 | 比 AGENT-GUIDE 更详细 |
 | `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） | 设计规范源头 |
+| `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」（形态/语义/自由区） | 改组件时同步这里 |
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html`） | 只增不改 |
 | `public/index.html` | 索引页（server 自动生成，不要手改） | `build_index()` 生成 |
 | `convert_to_book.py` | 存量迁移：旧格式报告 → 书风格 | 一次性脚本 |
@@ -40,7 +41,7 @@ GET  /api/template  查看 HTML 模板
 GET  /api/health    健康检查
 ```
 
-默认端口 9091。启动：`python3 server.py [--port 9091]`
+默认端口 9091。启动：`python3 server.py [port]（位置参数，默认 9091）`
 
 ## Taste 约束分层
 
@@ -48,12 +49,18 @@ GET  /api/health    健康检查
 - 主题色：纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂 `#A63A2E`
 - 字体：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽 `JetBrains Mono`
 - 版式：1100px 宽版心、书眉、书签丝带、藏书章、章节 tab 导航、返回索引
-- 基础组件：card / table / blockquote / pre / callout / tag
+- 基础组件：card / data-table / cmp-table / figure / blockquote / pre / callout / tag / steps
+
+**门禁约束（server 校验，`POST /api/reports` 400 拒收）**：
+- 裸 `<table>`——必须带 `data-table` 或 `cmp-table`
+- `cmp-table` 无 `cmp-verdict`——对比必须有结论
+- 模板对漏网裸表格有兜底样式（按 data-table 渲染），但门禁才是主防线
 
 **软约束（`/api/guide` 指导，agent 自觉遵循）**：
 - 先讲「为什么」再讲「是什么」（黄金结构：定位→痛点→为什么→方案→验证）
 - 每个技术决策必答三问（解决什么？为什么是它？不这么做呢？）
 - 技术类必须有场景演练（小数据集、逐步计算、类比）
+- 表述形态（EXPRESSION-GRAMMAR.md）：先判定表述类型再选组件；颜色语义全书同义；图必有图题图注
 
 **自由空间（agent 发挥）**：
 - 章节内的动效、交互、图表、可视化、自定义组件

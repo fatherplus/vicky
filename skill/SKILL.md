@@ -115,7 +115,8 @@ The template uses `{{PLACEHOLDER}}` markers:
 - 模板是一页“书”：书眉（running head）+ 书签丝带（滚动进度）+ 章节开头（带藏书章）+ 720px 正文栏 + 页脚
 - 字体：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽元信息 `JetBrains Mono`
 - 配色：纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂印章 `#A63A2E`（只用于小面积）
-- 组件（9 个标准）：`.card` 卡片、`.data-table` 数据表（只摆数据）、`.cmp-table`+`.cmp-verdict` 对比表（必须有结论）、`blockquote` 引用、`.callout.note/.warn` 强调框、`pre` 代码、`.tag` 标签、`.steps` 步骤
+- 组件（10 个标准）：`.card` 卡片、`.data-table` 数据表（只摆数据）、`.cmp-table`+`.cmp-verdict` 对比表（必须有结论）、`.figure` 图（图表/趋势/截图装裱，必有图题+图注）、`blockquote` 引用、`.callout.note/.warn` 强调框、`pre` 代码、`.tag` 标签、`.steps` 步骤
+- 表述规范（`skill/EXPRESSION-GRAMMAR.md`）：先判定表述类型再选组件；裸 `<table>` 和无结论对比表会被 server 拒收
 - 章节：`<section class="reveal">` + `.section-label`（等宽小字）+ `h2`（宋体）
 - 动效：克制的滚动进入 + 书签进度条，尊重 `prefers-reduced-motion`
 - ⚠️ 硬约束：写之前读 BOOK-STYLE.md，对照其“绝对禁止”清单自查，违反即返工

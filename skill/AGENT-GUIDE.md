@@ -108,14 +108,16 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 ### 可用组件
 
-### 标准组件库（9 个 · 写对类名就有样式）
+### 标准组件库（10 个 · 写对类名就有样式）
 
+写内容前先判定**这是哪种表述**——陈列 / 对比 / 图 / 论 / 警 / 序 / 列 / 码。同一种表述全书用同一个组件、同一个收尾方式，读者一次记住就形成阅读习惯。规范全貌（为什么这么定）见 `skill/EXPRESSION-GRAMMAR.md`。
 | 组件 | 写法 | 何时用 |
 |------|------|--------|
 | 章节 | `<p class="section-label">` + `<h2>` | 结构单元，h2 自动进导航 |
 | 卡片 | `<div class="card">` | 并列介绍条目 |
 | 数据表 | `<table class="data-table">` | **只摆数据、不给结论** |
 | 对比表 | `<div class="cmp">` 包 `<table class="cmp-table">` + `<div class="cmp-verdict">` | **有“选谁”的问题就用它**，见下 |
+| 图 | `<figure class="figure">` + `<figcaption class="fig-cap">` + `<p class="fig-note">` | **图表 / 趋势 / 截图 / 示意图的固定装裱**，见下 |
 | 引用 | `<blockquote>` | 引述 / 关键论断 |
 | 强调框 | `<div class="callout note">` / `<div class="callout warn">` | 注意（靖蓝）/ 警告（朱砂） |
 | 代码 | `<pre><code>` | 代码块 |
@@ -129,10 +131,21 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 **数据表 vs 对比表**：摆数据用 `.data-table`（无结论）；要回答“选谁”用 `.cmp-table`（必须有结论）。
 
+**图的两条硬规则**（违反即不合格）：
+1. 必有图题：`<figcaption class="fig-cap">图 1 · 标题</figcaption>`（编号 + 标题）。
+2. 必有图注：`<p class="fig-note">…</p>` 回答“所以呢”——只贴图不解释不合格。框里放什么自由（img / svg / canvas / 图表库 / 交互 demo），**框和图题图注固定**。
+
+**颜色语义（全书同义，自定义图表也不许反转）**：靖蓝 `--accent` = 主线 / 推荐；朱砂 `--seal` = 警告 / 风险；绿 `#2e7d32` = 好 / 胜；灰 `--sub` = 中性。
+
+**裸 `<table>` 会被 server 拒收**——模板没有裸表格样式，渲染必裸奔。这不是建议，是门禁。
+
 ### 自定义组件
 
-你可以在 content 中加 `<style>` 和 `<script>` 来实现自定义组件（图表、动画、交互 demo 等）。
-**但不要覆盖平台的 CSS 变量和页面框架**（见下方"固定"清单）。
+你可以在 content 中加 `<style>` 和 `<script>` 来实现自定义组件（图表、动画、交互 demo 等）——**发挥上限不受限制**，只有三条规矩：
+
+- 自定义图表 / 示意图 / 截图必须装裱进 `<figure class="figure">`（图题 + 图注，见上方硬规则）
+- 颜色用 CSS 变量和上方的语义，不重定义 `:root` 变量
+- 不覆盖平台页面框架（见下方“固定”清单）
 
 ---
 
@@ -144,7 +157,8 @@ curl -X POST http://<HOST>:9091/api/reports \
 - **字体**：宋体标题 `Noto Serif SC` + 黑体正文 `Noto Sans SC` + 等宽 `JetBrains Mono`
 - **版式**：1100px 宽版心，大量留白
 - **页面框架**：书眉（返回索引 + 标题 + 藏书章）、章节 tab 导航、书签丝带（滚动进度）、页脚
-- **标准组件样式**：card / data-table / cmp-table / blockquote / callout / pre / tag / steps
+- **标准组件样式**：card / data-table / cmp-table / figure / blockquote / callout / pre / tag / steps
+- **提交门禁**：裸 `<table>`、无结论的 `cmp-table` 会被 `POST /api/reports` 拒收（400）
 
 ## 什么是自由的（发挥空间）
 

@@ -118,13 +118,14 @@ description: >-
 
 ## 6. 组件规范（Component Specs）
 
-**铁律：文档写的 = 模板里有的。** 指南出现的每个类名，`template/report.html` 必须真实定义；能用原生标签（`blockquote`/`pre`）就不造类名。9 个标准组件：
+**铁律：文档写的 = 模板里有的。** 指南出现的每个类名，`template/report.html` 必须真实定义；能用原生标签（`blockquote`/`pre`）就不造类名。10 个标准组件：
 
 | 组件 | 类名 | 规则 |
 |------|------|------|
 | 卡片 | `.card` | 白底，`border: 1px solid var(--hair)`，圆角 10px（不要 18px+），阴影极淡 |
 | 数据表 | `.data-table` | 三线表风格；**只摆数据、不给结论** |
 | 对比表 | `.cmp-table` + `.cmp-verdict` | 有“选谁”就用它；必须标推荐列、统一取值符号、表尾必填结论区 |
+| 图 | `.figure` + `.fig-cap` + `.fig-note` | 一切图表/趋势/截图/示意图的固定装裱；框固定、画自由；必有图题（图 N · 标题）+ 图注（所以呢） |
 | 引用 | `blockquote`（原生） | 左侧 3px 靖蓝竖线 + 暖白底，宋体；不用引号 emoji |
 | 强调框 | `.callout.note` / `.callout.warn` | 淡底 + 左侧竖线；注意=靖蓝，警告=淡朱砂，不用大红大绿 |
 | 代码块 | `pre` / `code` | 深墨底 `#1D1F24`，等宽，圆角 10px，不用彩色渐变边框 |
