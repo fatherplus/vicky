@@ -138,9 +138,15 @@ The template uses `{{PLACEHOLDER}}` markers:
 
 **Step A — Local Nginx** (for internal preview):
 ```bash
-sudo cp /home/deploy/ai-report/public/reports/YYYY-MM-DD-slug.html /var/www/vicky/research/YYYY-MM-DD-slug.html
-sudo chmod 644 /var/www/vicky/research/YYYY-MM-DD-slug.html
+bash scripts/deploy.sh
 ```
+
+`deploy.sh` 做三件事：
+- **报告直传 `reports/`**：`public/reports/*.html` → `$DST/reports/`，不再平铺复制。平铺旧链接由 `scripts/nginx-research.conf` 的 301 规则收敛到 canonical `reports/{file}`。
+- **资产每次同步**：`public/assets/`（book-style.css / index.css / components/mermaid）整体同步到 `$DST/assets/`。
+- **索引**：`public/index.html`（server `build_index()` 生成）同步到 `$DST/index.html`。
+
+> **首次部署**：需将 `scripts/nginx-research.conf` include 进站点 conf（deploy.sh 会尝试复制一份到上级目录供运维接入；目录不可写时按提示人工安装）。
 
 **Step B — Update Index Page**:
 ```bash

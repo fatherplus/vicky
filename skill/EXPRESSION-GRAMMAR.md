@@ -29,7 +29,7 @@
 |------|------|----------|----------|--------|
 | **陈列**（摆数据） | `<table class="data-table">` | 数据是什么 | 无 | 不许塞结论 |
 | **对比**（选谁） | `<div class="cmp">` + `cmp-table` | 选谁？为什么？ | `怎么选 · VERDICT` | 必须推荐列 + 结论区，否则 server 拒收 |
-| **图**（趋势/图表/截图/示意图） | `<figure class="figure">` | 这张图说明什么？ | 图注（so what） | 图题编号 + 图注必填 |
+| **图**（趋势/图表/截图/示意图） | `<figure class="figure">` | 这张图说明什么？ | 图注（so what） | 图题编号 + 图注必填；mermaid 图同样适用——`<pre class="mermaid">` 必须在 figure 内 |
 | **论**（关键论断） | `<blockquote>` | 一句话立场 | 可选 `.attr` 出处 | — |
 | **警**（注意/风险） | `<div class="callout note\|warn">` | 会出什么事、怎么办 | — | note=提醒，warn=风险，不许混用 |
 | **序**（步骤/阶段） | `<div class="steps">` | 先做什么后做什么 | — | — |
@@ -109,6 +109,7 @@
 | 强度 | 机制 | 管什么 |
 |------|------|--------|
 | **拒收**（server 400） | `POST /api/reports` 提交校验 | 裸 `<table>`；`cmp-table` 无 `cmp-verdict`；弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`） |
+| **提醒**（响应 warnings） | `validate_content` 软检查 | figure 缺图题/图注；AI 腔词；emoji；mermaid 无装裱。只提醒不拒收，agent 自觉修订 |
 | **兜底**（模板 CSS） | 漏网裸表格按 data-table 渲染 | 防御纵深：即使绕过校验也不裸奔 |
 | **规则**（本文件 + /api/guide） | agent 自觉 + review | 形态判定、必答问题、颜色语义、图题图注 |
 | **结构**（黄金结构） | agent 自觉 | 章节顺序（见 AGENT-GUIDE.md） |

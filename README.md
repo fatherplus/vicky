@@ -11,8 +11,9 @@ ai-report/
 ├── skill/
 │   └── SKILL.md              ← Hermes Agent 技能文件（报告生成工作流）
 ├── public/                   ← GitLab Pages 根目录
-│   ├── index.html            ← 报告索引页
-│   └── reports/              ← 所有报告（命名：YYYY-MM-DD-slug.html）
+│   ├── index.html            ← 报告索引页（卷首 → 丛书函 → tag 函）
+│   ├── assets/               ← 共享资产（book-style.css 唯一 CSS 来源 / components/mermaid 按需注入）
+│   └── reports/              ← 所有报告（canonical：YYYY-MM-DD-slug.html）
 ├── scripts/
 │   └── deploy.sh             ← 一键部署到本地 Nginx
 ├── .gitlab-ci.yml            ← GitLab Pages 自动发布
@@ -42,6 +43,20 @@ cd public && python3 -m http.server 8080
 bash scripts/deploy.sh
 ```
 
+## API
+
+```
+POST /api/reports   创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, content}
+POST /api/validate  预检（返回 ok/violations/warnings/components，不落盘）
+GET  /api/reports   列出所有报告
+GET  /api/guide     写作指南（markdown）
+GET  /api/template  查看 HTML 模板
+```
+
+- **upsert**：同 `slug` 再次 POST 覆盖原文件（保留原日期，索引显示「订」徽章），不产生新报告。
+- **丛书**：同时给 `series` + `order`（≥1 整数，同丛书内唯一）即成为丛书的一卷，报告页自动生成上下卷导航。
+- 默认端口 9091：`python3 server.py`。
+
 ## 在线访问
 
 - **GitLab Pages**：https://fatherplus.github.io/vicky/
@@ -70,7 +85,7 @@ bash scripts/deploy.sh
 | 约束 | 位置 | 内容 |
 |------|------|------|
 | **内容规范**（怎么写） | `skill/SKILL.md` | ⭐ 第一原则：先讲「为什么」再讲「是什么」；黄金结构（定位→场景痛点→为什么→方案→细节）；技术决策三问；反模式清单 |
-| **风格规范**（长什么样） | `skill/BOOK-STYLE.md` + `template/report.html` | 「书」风格硬约束：宋体标题 + 书眉 + 藏书章 + 书签丝带；纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂 `#A63A2E`；模板是唯一 CSS 来源 |
+| **风格规范**（长什么样） | `skill/BOOK-STYLE.md` + `template/report.html` | 「书」风格硬约束：宋体标题 + 书眉 + 藏书章 + 书签丝带；纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂 `#A63A2E`；模板是唯一 CSS 来源；重量组件（mermaid）按需注入 |
 
 > ⚠️ **技术方案/架构汇报**：必须先写「场景与痛点」「为什么是这套方案」，再讲架构。
 > 详见 `skill/SKILL.md` 的「第一原则」。不要「硬甲架构图」。

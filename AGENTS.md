@@ -26,6 +26,9 @@ agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html 
 | `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） | 设计规范源头 |
 | `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」（形态/语义/自由区） | 改组件时同步这里 |
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html`） | 只增不改 |
+| `public/assets/` | 共享资产（book-style.css / index.css / components/mermaid/） | book-style.css 是唯一 CSS 来源 |
+| `scripts/nginx-research.conf` | canonical 301 + 资产 no-cache | deploy.sh 安装 |
+| `tests/` | stdlib unittest | 改门禁/资产时同步 |
 | `public/index.html` | 索引页（server 自动生成，不要手改） | `build_index()` 生成 |
 | `convert_to_book.py` | 存量迁移：旧格式报告 → 书风格 | 一次性脚本 |
 | `taste-skill/` | 上游参考（clone 自 GitHub），不直接使用 | 只读参考 |
@@ -33,7 +36,8 @@ agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html 
 ## API
 
 ```
-POST /api/reports   创建报告  body: {title, slug, tag, content}
+POST /api/reports   创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, content}
+POST /api/validate  预检（violations/warnings/components，不落盘）
 GET  /api/reports   列出所有报告
 GET  /api/guide     写作指南（markdown）
 GET  /api/skill     下载写作指南（.md 附件）
@@ -55,7 +59,15 @@ GET  /api/health    健康检查
 - 裸 `<table>`——必须带 `data-table` 或 `cmp-table`
 - `cmp-table` 无 `cmp-verdict`——对比必须有结论
 - 弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`）——模板已删除其样式
+- 丛书卷号重复——同 `series` 同 `order` 已被其他文件占用（upsert 本卷除外）
 - 模板对漏网裸表格有兜底样式（按 data-table 渲染），但门禁才是主防线
+
+**提醒约束（server 校验，随响应返回 warnings，不拒收）**：
+- figure 缺 fig-cap / fig-note
+- AI 腔词（赋能/闭环/打通/一站式/全方位/引领）、标题正文 emoji
+- mermaid 未装裱进 figure
+
+重量级渲染资源（mermaid）由 server 检测 HTML 契约后按篇注入 `<head>`（`COMPONENTS` 注册表），模板不无条件加载。
 
 **软约束（`/api/guide` 指导，agent 自觉遵循）**：
 - 先讲「为什么」再讲「是什么」（黄金结构：定位→痛点→为什么→方案→验证）

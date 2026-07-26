@@ -16,11 +16,17 @@ curl -X POST http://<HOST>:9091/api/reports \
     "slug": "url-slug-english",
     "tag": "分类标签",
     "subtitle": "一行副标题（可选）",
+    "series": "丛书显示名（可选，与 order 同生共死）",
+    "order": 1,
     "content": "<section class=\"reveal\"><div class=\"wrap\">...</div></section>"
   }'
 ```
 
-返回：`{"ok": true, "file": "2026-07-23-slug.html", "url": "http://..."}`
+返回：`{"ok": true, "file": "...", "created": true, "components": ["mermaid"], "warnings": [...], "url": ".../research/reports/..."}`
+
+> **修订即重交**：同 `slug` 再次 POST 会覆盖原文件（保留原日期，索引显示「订」徽章），不产生新报告。
+> **丛书**：同时给 `series` + `order`（≥1 整数，同丛书内唯一）即成为丛书的一卷；索引按丛书聚函，报告页自动生成上下卷导航。
+> **链接约定**：报告间互链一律用 canonical 相对路径 `reports/{file}`（或同目录报告互链直接写文件名）。
 
 > **tag 约定**：一般技术报告用主题标签（如“向量检索”）；**平台介绍 / 设计说明类文档用 `META` 开头的 tag**（如“META · 关于这本书”）——会自动归入首页「卷首」区，不混进时间目录。
 
@@ -149,6 +155,29 @@ curl -X POST http://<HOST>:9091/api/reports \
 - 颜色用 CSS 变量和上方的语义，不重定义 `:root` 变量
 - 不覆盖平台页面框架（见下方“固定”清单）
 
+### 平台组件：Mermaid（按需注入）
+
+写 `<pre class="mermaid">` 契约即可，平台自动检测并为**这篇**报告注入渲染资源（纯文字报告不下载任何渲染库）。必须装裱进 figure：
+
+```html
+<figure class="figure">
+  <pre class="mermaid">
+flowchart LR
+  A[原始文档] --> B[解析] --> C[检索] --> D[回答]
+  </pre>
+  <figcaption class="fig-cap">图 1 · 知识库问答流程</figcaption>
+  <p class="fig-note">解析与检索解耦，因此替换向量库不影响入库链路。</p>
+</figure>
+```
+
+- 主题固定 `neutral`（与纸色/靛蓝语义兼容）；图内微调可用 `%%{init}%%`。
+- 资产 404/离线时自动降级为可读源码块，不破坏正文。
+- 提交前用 `POST /api/validate` 确认 `components` 里出现了 `mermaid`。
+
+### 新组件准入标准
+
+同时满足才纳入平台组件库：① 跨 ≥3 篇报告重复出现；② 有稳定 HTML 契约；③ 能统一解决视觉/运行时问题；④ 资源可本地 vendor、可离线；⑤ 可降级、不破坏正文阅读。否则属于自由区（自带 `<style>`/`<script>`）。
+
 ---
 
 ## 什么是固定的（平台强制，不要改）
@@ -192,6 +221,7 @@ curl -X POST http://<HOST>:9091/api/reports \
 
 | 端点 | 说明 |
 |------|------|
+| `POST /api/validate` | 预检门禁与提醒，返回 `{ok, violations, warnings, components}`，不落盘 |
 | `GET /api/guide` | 本指南（text/markdown） |
 | `GET /api/skill` | 下载本指南（.md 文件） |
 | `GET /api/template` | 查看完整 HTML 模板（了解页面框架） |
