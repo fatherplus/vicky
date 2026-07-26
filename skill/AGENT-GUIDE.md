@@ -35,7 +35,7 @@ curl -X POST http://<HOST>:9091/api/reports \
 ## ⭐ 第一原则：叙事宪法
 
 写作前读 `GET /api/principles`（`skill/NARRATIVE-PRINCIPLES.md`）——
-类型 → 目的 → 叙事的推导链与 7 条不变量。本指南只讲"如何用平台写作"，
+类型 → 目的 → 叙事的推导链与 9 条契约条目（8 不变量 + 元原则）。本指南只讲"如何用平台写作"，
 方法论的"为什么"在宪法里。
 
 **选模板**：`GET /api/templates` 看目录。默认 `book`（逐章长读）；
@@ -43,11 +43,24 @@ curl -X POST http://<HOST>:9091/api/reports \
 （必须附 rationale + narrative_contract——见宪法 §4）。
 **框架可以换，不变量不能丢；大标题顺序必须可从不变量推出。**
 
+**读者即上级**：你调研完写的文档，本质是向上汇报——读者（人）时间以秒计，
+不关心你做了多少，关心的是：这事值多少、你推荐什么、需要他决定什么。
+结论先行（`conclusion-first`）、证据量化（`evidence-for-claims`）、
+给选择题不给问答题（`verdict-on-comparison`）；段落怎么开口见
+`skill/EXPRESSION-GRAMMAR.md` 表达框架速查（PREP / STAR / FAB / GRAO）。
+
 ---
 
 ## 文档类型骨架
 
-各模板的叙事契约见其 manifest（`GET /api/templates`）；book 的黄金结构五章见宪法 §4。
+各模板的叙事契约见其 manifest（`GET /api/templates`）。按场景选模板与框架：
+
+| 场景 | 模板 | 叙事框架 | 表达框架 |
+|------|------|----------|----------|
+| 技术研究 / 方案深挖（3000+ 字） | `book` | 黄金结构五章（宪法 §4） | STAR 验证 + FAB 讲方案价值 |
+| 决策简报 / 选型建议 / 电梯摘要 | `brief` | 结论 → 依据 → 风险 → 行动 | PREP |
+| 问题报告 / 资源申请 | `brief`（短）/ `book`（长） | SCQA：现状 → 冲突 → 方案 | GRAO |
+| 重大复盘 / 跨部门评审 | `book` | 背景 → 原因 → 做法 → 验证 → 讨论 → 结论 | STAR + GRAO |
 
 ---
 
@@ -175,7 +188,7 @@ flowchart LR
 | 端点 | 说明 |
 |------|------|
 | `POST /api/validate` | 预检门禁与提醒，返回 `{ok, violations, warnings, components}`，不落盘 |
-| `GET /api/principles` | 叙事宪法（类型 → 目的 → 叙事 + 7 条不变量） |
+| `GET /api/principles` | 叙事宪法（类型 → 目的 → 叙事 + 9 条契约条目） |
 | `GET /api/templates` | 模板目录与各模板的叙事契约 manifest |
 | `POST /api/templates` | 创建新模板（须附 rationale + narrative_contract） |
 | `GET /api/guide` | 本指南（text/markdown） |

@@ -102,3 +102,24 @@ class TestBriefTemplate(unittest.TestCase):
         self.assertNotIn("{{", html)                      # 占位符全部解析
         self.assertIn("../assets/book-style.css", html)   # 共享视觉语言
         self.assertNotIn("bar-tabs", html)                # brief 无章节 tab（单次阅读）
+
+
+class TestContractVocabulary(unittest.TestCase):
+    """契约词表同步：宪法 §3 / NARRATIVE_CONTRACTS / 各 manifest 三处一致。"""
+
+    def test_book_declares_full_contract(self):
+        server = load_server()
+        book = next(t for t in server.list_templates() if t["name"] == "book")
+        self.assertEqual(set(book["narrative_contract"]), server.NARRATIVE_CONTRACTS)
+
+    def test_brief_contract_is_valid_subset(self):
+        server = load_server()
+        brief = next(t for t in server.list_templates() if t["name"] == "brief")
+        self.assertIn("conclusion-first", brief["narrative_contract"])  # brief 即结论先行
+        self.assertTrue(set(brief["narrative_contract"]) <= server.NARRATIVE_CONTRACTS)
+
+    def test_principles_doc_lists_every_contract_id(self):
+        server = load_server()
+        text = (server.TEMPLATES_DIR.parent / "skill" / "NARRATIVE-PRINCIPLES.md").read_text(encoding="utf-8")
+        for cid in server.NARRATIVE_CONTRACTS:
+            self.assertIn(f"`{cid}`", text, f"宪法 §3 缺少契约条目 {cid}")

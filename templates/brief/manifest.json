@@ -2,8 +2,8 @@
   "name": "brief",
   "purpose": "结论先行的决策简报：读者 3 分钟内拿到结论与建议，依据与风险后置供查证",
   "document_types": ["执行摘要", "决策简报", "选型建议"],
-  "narrative_contract": ["type-determines-narrative", "why-first",
-                          "evidence-for-claims", "verdict-on-comparison"],
+  "narrative_contract": ["type-determines-narrative", "why-first", "conclusion-first",
+                          "evidence-for-claims", "verdict-on-comparison", "mece-structure"],
   "default": false,
   "provisional": false,
   "rationale": "book 的黄金结构要求读者跟完全章才拿到结论；决策者的关切是结论本身——brief 把 why-first 实现为结论先行：TL;DR（结论+建议）→ 依据（关键证据≤3）→ 风险与取舍 → 行动建议。大标题顺序即决策者的思考顺序。"

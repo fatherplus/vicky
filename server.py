@@ -50,9 +50,9 @@ GUIDE_PATH = REPO_DIR / "skill" / "AGENT-GUIDE.md"
 
 # 契约条目单一真相（与 NARRATIVE-PRINCIPLES.md §3 逐字一致）
 NARRATIVE_CONTRACTS = {
-    "type-determines-narrative", "why-first", "three-questions",
-    "evidence-for-claims", "scenario-exercise",
-    "verdict-on-comparison", "figure-caption",
+    "type-determines-narrative", "why-first", "conclusion-first",
+    "three-questions", "evidence-for-claims", "scenario-exercise",
+    "verdict-on-comparison", "figure-caption", "mece-structure",
 }
 
 REQUIRED_PLACEHOLDERS = ("{{TITLE}}", "{{CONTENT}}", "{{HERO_TAG}}", "{{SUBTITLE}}",

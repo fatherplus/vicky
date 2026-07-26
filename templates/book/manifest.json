@@ -2,9 +2,9 @@
   "name": "book",
   "purpose": "技术深度研究的逐章长读：吸顶章节导航 + 藏书章 + 交替章节底色，适合 3000 字以上的完整研究",
   "document_types": ["技术研究", "技术方案", "数据分析"],
-  "narrative_contract": ["type-determines-narrative", "why-first", "three-questions",
-                          "evidence-for-claims", "scenario-exercise",
-                          "verdict-on-comparison", "figure-caption"],
+  "narrative_contract": ["type-determines-narrative", "why-first", "conclusion-first",
+                          "three-questions", "evidence-for-claims", "scenario-exercise",
+                          "verdict-on-comparison", "figure-caption", "mece-structure"],
   "default": true,
   "provisional": false,
   "rationale": "平台初始模板。黄金结构五章（定位→痛点→为什么→方案→验证）是不变量针对技术研究的排布。"
