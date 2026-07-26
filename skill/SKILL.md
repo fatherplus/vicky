@@ -13,7 +13,7 @@ description: >-
 ## 平台定位
 
 `ai-report` 是一个**集中式研究报告管理平台**，包含：
-- **统一模板**：`template/report.html` — “书”页设计（宋体标题 + 书眉 + 藏书章 + 书签丝带），所有报告共享同一份 CSS
+- **统一模板**：`templates/` 注册制模板 — 默认 `book`（“书”页设计：宋体标题 + 书眉 + 藏书章 + 书签丝带），另有 `brief`（结论先行的决策简报）；所有报告共享同一份 CSS
 - **风格规范**：`skill/BOOK-STYLE.md` — 书风格的硬约束（字体/配色/版式/动效/绝对禁止清单）
 - **GitLab Pages**：`public/` 目录自动发布为静态站点
 - **Skill**：本文件 — 定义报告生成的标准工作流
@@ -96,7 +96,7 @@ Avoid duplicating work:
 Read the canonical template:
 ```bash
 # Template is in the ai-report repo
-read_file /home/deploy/ai-report/template/report.html
+read_file /home/deploy/ai-report/templates/book/template.html
 ```
 
 The template uses `{{PLACEHOLDER}}` markers:
@@ -146,6 +146,8 @@ bash scripts/deploy.sh
 - **资产每次同步**：`public/assets/`（book-style.css / index.css / components/mermaid）整体同步到 `$DST/assets/`。
 - **索引**：`public/index.html`（server `build_index()` 生成）同步到 `$DST/index.html`。
 
+> **模板随仓库发布**：`templates/` 不经 deploy.sh 同步——server 从仓库目录按名解析（`TEMPLATES_DIR`），仓库部署到服务器后模板即生效；新模板经 `POST /api/templates` 注册。
+
 > **首次部署**：需将 `scripts/nginx-research.conf` include 进站点 conf（deploy.sh 会尝试复制一份到上级目录供运维接入；目录不可写时按提示人工安装）。
 
 **Step B — Update Index Page**:
@@ -185,7 +187,7 @@ Give the user:
 - **Don't skip the critique section**: every project has limitations.
 - **Don't fabricate data**: if a benchmark can't be found, say so.
 - **Include concrete examples**: for technical topics, always include a hands-on scenario with concrete data, step-by-step walkthrough, and analogy. User said "没有一个具体的例子和场景，我还是无法理解他的方式".
-- **Template is canonical**: always use `template/report.html` from the repo as the starting point. Do not copy-paste CSS from old reports.
+- **Template is canonical**: always use `templates/book/template.html` (or another registered template under `templates/`) from the repo as the starting point. Do not copy-paste CSS from old reports.
 - **Chinese content**: use Chinese for all body text; keep code/commands/technical terms in English.
 - **Nginx permissions**: `sudo cp` + `sudo chmod 644` required.
 - **GitLab Pages**: `public/` is the Pages root. Reports go in `public/reports/`. Index is `public/index.html`.

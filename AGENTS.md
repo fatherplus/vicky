@@ -10,7 +10,7 @@
 ## 架构
 
 ```
-agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html → 发布
+agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templates/） → 发布
                                           ↑
                                     视觉 taste 在这一步强制注入
 ```
@@ -20,11 +20,12 @@ agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html 
 | 文件 | 角色 | 改它之前注意 |
 |------|------|-------------|
 | `server.py` | HTTP API 服务（报告提交/列表/指南/模板） | 纯 stdlib，无依赖 |
-| `template/report.html` | **唯一 CSS 来源**，所有报告的视觉框架 | 改这里 = 改全站风格 |
+| `templates/` | 注册制模板：book（默认）/ brief；各含 template.html + manifest.json | 模板拥有结构不拥有视觉（视觉 token 在 `public/assets/book-style.css`） |
 | `skill/AGENT-GUIDE.md` | 面向外部 agent 的写作指南（`/api/guide` 返回它） | 这是 agent 的唯一入口文档 |
 | `skill/SKILL.md` | 内部 skill（pi 用），含部署流程和完整方法论 | 比 AGENT-GUIDE 更详细 |
 | `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） | 设计规范源头 |
 | `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」（形态/语义/自由区） | 改组件时同步这里 |
+| `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量，模板创建的依据 | `GET /api/principles` 返回它；manifest 契约条目取自其 §3 |
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html`） | 只增不改 |
 | `public/assets/` | 共享资产（book-style.css / index.css / components/mermaid/） | book-style.css 是唯一 CSS 来源 |
 | `scripts/nginx-research.conf` | canonical 301 + 资产 no-cache | deploy.sh 安装 |
@@ -36,18 +37,26 @@ agent 写 HTML 内容 → POST /api/reports → server 套 template/report.html 
 ## API
 
 ```
-POST /api/reports   创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, content}
-POST /api/validate  预检（violations/warnings/components，不落盘）
-GET  /api/reports   列出所有报告
-GET  /api/guide     写作指南（markdown）
-GET  /api/skill     下载写作指南（.md 附件）
-GET  /api/template  查看 HTML 模板
-GET  /api/health    健康检查
+POST /api/reports    创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, template?, content}
+POST /api/validate   预检（violations/warnings/components，不落盘）
+POST /api/templates  创建模板（创建即收录 provisional；门禁：占位符/token/契约）
+GET  /api/reports    列出所有报告
+GET  /api/guide      写作指南（markdown）
+GET  /api/skill      下载写作指南（.md 附件）
+GET  /api/template   查看 HTML 模板（?name=，默认 book）
+GET  /api/templates  模板目录
+GET  /api/principles 叙事宪法（markdown）
+GET  /api/health     健康检查
 ```
 
 默认端口 9091。启动：`python3 server.py [port]（位置参数，默认 9091）`
 
 ## Taste 约束分层
+
+**模板层（注册制，框架可变）**：
+- 模板注册在 `templates/{name}/`（template.html + manifest.json），`POST /api/templates` 创建即收录（provisional）
+- 模板拥有结构不拥有视觉：重定义 `:root` 视觉 token 被门禁拒收，调色板/字体由平台 `book-style.css` 拥有
+- 叙事不变量由宪法约束（`skill/NARRATIVE-PRINCIPLES.md`，`GET /api/principles`）：manifest 契约条目必须取自 §3 ID 表
 
 **硬约束（模板 CSS 强制，agent 不可改）**：
 - 主题色：纸 `#FBFAF7` / 墨 `#23272E` / 主色 `#0C4A6E` / 朱砂 `#A63A2E`
