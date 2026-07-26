@@ -120,5 +120,36 @@ class TestSeries(unittest.TestCase):
         self.assertEqual(server.normalize_series("  测试   丛书 "), "测试 丛书")
 
 
+class TestIndexGrouping(unittest.TestCase):
+    def _mk(self, tmp, title, slug, tag, series="", order=0, date="2026-07-26"):
+        server.create_report(title, slug, tag, CONTENT, series=series, order=order)
+
+    def test_grouping_order_and_membership(self):
+        with tmp_env(server) as (tmp, _):
+            self._mk(tmp, "卷一", "bk-ch1", "深度解析", series="丛书X", order=1)
+            self._mk(tmp, "卷二", "bk-ch2", "深度解析", series="丛书X", order=2)
+            self._mk(tmp, "甲", "r1", "向量检索", None)
+            self._mk(tmp, "乙", "r2", "向量检索", None)
+            self._mk(tmp, "丙", "r3", "向量检索", None)
+            self._mk(tmp, "孤", "r4", "冷门tag", None)
+            idx = server.build_index(server.list_reports())
+        # 丛书函在 tag 函之前
+        self.assertLess(idx.index("丛书X"), idx.index("向量检索"))
+        # 丛书函内按卷序：卷一先于卷二
+        self.assertLess(idx.index("卷一"), idx.index("卷二"))
+        # 丛书报告不进 tag 函：深度解析不作为 tag 函头出现
+        self.assertNotIn("深度解析 <span", idx)
+        # 冷门 tag（<3 篇）并入其他
+        self.assertIn("其他", idx)
+        self.assertNotIn("冷门tag", idx)
+
+    def test_search_fascicle_headers_reuse_class(self):
+        with tmp_env(server) as (tmp, _):
+            self._mk(tmp, "卷一", "bk-ch1", "t", series="丛书Y", order=1)
+            idx = server.build_index(server.list_reports())
+        # 函头复用 .fascicle → 搜索框空组隐藏 JS 零改动兼容
+        self.assertIn('<div class="fascicle">丛书Y', idx)
+
+
 if __name__ == "__main__":
     unittest.main()

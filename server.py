@@ -193,26 +193,47 @@ def build_index(reports: list[dict]) -> str:
     if fm:
         frontmatter = ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
                        + "\n    ".join(fm) + "\n  </div>")
-    # 目录（仅研究类，按时间倒序）
-    months = {}
-    for r in research:
-        months[r["date"][:7]] = months.get(r["date"][:7], 0) + 1
-    toc, cur = [], None
-    for i, r in enumerate(research):
-        ym = r["date"][:7]
-        if ym != cur:
-            cur = ym
-            y, m = ym.split("-")
-            toc.append(f'<div class="fascicle">{y} 年 {int(m)} 月 <span class="cnt">· {months[ym]} 篇</span></div>')
-        delay = (i % 12) * 0.04
-        badge = f' <span class="toc-date" style="color:var(--seal)">· {r["updated"][5:]} 订</span>' if r.get("updated") else ""
-        toc.append(
-            f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}">'
-            f'<span class="toc-num">{len(research) - i:02d}</span>'
-            f'<span class="toc-title">{html.escape(r["title"])}</span>'
-            f'<span class="toc-dots"></span>'
-            f'<span class="toc-date">{r["date_display"]}</span>{badge}</a>'
-        )
+    # 目录：丛书函 → tag 函（月度分册退役；函头复用 .fascicle 使搜索 JS 零改动）
+    SMALL_TAG_THRESHOLD = 3
+    series_reports = [r for r in research if r.get("series")]
+    solo = [r for r in research if not r.get("series")]
+    toc = []
+
+    def toc_row(r, num):
+        delay = (num % 12) * 0.04
+        badge = (f' <span class="toc-date" style="color:var(--seal)">· {r["updated"][5:]} 订</span>'
+                 if r.get("updated") else "")
+        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}">'
+                f'<span class="toc-num">{num:02d}</span>'
+                f'<span class="toc-title">{html.escape(r["title"])}</span>'
+                f'<span class="toc-dots"></span>'
+                f'<span class="toc-date">{r["date_display"]}</span>{badge}</a>')
+
+    # 丛书函（组间按首卷日期倒序；函内按卷序升序）
+    by_series = {}
+    for r in series_reports:
+        by_series.setdefault(normalize_series(r["series"]), []).append(r)
+    for name, vols in sorted(by_series.items(), key=lambda kv: kv[1][0]["date"], reverse=True):
+        vols.sort(key=lambda r: r["series_order"])
+        toc.append(f'<div class="fascicle">{html.escape(name)} <span class="cnt">· 共 {len(vols)} 卷</span></div>')
+        toc.extend(toc_row(r, i) for i, r in enumerate(vols, 1))
+
+    # tag 函（小 tag 并入「其他」；组间按组内最新日期倒序；函内日期倒序）
+    by_tag = {}
+    for r in solo:
+        key = (r.get("tag") or "研究报告").strip() or "研究报告"
+        by_tag.setdefault(key, []).append(r)
+    other = []
+    for key, rows in list(by_tag.items()):
+        if len(rows) < SMALL_TAG_THRESHOLD:
+            other.extend(rows)
+            del by_tag[key]
+    if other:
+        by_tag["其他"] = sorted(other, key=lambda r: r["date"], reverse=True)
+    for key, rows in sorted(by_tag.items(), key=lambda kv: kv[1][0]["date"], reverse=True):
+        toc.append(f'<div class="fascicle">{html.escape(key)} <span class="cnt">· {len(rows)} 篇</span></div>')
+        toc.extend(toc_row(r, i) for i, r in enumerate(rows, 1))
+
     year = reports[0]["date"][:4] if reports else str(datetime.now().year)
     return (_INDEX_TPL
             .replace("__FRONTMATTER__", frontmatter)
