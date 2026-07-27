@@ -74,14 +74,14 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 .toc-title{font-family:var(--serif);font-size:16.5px;font-weight:600;line-height:1.5;transition:color .2s}
 .toc-title .en{display:block;font-family:var(--mono);font-size:11px;font-weight:400;color:var(--sub);margin-top:2px}
 .toc-dots{flex:0 0 44px;border-bottom:2px dotted rgba(0,0,0,.18);margin-top:16px;transition:border-color .2s}
-.toc-date{font-family:var(--mono);font-size:12px;color:var(--sub);flex-shrink:0}
+.toc-date{font-family:var(--mono);font-size:12px;color:var(--sub);flex:0 0 62px;width:62px;text-align:right;white-space:nowrap}
 @media(max-width:560px){.toc-dots{display:none}}
 /* 时间流行内容 */
 .toc-main{flex:1;min-width:0}
 .toc-line{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .toc-sub{display:block;font-size:12.5px;color:var(--sub);line-height:1.6;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .toc-num{margin-top:2px}
-.toc-updated{color:var(--seal)}
+.toc-updated{color:var(--seal);margin-left:5px}
 /* 行内徽章（点击 = 筛选同类） */
 .row-tag,.row-series{font-family:var(--mono);font-size:10.5px;line-height:1;padding:3.5px 9px;border-radius:999px;cursor:pointer;transition:all .15s ease;white-space:nowrap}
 .row-tag{color:var(--accent);border:1px solid rgba(12,74,110,.35)}

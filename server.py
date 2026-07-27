@@ -267,14 +267,14 @@ def build_index(reports: list[dict]) -> str:
                        f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
         sub = (f'<span class="toc-sub">{html.escape(r["subtitle"])}</span>'
                if r.get("subtitle") else "")
-        updated = (' <span class="toc-date toc-updated">· 订</span>' if r.get("updated") else "")
+        updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
         return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}"'
                 f' data-tag="{esc_tag}" data-series="{esc_series}">'
                 f'<span class="toc-num">{num:02d}</span>'
                 f'<span class="toc-main"><span class="toc-line">'
                 f'<span class="toc-title">{html.escape(r["title"])}</span>{badges}</span>{sub}</span>'
                 f'<span class="toc-dots"></span>'
-                f'<span class="toc-date">{r["date_display"]}</span>{updated}</a>')
+                f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
 
     rows = [toc_row(r, i) for i, r in enumerate(research, 1)]
 
