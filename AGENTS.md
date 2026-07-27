@@ -115,7 +115,19 @@ curl -X POST http://localhost:9091/api/reports \
 
 ## 部署
 
-- 服务器：`192.168.1.100`，systemd 服务 `ai-report.service`
-- 内部访问：`http://192.168.1.100:9090/research/`（Nginx）
+### 个人环境（192.168.1.100）
+
+- systemd 服务 `ai-report.service`，端口 9091
+- 内部访问：`http://192.168.1.100:9090/research/`（Nginx 反代）
 - 外部访问：`https://fatherplus.github.io/vicky/`（GitLab Pages）
 - 仓库：`https://github.com/fatherplus/vicky`
+- 部署脚本：`scripts/deploy.sh`（同步报告到 Nginx 目录）
+
+### 公用测试环境（xlab-test / 192.168.1.200）
+
+- systemd 服务 `ai-report.service`，端口 9091
+- 内网访问：`http://192.168.1.200:9092/research/`（Nginx 反代）
+- 外网访问：`http://47.97.51.69:9092/research/`
+- 路径：`/opt/ai-report`
+- 部署脚本：`scripts/deploy-xlab.sh`（同步代码，保留远端报告数据）
+- 用途：公用实例，供团队 agent 提交报告；数据独立，不与个人环境混用
