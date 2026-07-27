@@ -261,14 +261,12 @@ def build_index(reports: list[dict]) -> str:
         delay = (num % 12) * 0.04
         esc_tag = html.escape(r["_tag"], quote=True)
         esc_series = html.escape(r["_series"], quote=True)
-        badges = f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>'
         if r["_series"]:
             badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
                        f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
         sub = (f'<span class="toc-sub">{html.escape(r["subtitle"])}</span>'
                if r.get("subtitle") else "")
         updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
-        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}"'
         return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/research/reports/{r["file"]}"'
                 f'<span class="toc-num">{num:02d}</span>'
                 f'<span class="toc-main"><span class="toc-line">'
