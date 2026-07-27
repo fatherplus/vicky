@@ -20,7 +20,7 @@ class TestSharedAssets(unittest.TestCase):
 
     def test_index_tpl_links_asset_no_inline_style(self):
         server = load_server()
-        self.assertIn('<link rel="stylesheet" href="assets/index.css">', server._INDEX_TPL)
+        self.assertIn('<link rel="stylesheet" href="/research/assets/index.css">', server._INDEX_TPL)
         self.assertNotIn("<style>", server._INDEX_TPL)
 
 
