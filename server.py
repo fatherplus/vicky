@@ -261,6 +261,7 @@ def build_index(reports: list[dict]) -> str:
         delay = (num % 12) * 0.04
         esc_tag = html.escape(r["_tag"], quote=True)
         esc_series = html.escape(r["_series"], quote=True)
+        badges = f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>'
         if r["_series"]:
             badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
                        f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
