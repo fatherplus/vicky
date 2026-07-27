@@ -94,7 +94,7 @@ _INDEX_TPL = """<!DOCTYPE html>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/index.css">
+<link rel="stylesheet" href="/research/assets/index.css">
 </head>
 <body>
 <div id="ribbon"></div>
@@ -235,7 +235,7 @@ def build_index(reports: list[dict]) -> str:
     research = [r for r in reports if not r.get("tag", "").upper().startswith("META")]
     # 卷首区（关于本书）
     fm = [
-        f'<a class="fm-item reveal" href="reports/{r["file"]}">'
+        f'<a class="fm-item reveal" href="/research/reports/{r["file"]}">'
         f'<span class="fm-seal" aria-hidden="true">序</span>'
         f'<span class="fm-body"><span class="fm-title">{html.escape(r["title"])}</span>'
         f'<span class="fm-desc">{html.escape(r.get("subtitle") or "关于这个平台本身的设计说明。")}</span></span>'
@@ -269,7 +269,7 @@ def build_index(reports: list[dict]) -> str:
                if r.get("subtitle") else "")
         updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
         return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="reports/{r["file"]}"'
-                f' data-tag="{esc_tag}" data-series="{esc_series}">'
+        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/research/reports/{r["file"]}"'
                 f'<span class="toc-num">{num:02d}</span>'
                 f'<span class="toc-main"><span class="toc-line">'
                 f'<span class="toc-title">{html.escape(r["title"])}</span>{badges}</span>{sub}</span>'
