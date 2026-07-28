@@ -32,9 +32,14 @@ rsync -avz --delete \
   --exclude='scripts/publish_why_this_book.py' \
   --exclude='scripts/why-this-book-content.html' \
   --exclude='scripts/nginx-research.conf' \
+  --exclude='scripts/nginx-xlab.conf' \
   ./ "$HOST:$DST/"
+
+echo "Installing Nginx config..."
+scp scripts/nginx-xlab.conf "$HOST:/tmp/ai-report-nginx.conf"
+ssh "$HOST" "sudo cp /tmp/ai-report-nginx.conf /etc/nginx/conf.d/ai-report.conf && sudo nginx -t && sudo nginx -s reload"
 
 echo "Restarting service..."
 ssh "$HOST" "systemctl restart ai-report && sleep 1 && systemctl is-active ai-report"
 
-echo "Done. http://192.168.191.121:9091"
+echo "Done. http://192.168.191.121:9092/research/"

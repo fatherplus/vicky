@@ -19,7 +19,7 @@ class TestCreateTemplate(unittest.TestCase):
 
     def test_happy_path_created_and_listed(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             status, body = self.post_tpl(server, _post)
             self.assertEqual(status, 201, body)
             self.assertTrue(body["provisional"])
@@ -28,7 +28,7 @@ class TestCreateTemplate(unittest.TestCase):
 
     def test_missing_placeholder_rejected(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             status, body = self.post_tpl(server, _post,
                                          template=GOOD_TPL.replace("{{CONTENT}}", ""))
             self.assertEqual(status, 400)
@@ -37,7 +37,7 @@ class TestCreateTemplate(unittest.TestCase):
     def test_root_token_redefinition_rejected(self):
         server = load_server()
         evil = GOOD_TPL.replace("</head>", "<style>:root{--accent:#123456}</style></head>")
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             status, body = self.post_tpl(server, _post, template=evil)
             self.assertEqual(status, 400)
             self.assertTrue(any(":root" in v for v in body["violations"]))
@@ -45,13 +45,13 @@ class TestCreateTemplate(unittest.TestCase):
     def test_unknown_contract_entry_rejected(self):
         server = load_server()
         m = dict(GOOD_MANIFEST, narrative_contract=["not-a-principle"])
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             status, body = self.post_tpl(server, _post, manifest=m)
             self.assertEqual(status, 400)
 
     def test_collision_rejected(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             self.post_tpl(server, _post)
             status, body = self.post_tpl(server, _post)   # 同名再投
             self.assertEqual(status, 400)
@@ -59,7 +59,7 @@ class TestCreateTemplate(unittest.TestCase):
 
     def test_empty_rationale_rejected(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             status, _ = self.post_tpl(server, _post, rationale="   ")
             self.assertEqual(status, 400)
 
@@ -93,7 +93,7 @@ class TestBriefTemplate(unittest.TestCase):
 
     def test_brief_renders_with_all_placeholders_resolved(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r = server.create_report("决策简报", "brief-render", "Executive Brief",
                 '<section><div class="wrap"><div class="callout note"><h4>TL;DR</h4>'
                 '<p>结论。</p></div><p>依据。</p></div></section>', template="brief")

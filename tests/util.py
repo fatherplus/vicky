@@ -18,16 +18,14 @@ def load_server():
 
 @contextlib.contextmanager
 def tmp_env(server):
-    """把 REPORTS_DIR/INDEX_PATH/NGINX_DIR/TEMPLATES_DIR 指到临时目录，subprocess.run 打桩为记录器。"""
+    """把 REPORTS_DIR/INDEX_PATH/TEMPLATES_DIR 指到临时目录。"""
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "reports").mkdir()
         shutil.copytree(REPO / "templates", tmp / "templates")  # 预置 book，create_report 默认模板可用
-        orig = (server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR, server.TEMPLATES_DIR)
+        orig = (server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR)
         server.REPORTS_DIR = tmp / "reports"
         server.INDEX_PATH = tmp / "index.html"
-        server.NGINX_DIR = tmp / "nginx"
         server.TEMPLATES_DIR = tmp / "templates"
-        with mock.patch.object(server.subprocess, "run") as run:
-            yield tmp, run
-        server.REPORTS_DIR, server.INDEX_PATH, server.NGINX_DIR, server.TEMPLATES_DIR = orig
+        yield tmp
+        server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR = orig

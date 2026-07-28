@@ -35,7 +35,6 @@ TEMPLATES_DIR = REPO_DIR / "templates"
 DEFAULT_TEMPLATE = "book"
 REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"
-NGINX_DIR = Path("/var/www/vicky/research")
 PUBLIC_DIR = REPO_DIR / "public"
 
 def _parse_port() -> int:
@@ -195,8 +194,8 @@ Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series'),f
       if(c.getAttribute('data-type')===b.getAttribute('data-type')&&c.getAttribute('data-f')===b.getAttribute('data-f')){c.click();break;}}
   });
 });
-/* Agent 接入：API 地址随当前主机推导（同主机 :9091）*/
-var API=location.protocol+'//'+location.hostname+':9091';
+/* Agent 接入：API 与页面同源（Nginx 反代 /api/ → server.py）*/
+var API=location.origin;
 document.getElementById('skillLink').href=API+'/api/skill';
 function copyText(s){
   if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(s);
@@ -486,7 +485,8 @@ def _existing_for_slug(slug: str) -> list:
 
 
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
-                  series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE) -> dict:
+                  series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
+                  base_url: str = "") -> dict:
     """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
     tpl_path = template_path(template)          # 未知模板在此抛 KeyError
     tpl = tpl_path.read_text(encoding="utf-8")
@@ -538,27 +538,13 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     if series:
         maintain_series_siblings(series)
 
-    # 5. 部署到 Nginx（canonical：reports/ 直传 + assets 同步；平铺由 nginx 301）
-    deployed = False
-    try:
-        subprocess.run(["sudo", "mkdir", "-p", str(NGINX_DIR / "reports"), str(NGINX_DIR / "assets")], check=True)
-        subprocess.run(["sudo", "cp", str(report_path), str(NGINX_DIR / "reports" / filename)], check=True)
-        subprocess.run(["sudo", "chmod", "644", str(NGINX_DIR / "reports" / filename)], check=True)
-        subprocess.run(["sudo", "cp", str(INDEX_PATH), str(NGINX_DIR / "index.html")], check=True)
-        subprocess.run(["sudo", "chmod", "644", str(NGINX_DIR / "index.html")], check=True)
-        subprocess.run(["sudo", "cp", "-r", str(PUBLIC_DIR / "assets") + "/.", str(NGINX_DIR / "assets")], check=True)
-        deployed = True
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"[warn] Nginx deploy failed: {e}", file=sys.stderr)
-
     result = {
         "ok": True,
         "file": filename,
         "created": created,
         "components": comp_hits,
         "warnings": warnings,
-        "url": f"http://192.168.1.100:9090/research/reports/{filename}",
-        "deployed": deployed,
+        "url": f"{base_url}/research/reports/{filename}" if base_url else f"/research/reports/{filename}",
     }
     if not created:
         result["updated"] = today
@@ -764,8 +750,10 @@ class Handler(BaseHTTPRequestHandler):
         template = data.get("template") or DEFAULT_TEMPLATE
 
         try:
+            host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             result = create_report(title, slug, tag, content, subtitle,
-                                   series=series, order=order or 0, template=template)
+                                   series=series, order=order or 0, template=template,
+                                   base_url=f"http://{host}")
             result.setdefault("warnings", []).extend(warnings)
             self._json(result, 201)
         except KeyError as e:
@@ -778,13 +766,16 @@ class Handler(BaseHTTPRequestHandler):
 # 启动
 # ============================================================
 if __name__ == "__main__":
-    print(f"📄 ai-report service starting on :{PORT}")
+    # 启动时重建索引（手动操作/迁移后索引可能过期）
+    reports = list_reports()
+    INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
+    print(f"📄 ai-report service starting on 127.0.0.1:{PORT}")
     print(f"   Templates: {TEMPLATES_DIR} (default: {DEFAULT_TEMPLATE})")
-    print(f"   Reports:  {REPORTS_DIR}")
+    print(f"   Reports:  {REPORTS_DIR} ({len(reports)} reports)")
     print(f"   Index:    {INDEX_PATH}")
-    print(f"   Nginx:    {NGINX_DIR}")
     # ThreadingHTTPServer: 一个挂住的连接（慢客户端/未完成请求）不能把单线程 HTTPServer 堵死，经历过一次
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    # 绑定 127.0.0.1：生产环境由 Nginx 反代，不对外暴露
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

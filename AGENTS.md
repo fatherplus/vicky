@@ -10,10 +10,12 @@
 ## 架构
 
 ```
-agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templates/） → 发布
-                                          ↑
-                                    视觉 taste 在这一步强制注入
+agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templates/） → 写入 public/reports/
+                                          ↑                                    ↓
+                                    视觉 taste 在这一步强制注入      Nginx alias 直读 public/ → 用户
 ```
+
+**职责分离**：server.py 只做 API（127.0.0.1:9091），Nginx 只做静态文件（alias 直读 `public/`）+ 反代 `/api/`。不再双写。
 
 ## 文件地图
 
@@ -28,7 +30,8 @@ agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templat
 | `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量，模板创建的依据 | `GET /api/principles` 返回它；manifest 契约条目取自其 §3 |
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html`） | 只增不改 |
 | `public/assets/` | 共享资产（book-style.css / index.css / components/mermaid/） | book-style.css 是唯一 CSS 来源 |
-| `scripts/nginx-research.conf` | canonical 301 + 资产 no-cache | deploy.sh 安装 |
+| `scripts/nginx-research.conf` | 个人环境 Nginx 配置（alias + /api/ 反代） | deploy.sh 安装 |
+| `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（9092 server block） | deploy-xlab.sh 安装 |
 | `tests/` | stdlib unittest | 改门禁/资产时同步 |
 | `public/index.html` | 索引页（server 自动生成，不要手改） | `build_index()` 生成 |
 | `convert_to_book.py` | 存量迁移：旧格式报告 → 书风格 | 一次性脚本 |
@@ -109,7 +112,7 @@ curl -X POST http://localhost:9091/api/reports \
   -H 'Content-Type: application/json' \
   -d '{"title":"测试","slug":"test","tag":"测试","content":"<section class=\"reveal\"><div class=\"wrap\"><p>hello</p></div></section>"}'
 
-# 部署到服务器后，Nginx 同步到 /var/www/vicky/research/
+# 部署：Nginx alias 直读 public/，不再 cp 报告
 # GitLab Pages 自动发布 public/ 目录
 ```
 
@@ -117,17 +120,17 @@ curl -X POST http://localhost:9091/api/reports \
 
 ### 个人环境（192.168.1.100）
 
-- systemd 服务 `ai-report.service`，端口 9091
-- 内部访问：`http://192.168.1.100:9090/research/`（Nginx 反代）
+- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091（仅本地）
+- 内部访问：`http://192.168.1.100:9090/research/`（Nginx alias 直读 `public/`）
 - 外部访问：`https://fatherplus.github.io/vicky/`（GitLab Pages）
 - 仓库：`https://github.com/fatherplus/vicky`
-- 部署脚本：`scripts/deploy.sh`（同步报告到 Nginx 目录）
+- 部署脚本：`scripts/deploy.sh`（安装 Nginx 配置）
 
 ### 公用测试环境（xlab-test / 192.168.1.200）
 
-- systemd 服务 `ai-report.service`，端口 9091
-- 内网访问：`http://192.168.1.200:9092/research/`（Nginx 反代）
+- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091（仅本地）
+- 内网访问：`http://192.168.1.200:9092/research/`（Nginx alias 直读 `public/`）
 - 外网访问：`http://47.97.51.69:9092/research/`
 - 路径：`/opt/ai-report`
-- 部署脚本：`scripts/deploy-xlab.sh`（同步代码，保留远端报告数据）
+- 部署脚本：`scripts/deploy-xlab.sh`（同步代码 + Nginx 配置，保留远端报告数据）
 - 用途：公用实例，供团队 agent 提交报告；数据独立，不与个人环境混用

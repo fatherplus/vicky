@@ -8,7 +8,7 @@ CONTENT = '<section><div class="wrap"><p>正文</p></div></section>'
 
 class TestUpsert(unittest.TestCase):
     def test_second_post_overwrites_same_file(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r1 = server.create_report("原稿", "upsert-case", "测试", CONTENT)
             r2 = server.create_report("修订稿", "upsert-case", "测试", CONTENT)
             files = list((tmp / "reports").glob("*-upsert-case.html"))
@@ -21,13 +21,13 @@ class TestUpsert(unittest.TestCase):
         self.assertIn('<meta name="updated" content="', html)
 
     def test_fresh_slug_has_no_updated_meta(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("新", "fresh-slug", "测试", CONTENT)
             html = next((tmp / "reports").glob("*.html")).read_text(encoding="utf-8")
         self.assertNotIn('name="updated"', html)
 
     def test_multiple_legacy_files_warns(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             (tmp / "reports" / "2026-01-01-dup.html").write_text("<title>旧1</title>", encoding="utf-8")
             (tmp / "reports" / "2026-01-02-dup.html").write_text("<title>旧2</title>", encoding="utf-8")
             r = server.create_report("新", "dup", "测试", CONTENT)
@@ -37,7 +37,7 @@ class TestUpsert(unittest.TestCase):
 
     def test_suffix_slug_no_clobber(self):
         """短 slug 是长 slug 的后缀 → 必须新建第二份，不得覆盖前者（数据丢失回归）"""
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r1 = server.create_report("长 slug", "top-k-adaptive-retrieval", "测试", CONTENT)
             r2 = server.create_report("短 slug", "adaptive-retrieval", "测试", CONTENT)
             files = sorted(f.name for f in (tmp / "reports").glob("*.html"))
@@ -51,7 +51,7 @@ class TestUpsert(unittest.TestCase):
 
 class TestListReportsUpdated(unittest.TestCase):
     def test_updated_scraped_and_badge(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("原", "badge-case", "测试", CONTENT)
             server.create_report("订", "badge-case", "测试", CONTENT)
             reports = server.list_reports()
@@ -65,7 +65,7 @@ class TestSeries(unittest.TestCase):
         return server.create_report(**kw)
 
     def test_series_meta_and_badge_baked(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r = server.create_report("卷一", "s-ch1", "测试", CONTENT,
                                      series="测试丛书", order=1)
             html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
@@ -76,7 +76,7 @@ class TestSeries(unittest.TestCase):
         self.assertIn('<nav class="volume-nav"', html)
 
     def test_sibling_nav_maintained(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r1 = server.create_report("卷一", "s-ch1", "测试", CONTENT, series="丛书A", order=1)
             r2 = server.create_report("卷二", "s-ch2", "测试", CONTENT, series="丛书A", order=2)
             h1 = (tmp / "reports" / r1["file"]).read_text(encoding="utf-8")
@@ -87,14 +87,14 @@ class TestSeries(unittest.TestCase):
         self.assertNotIn("上一卷", h2.split('<nav class="volume-nav"')[1].split("上一卷")[0] if "上一卷" in h2 else "x")
 
     def test_conflict_same_order(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("卷一", "s-ch1", "测试", CONTENT, series="丛书B", order=1)
             err = server.check_series_conflict("丛书B", 1, exclude_file=None,
                                                reports=server.list_reports())
         self.assertIn("占用", err)
 
     def test_conflict_allows_upsert_same_slug(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r = server.create_report("卷一", "s-ch1", "测试", CONTENT, series="丛书C", order=1)
             err = server.check_series_conflict("丛书C", 1, exclude_file=r["file"],
                                                reports=server.list_reports())
@@ -102,7 +102,7 @@ class TestSeries(unittest.TestCase):
 
     def test_handler_exclude_path_allows_upsert_same_slug(self):
         """handler 同款 exclude 计算（glob 取 [-1].name）：修订本卷不误报，另一 slug 占同卷号仍冲突。"""
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("卷一", "s-ch1", "测试", CONTENT, series="丛书D", order=1)
             # 与 do_POST /api/reports 完全相同的 exclude 计算路径
             slug = "s-ch1"
@@ -120,7 +120,7 @@ class TestSeries(unittest.TestCase):
 
     def test_conflict_detected_with_special_chars(self):
         """丛书名含 & < > 时：刮取侧 unescape 后，卷号门禁不漏判、兄弟导航不碎片化。"""
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("卷一", "a1", "测试", CONTENT, series="ML & 系统", order=1)
             err = server.check_series_conflict("ML & 系统", 1, exclude_file=None,
                                                reports=server.list_reports())
@@ -138,7 +138,7 @@ class TestIndexGrouping(unittest.TestCase):
         server.create_report(title, slug, tag, CONTENT, series=series, order=order)
 
     def test_chronological_stream_and_filter_attrs(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             self._mk(tmp, "卷一", "bk-ch1", "深度解析", "丛书X", 1)
             self._mk(tmp, "卷二", "bk-ch2", "深度解析", "丛书X", 2)
             self._mk(tmp, "甲", "r1", "向量检索", None, 0)
@@ -159,7 +159,7 @@ class TestIndexGrouping(unittest.TestCase):
         self.assertIn('data-series="丛书X"', idx)
 class TestIndexChips(unittest.TestCase):
     def test_chip_counts(self):
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             server.create_report("甲", "c1", "向量检索", CONTENT)
             server.create_report("乙", "c2", "向量检索", CONTENT)
             server.create_report("丙", "c3", "向量检索", CONTENT, series="丛书Z", order=1)

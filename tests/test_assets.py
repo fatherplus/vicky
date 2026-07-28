@@ -42,7 +42,7 @@ class TestTemplateRegistry(unittest.TestCase):
 
     def test_create_report_bakes_template_meta(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             r = server.create_report("T", "tpl-meta", "测试",
                                      '<section><div class="wrap"><p>x</p></div></section>')
             html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
@@ -50,7 +50,7 @@ class TestTemplateRegistry(unittest.TestCase):
 
     def test_create_report_unknown_template_rejected(self):
         server = load_server()
-        with tmp_env(server) as (tmp, _):
+        with tmp_env(server) as tmp:
             with self.assertRaises(KeyError):
                 server.create_report("T", "tpl-x", "测试", "<p>x</p>", template="ghost")
 
