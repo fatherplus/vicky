@@ -35,15 +35,19 @@ agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templat
 | `tests/` | stdlib unittest | 改门禁/资产时同步 |
 | `public/index.html` | 索引页（server 自动生成，不要手改） | `build_index()` 生成 |
 | `convert_to_book.py` | 存量迁移：旧格式报告 → 书风格 | 一次性脚本 |
+| `html_to_md.py` | 平台转换器：报告 HTML → 紧凑 MD（提交时生成 .md 李生） | 纯 stdlib，封闭组件集确定性映射 |
+| `distill.py` | 知识蒸馏器：报告 → knowledge/ Wiki（KSI 进化） | 独立脚本，不 import server |
+| `scripts/backfill_md.py` | 存量报告补生成 .md（`--force` 重生成） | 一次性/可重复 |
 | `taste-skill/` | 上游参考（clone 自 GitHub），不直接使用 | 只读参考 |
 
 ## API
 
 ```
-POST /api/reports    创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, template?, content}
+POST /api/reports    创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, template?, domain?, images?, content}
 POST /api/validate   预检（violations/warnings/components，不落盘）
 POST /api/templates  创建模板（创建即收录 provisional；门禁：占位符/token/契约）
 GET  /api/reports    列出所有报告
+GET  /api/knowledge  知识库（?domain=&topic= 查单页；不带参列全部）
 GET  /api/guide      写作指南（markdown）
 GET  /api/skill      下载写作指南（.md 附件）
 GET  /api/template   查看 HTML 模板（?name=，默认 book）
@@ -51,6 +55,10 @@ GET  /api/templates  模板目录
 GET  /api/principles 叙事宪法（markdown）
 GET  /api/health     健康检查
 ```
+
+**报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
+
+**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`，决定蒸馏路由——`ephemeral` 不进知识库。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。蒸馏：`python3 distill.py`。
 
 默认端口 9091。启动：`python3 server.py [port]（位置参数，默认 9091）`
 

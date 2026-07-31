@@ -17,6 +17,7 @@ API:
   GET  /api/health    — 健康检查
 """
 
+import base64
 import json
 import os
 import html
@@ -26,6 +27,7 @@ import subprocess
 from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from html_to_md import html_to_md
 
 # ============================================================
 # 配置
@@ -53,6 +55,12 @@ NARRATIVE_CONTRACTS = {
     "three-questions", "evidence-for-claims", "scenario-exercise",
     "verdict-on-comparison", "figure-caption", "mece-structure",
 }
+
+DOMAINS = {"tech", "design", "ephemeral"}
+
+IMG_DIR = PUBLIC_DIR / "assets" / "img"
+IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
+IMG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per image
 
 REQUIRED_PLACEHOLDERS = ("{{TITLE}}", "{{CONTENT}}", "{{HERO_TAG}}", "{{SUBTITLE}}",
                          "{{DATE}}", "{{META}}", "{{COMPONENT_HEAD}}",
@@ -324,11 +332,13 @@ def list_reports() -> list[dict]:
         order_match = re.search(r'<meta name="series-order" content="(\d+)"', content)
         total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
         tpl_match = re.search(r'<meta name="template" content="([^"]*)"', content)
+        domain_match = re.search(r'<meta name="domain" content="([^"]*)"', content)
         result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated,
                        "series": html.unescape(series_match.group(1)) if series_match else "",  # 烙入用了 html.escape，刮回需还原
                        "series_order": int(order_match.group(1)) if order_match else 0,
                        "series_total": int(total_match.group(1)) if total_match else 0,
-                       "template": tpl_match.group(1) if tpl_match else "book"})  # 存量无 meta → book
+                       "template": tpl_match.group(1) if tpl_match else "book",  # 存量无 meta → book
+                       "domain": domain_match.group(1) if domain_match else "tech"})  # 存量无 meta → tech
     return result
 
 
@@ -486,7 +496,7 @@ def _existing_for_slug(slug: str) -> list:
 
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
                   series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
-                  base_url: str = "") -> dict:
+                  base_url: str = "", domain: str = "tech") -> dict:
     """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
     tpl_path = template_path(template)          # 未知模板在此抛 KeyError
     tpl = tpl_path.read_text(encoding="utf-8")
@@ -505,6 +515,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
 
     meta_tags = []
     meta_tags.append(f'<meta name="template" content="{template}">')   # 恒烙，保证可重渲染
+    meta_tags.append(f'<meta name="domain" content="{domain}">')
     if not created:
         meta_tags.append(f'<meta name="updated" content="{today}">')
     series = normalize_series(series)
@@ -529,6 +540,8 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / filename
     report_path.write_text(html_out, encoding="utf-8")
+    # 平台能力：生成 .md 兄弟文件（执行 AI 拿 .md 链接，体积约 1/4）
+    (REPORTS_DIR / (filename[:-5] + ".md")).write_text(html_to_md(html_out), encoding="utf-8")
 
     # 4. 重建索引
     reports = list_reports()
@@ -637,6 +650,31 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/principles":
             self._serve_file(REPO_DIR / "skill" / "NARRATIVE-PRINCIPLES.md",
                              "text/markdown; charset=utf-8")
+        elif self.path.split("?")[0] == "/api/knowledge":
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            domain = qs.get("domain", [""])[0]
+            topic = qs.get("topic", [""])[0]
+            kdir = REPO_DIR / "knowledge"
+            if not domain or not topic:
+                pages = []
+                if kdir.exists():
+                    for dd in sorted(kdir.iterdir()):
+                        if not dd.is_dir() or dd.name.startswith("."):
+                            continue
+                        for td in sorted(dd.iterdir()):
+                            ov = td / "overview.md"
+                            if ov.exists():
+                                pages.append({"domain": dd.name, "topic": td.name,
+                                              "content": ov.read_text(encoding="utf-8")})
+                self._json({"ok": True, "pages": pages})
+            else:
+                ov = kdir / domain / topic / "overview.md"
+                if ov.exists():
+                    self._json({"ok": True, "domain": domain, "topic": topic,
+                                "content": ov.read_text(encoding="utf-8")})
+                else:
+                    self._json({"ok": True, "domain": domain, "topic": topic, "content": None})
         else:
             self._serve_static()
 
@@ -690,6 +728,9 @@ class Handler(BaseHTTPRequestHandler):
             slug = data.get("slug", "").strip()
             if slug and not re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-"):
                 violations.append("slug 清理后为空：至少包含一个字母或数字")
+            domain = (data.get("domain") or "tech").strip()
+            if domain not in DOMAINS:
+                violations.append(f"domain 必须是 {sorted(DOMAINS)} 之一")
             series, order = data.get("series"), data.get("order")
             if bool(series) != (order is not None):
                 violations.append("series 与 order 必须同时提供")
@@ -748,13 +789,44 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         template = data.get("template") or DEFAULT_TEMPLATE
+        domain = (data.get("domain") or "tech").strip()
+        if domain not in DOMAINS:
+            self._json({"ok": False, "error": f"domain 必须是 {sorted(DOMAINS)} 之一"}, 400)
+            return
+
+        # 图片落盘（设计报告截图等）：base64 只在传输瞬间存在，HTML 里只留链接
+        images = data.get("images") or []
+        saved_images = []
+        if images:
+            img_dir = IMG_DIR / slug
+            img_dir.mkdir(parents=True, exist_ok=True)
+            for img in images:
+                name = (img.get("name") or "").strip()
+                b64 = img.get("b64") or ""
+                ext = os.path.splitext(name)[1].lower()
+                if ext not in IMG_EXTENSIONS:
+                    self._json({"ok": False, "error": f"图片格式不支持: {ext}（允许 {sorted(IMG_EXTENSIONS)}）"}, 400)
+                    return
+                try:
+                    raw = base64.b64decode(b64)
+                except Exception:
+                    self._json({"ok": False, "error": f"图片 base64 解码失败: {name}"}, 400)
+                    return
+                if len(raw) > IMG_MAX_BYTES:
+                    self._json({"ok": False, "error": f"图片过大: {name}（上限 {IMG_MAX_BYTES // 1024 // 1024}MB）"}, 400)
+                    return
+                safe_name = os.path.basename(name)  # 防路径穿越
+                (img_dir / safe_name).write_bytes(raw)
+                saved_images.append(f"/research/assets/img/{slug}/{safe_name}")
 
         try:
             host = self.headers.get("Host", f"127.0.0.1:{PORT}")
             result = create_report(title, slug, tag, content, subtitle,
                                    series=series, order=order or 0, template=template,
-                                   base_url=f"http://{host}")
+                                   base_url=f"http://{host}", domain=domain)
             result.setdefault("warnings", []).extend(warnings)
+            if saved_images:
+                result["images"] = saved_images
             self._json(result, 201)
         except KeyError as e:
             self._json({"ok": False, "error": e.args[0] if e.args else str(e)}, 400)
