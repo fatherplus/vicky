@@ -46,6 +46,9 @@ def test_legacy_report_defaults_tech():
 def cleanup():
     for f in REPORTS_DIR.glob("*test-domain*"):
         f.unlink()
+    # 测试会触发 build_index，清场后重建索引避免断链
+    from server import list_reports, build_index
+    (REPORTS_DIR.parent / "index.html").write_text(build_index(list_reports()), encoding="utf-8")
 
 
 import atexit
