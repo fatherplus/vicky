@@ -88,6 +88,19 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 .row-tag:hover{background:var(--accent);color:#FBFAF7}
 .row-series{color:var(--seal);border:1px dashed rgba(166,58,46,.45)}
 .row-series:hover{background:var(--seal);color:#FBFAF7}
+/* domain 徽章：实心色块（粗分类，一眼可辨）——与 tag 描边 / series 虚线形成层级 */
+.row-domain{font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:1px;color:#FBFAF7;border:none;border-radius:3px;padding:3.5px 8px}
+.row-domain.tech{background:var(--accent)}
+.row-domain.design{background:var(--seal)}
+.row-domain.ephemeral{background:var(--sub)}
+.row-domain:hover{filter:brightness(1.12);transform:translateY(-1px)}
+/* domain 筹码：左色条区分 */
+.chip-domain{position:relative;padding-left:18px}
+.chip-domain::before{content:"";position:absolute;left:7px;top:50%;transform:translateY(-50%);width:5px;height:5px;border-radius:50%}
+.chip-domain.tech::before{background:var(--accent)}
+.chip-domain.design::before{background:var(--seal)}
+.chip-domain.ephemeral::before{background:var(--sub)}
+.chip-domain.on::before{background:var(--paper)}
 /* 筛选后的行进动画 */
 .toc-item.pop{animation:rowIn .34s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--d,0s)*.6)}
 @keyframes rowIn{from{opacity:0;transform:translateY(10px)}}

@@ -18,6 +18,7 @@
 import re
 import sys
 import html as html_mod
+import html  # build_knowledge_page 用 html.escape
 from pathlib import Path
 from datetime import datetime
 
@@ -45,8 +46,7 @@ def _strip_tags(html_str: str) -> str:
 
 def _extract_blockquotes(content: str) -> list[str]:
     """<blockquote> → 结论性声明"""
-    return [html_mod.unescape(m).strip()
-            for m in re.findall(r"<blockquote>([\s\S]*?)</blockquote>", content)]
+    return [t for t in (_strip_tags(m) for m in re.findall(r"<blockquote>([\s\S]*?)</blockquote>", content)) if t]
 
 
 def _extract_callouts(content: str, kind: str) -> list[str]:
@@ -359,6 +359,340 @@ def append_log(entries: list[str]):
 
 
 # ============================================================
+# 藏书楼视图（knowledge/ → public/knowledge/index.html）
+# ============================================================
+
+CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
+DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
+SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
+           "关键数据": "data", "分歧": "disag", "综合": "synth"}
+
+_KNOWLEDGE_TPL = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>藏书楼 · 知识库 — ai-report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#FBFAF7;--ink:#23272E;--sub:#6E7278;--accent:#0C4A6E;--seal:#A63A2E;
+  --green:#2E7D4F;--amber:#B08D57;--hairline:rgba(0,0,0,.08);--card:#FDFCF9;
+  --serif:'Noto Serif SC',serif;--sans:'Noto Sans SC',-apple-system,'PingFang SC',sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.7;
+  -webkit-font-smoothing:antialiased;}
+/* 栏线：古籍页面边框，双线 */
+body::before{content:"";position:fixed;inset:14px;border:1px solid var(--hairline);pointer-events:none;z-index:50}
+body::after{content:"";position:fixed;inset:19px;border:1px solid rgba(0,0,0,.045);pointer-events:none;z-index:50}
+::selection{background:rgba(12,74,110,.16)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 44px}
+
+/* ===== 卷首：藏印 + 账本 ===== */
+.masthead{display:grid;grid-template-columns:auto 1fr auto;gap:36px;align-items:center;
+  padding:72px 0 40px;border-bottom:2px solid var(--ink);position:relative}
+.masthead::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:1px;background:var(--hairline)}
+.seal-big{width:96px;height:96px;background:var(--seal);color:#FBFAF7;font-family:var(--serif);
+  font-size:52px;font-weight:900;display:flex;align-items:center;justify-content:center;
+  border-radius:8px;transform:rotate(-4deg);box-shadow:inset 0 0 0 3px rgba(251,250,247,.28),
+  inset 0 0 18px rgba(0,0,0,.18),0 4px 14px rgba(166,58,46,.3);user-select:none;
+  transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
+.masthead:hover .seal-big{transform:rotate(0deg) scale(1.03)}
+.kicker{font-family:var(--mono);font-size:11px;letter-spacing:2.5px;color:var(--seal);
+  text-transform:uppercase;font-weight:600;margin-bottom:10px}
+h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;line-height:1.1}
+.mast-sub{color:var(--sub);font-size:14px;margin-top:12px;max-width:460px}
+.ledger{display:grid;grid-template-columns:repeat(2,minmax(96px,auto));gap:0;border-left:1px solid var(--hairline);padding-left:36px}
+.stat{padding:10px 22px 10px 0;border-bottom:1px dashed var(--hairline)}
+.stat:nth-child(even){border-left:1px dashed var(--hairline);padding-left:22px}
+.stat:nth-child(3),.stat:nth-child(4){border-bottom:none}
+.stat-n{display:block;font-family:var(--mono);font-size:30px;font-weight:600;color:var(--accent);line-height:1.1}
+.stat:nth-child(3) .stat-n{color:var(--seal)}
+.stat:nth-child(4) .stat-n{color:var(--green)}
+.stat-l{font-size:11px;color:var(--sub);letter-spacing:1px}
+
+/* ===== 检索 + 筛选 ===== */
+.toolbar{position:sticky;top:0;z-index:40;background:rgba(251,250,247,.92);backdrop-filter:blur(6px);
+  display:flex;gap:16px;align-items:center;padding:18px 0;border-bottom:1px solid var(--hairline)}
+.search{flex:0 0 260px;font-family:var(--sans);font-size:14px;padding:9px 14px;border:1px solid var(--hairline);
+  border-bottom:2px solid var(--sub);background:transparent;color:var(--ink);border-radius:2px;
+  transition:border-color .2s,box-shadow .2s;outline:none}
+.search:focus{border-bottom-color:var(--accent);box-shadow:0 2px 0 0 var(--accent)}
+.search::placeholder{color:var(--sub)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font-size:12.5px;padding:6px 14px;border:1px solid var(--hairline);border-radius:2px;cursor:pointer;
+  color:var(--sub);background:transparent;transition:all .2s;user-select:none}
+.chip .n{font-family:var(--mono);font-size:10.5px;margin-left:5px;opacity:.7}
+.chip:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
+.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.chip.on .n{opacity:.85}
+
+/* ===== 阁（domain 分区）===== */
+.pavilion{padding:44px 0 8px}
+.pav-head{display:flex;align-items:baseline;gap:14px;margin-bottom:24px}
+.pav-tab{width:8px;height:26px;align-self:center;border-radius:1px}
+.pav-tab.tech{background:var(--accent)}
+.pav-tab.design{background:var(--seal)}
+.pav-head h2{font-family:var(--serif);font-size:26px;font-weight:700;letter-spacing:2px}
+.pav-count{font-family:var(--mono);font-size:12px;color:var(--sub)}
+
+/* ===== 藏书卡片（masonry）===== */
+.cards{column-count:2;column-gap:22px}
+@media(max-width:820px){.cards{column-count:1}.masthead{grid-template-columns:auto 1fr}.ledger{display:none}}
+.kcard{break-inside:avoid;background:var(--card);border:1px solid var(--hairline);border-radius:3px;
+  padding:24px 26px 20px;margin-bottom:22px;position:relative;
+  transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
+.kcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;
+  background:var(--accent);opacity:.85;transition:width .25s}
+.kcard[data-domain=design]::before{background:var(--seal)}
+.kcard:hover{transform:translateY(-4px);box-shadow:0 10px 26px rgba(35,39,46,.1);border-color:rgba(0,0,0,.14)}
+.kcard:hover::before{width:5px}
+.kcard.hide{display:none}
+.kcard-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.dtab{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+  padding:3px 9px;border-radius:2px;font-weight:600}
+.dtab.tech{color:var(--accent);background:rgba(12,74,110,.09)}
+.dtab.design{color:var(--seal);background:rgba(166,58,46,.09)}
+.conf{font-family:var(--serif);font-size:12px;font-weight:700;padding:3px 10px;border-radius:2px;
+  border:1.5px solid;transform:rotate(2deg);letter-spacing:2px;transition:transform .3s}
+.kcard:hover .conf{transform:rotate(0deg)}
+.conf.hi{color:var(--seal);border-color:var(--seal);background:rgba(166,58,46,.07)}
+.conf.mid{color:var(--amber);border-color:var(--amber);background:rgba(176,141,87,.08)}
+.conf.lo{color:var(--sub);border-color:var(--sub);opacity:.75}
+.ktitle{font-family:var(--serif);font-size:19px;font-weight:700;line-height:1.4;margin-bottom:6px}
+.kmeta{font-size:12px;color:var(--sub);margin-bottom:12px}
+.kmeta code{font-family:var(--mono);font-size:10.5px;background:rgba(0,0,0,.05);padding:1px 6px;border-radius:2px}
+.ksi{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px dashed var(--hairline);margin-bottom:14px}
+.kbadge{font-size:11px;padding:3px 9px;border-radius:2px;font-weight:500}
+.kbadge.concl{color:var(--accent);background:rgba(12,74,110,.09)}
+.kbadge.refut{color:var(--sub);background:rgba(0,0,0,.05)}
+.kbadge.trap{color:var(--amber);background:rgba(176,141,87,.12)}
+.kbadge.data{color:var(--sub);background:rgba(0,0,0,.05);font-family:var(--mono);font-size:10.5px}
+.kbadge.disag{color:#FBFAF7;background:var(--seal);font-weight:600}
+.kbadge.synth{color:var(--green);background:rgba(46,125,79,.1);font-weight:600}
+.ksec{margin-bottom:14px}
+.ksec:last-child{margin-bottom:0}
+.ksec-l{font-size:11px;font-weight:700;letter-spacing:1.5px;margin-bottom:6px;color:var(--sub)}
+.ksec.concl .ksec-l{color:var(--accent)}
+.ksec.disag .ksec-l{color:var(--seal)}
+.ksec.synth .ksec-l{color:var(--green)}
+.ksec.trap .ksec-l{color:var(--amber)}
+.ksec ul{list-style:none}
+.ksec li{font-size:13.5px;line-height:1.65;padding:5px 0 5px 16px;position:relative;color:var(--ink)}
+.ksec li::before{content:"·";position:absolute;left:2px;color:var(--sub);font-weight:700}
+.ksec.disag{border-left:2px solid var(--seal);padding-left:12px;margin-left:-14px;background:rgba(166,58,46,.035);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
+.ksec.synth{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
+.src{font-family:var(--mono);font-size:10px;color:var(--accent);text-decoration:none;
+  border-bottom:1px dotted var(--accent);opacity:.75;transition:opacity .2s;white-space:nowrap}
+.src:hover{opacity:1}
+
+/* ===== 空态 / 书尾 ===== */
+.none{text-align:center;color:var(--sub);padding:80px 0;font-size:14px}
+.none code{font-family:var(--mono);background:rgba(0,0,0,.05);padding:2px 8px;border-radius:2px}
+#empty{display:none;text-align:center;color:var(--sub);padding:60px 0;font-size:14px}
+#empty.show{display:block}
+.colophon{margin-top:60px;padding:28px 0 44px;border-top:2px solid var(--ink);display:flex;
+  justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--sub)}
+.colophon a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(12,74,110,.3);transition:border-color .2s}
+.colophon a:hover{border-bottom-color:var(--accent)}
+.colophon code{font-family:var(--mono);background:rgba(0,0,0,.05);padding:1px 6px;border-radius:2px}
+
+/* ===== 动效（克制）===== */
+.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s cubic-bezier(.22,1,.36,1)}
+.reveal.in{opacity:1;transform:translateY(0)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.reveal{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead reveal">
+    <div class="seal-big" aria-hidden="true">藏</div>
+    <div>
+      <div class="kicker">Knowledge Archive · 自动蒸馏</div>
+      <h1>藏书楼</h1>
+      <p class="mast-sub">从研究报告中蒸馏的可持续知识。每一页由 distill 自动运维，随报告提交而进化。</p>
+    </div>
+    <div class="ledger">
+      <div class="stat"><span class="stat-n" data-count="__TOPICS__">0</span><span class="stat-l">知识主题</span></div>
+      <div class="stat"><span class="stat-n" data-count="__SOURCES__">0</span><span class="stat-l">报告来源</span></div>
+      <div class="stat"><span class="stat-n" data-count="__DISAGREE__">0</span><span class="stat-l">分歧待裁</span></div>
+      <div class="stat"><span class="stat-n" data-count="__SYNTH__">0</span><span class="stat-l">已综合</span></div>
+    </div>
+  </header>
+
+  <div class="toolbar reveal">
+    <input id="q" class="search" type="search" placeholder="检索知识…" aria-label="检索知识">
+    <div class="chips">
+      <span class="chip on" data-d="all">全部<span class="n">__TOPICS__</span></span>
+      <span class="chip" data-d="tech">tech 阁<span class="n">__NTECH__</span></span>
+      <span class="chip" data-d="design">design 阁<span class="n">__NDESIGN__</span></span>
+    </div>
+  </div>
+
+  <main>
+__SECTIONS__
+    <div id="empty">无匹配的知识条目。</div>
+  </main>
+
+  <footer class="colophon">
+    <a href="/research/">← 返回目录</a>
+    <span>知识由 <code>distill.py</code> 自动蒸馏 · KSI 进化（AGREE · DISAGREE · SYNTHESIZE）· 生成于 __GEN__</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var q=document.getElementById('q'),chips=[].slice.call(document.querySelectorAll('.chip')),domain='all';
+  function apply(){
+    var term=q.value.trim().toLowerCase();
+    [].forEach.call(document.querySelectorAll('.kcard'),function(c){
+      var okD=domain==='all'||c.dataset.domain===domain;
+      var okQ=!term||c.dataset.search.indexOf(term)>=0;
+      c.classList.toggle('hide',!(okD&&okQ));
+    });
+    [].forEach.call(document.querySelectorAll('.pavilion'),function(p){
+      var any=[].some.call(p.querySelectorAll('.kcard'),function(c){return !c.classList.contains('hide');});
+      p.classList.toggle('hide',!any);
+    });
+    document.getElementById('empty').classList.toggle('show',!document.querySelector('.pavilion:not(.hide)'));
+  }
+  chips.forEach(function(c){c.addEventListener('click',function(){
+    chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');domain=c.dataset.d;apply();});});
+  q.addEventListener('input',apply);
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.06});
+  [].forEach.call(document.querySelectorAll('.reveal'),function(el){io.observe(el);});
+  [].forEach.call(document.querySelectorAll('[data-count]'),function(el){
+    var target=+el.dataset.count,t0=null,dur=900;
+    function tick(t){if(t0===null)t0=t;var p=Math.min(1,(t-t0)/dur);
+      el.textContent=Math.round(target*(1-Math.pow(1-p,3)));if(p<1)requestAnimationFrame(tick);}
+    requestAnimationFrame(tick);});
+})();
+</script>
+</body>
+</html>"""
+
+
+def parse_overview(text: str) -> dict:
+    """把 overview.md 解析成结构化数据（标题/元信息/分节条目）。"""
+    title, meta, sections, cur = "", {"updated": "", "sources": 0, "confidence": "low"}, [], None
+    for line in text.splitlines():
+        if line.startswith("# "):
+            title = line[2:].strip()
+        elif line.startswith("> "):
+            m = re.search(r"Updated: ([\d-]+)", line)
+            if m: meta["updated"] = m.group(1)
+            m = re.search(r"Sources: (\d+)", line)
+            if m: meta["sources"] = int(m.group(1))
+            m = re.search(r"Confidence: (\w+)", line)
+            if m: meta["confidence"] = m.group(1)
+        elif line.startswith("## "):
+            cur = {"label": line[3:].strip(), "items": []}
+            sections.append(cur)
+        elif line.startswith("- ") and cur is not None:
+            item = line[2:].strip()
+            sm = re.search(r"\[([^\]]+)\]$", item)
+            src = sm.group(1) if sm else ""
+            cur["items"].append({"text": _strip_tags(re.sub(r"\s*\[[^\]]+\]$", "", item)), "source": src})
+    return {"title": title, **meta, "sections": sections}
+
+
+def _src_link(src: str) -> str:
+    """证据锚点 → 报告短链接（去日期前缀，mono 小字）。"""
+    if not src:
+        return ""
+    short = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", src).removesuffix(".html")
+    return (f' <a class="src" href="/research/reports/{html.escape(src)}" '
+            f'title="{html.escape(src)}">{html.escape(short)}</a>')
+
+
+def _render_card(domain: str, topic: str, ov: dict) -> str:
+    conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
+    # KSI 徽章：只展示存在的节，数量诚实
+    badges = []
+    for s in ov["sections"]:
+        cls = SEC_CLS.get(s["label"], "")
+        n = len(s["items"])
+        if s["label"] == "综合":
+            badges.append(f'<span class="kbadge {cls}">综合 ✓</span>')
+        elif n:
+            badges.append(f'<span class="kbadge {cls}">{html.escape(s["label"])} {n}</span>')
+    # 正文分节
+    secs = []
+    for s in ov["sections"]:
+        if not s["items"]:
+            continue
+        cls = SEC_CLS.get(s["label"], "")
+        lis = "".join(
+            f'<li>{html.escape(it["text"])}{_src_link(it["source"])}</li>' for it in s["items"])
+        secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html.escape(s["label"])}</div>'
+                    f'<ul>{lis}</ul></div>')
+    search_blob = html.escape((ov["title"] + " " + topic + " " +
+                               " ".join(it["text"] for s in ov["sections"] for it in s["items"])).lower(), quote=True)
+    return (f'<article class="kcard reveal" data-domain="{domain}" data-search="{search_blob}">'
+            f'<div class="kcard-top"><span class="dtab {domain}">{domain}</span>'
+            f'<span class="conf {conf_cls}" title="置信度：{conf_label}">{conf_label}</span></div>'
+            f'<h3 class="ktitle">{html.escape(ov["title"])}</h3>'
+            f'<div class="kmeta">更新于 {ov["updated"]} · {ov["sources"]} 篇来源 · '
+            f'<code>{html.escape(topic)}</code></div>'
+            f'<div class="ksi">{"".join(badges)}</div>'
+            f'<div class="kbody">{"".join(secs)}</div></article>')
+
+
+def build_knowledge_page() -> Path:
+    """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。"""
+    topics_by_domain: dict[str, list] = {"tech": [], "design": []}
+    total_sources = total_disag = total_synth = 0
+    for domain in ("tech", "design"):
+        ddir = KNOWLEDGE_DIR / domain
+        if not ddir.exists():
+            continue
+        for tdir in sorted(ddir.iterdir()):
+            ovf = tdir / "overview.md"
+            if not ovf.exists():
+                continue
+            ov = parse_overview(ovf.read_text(encoding="utf-8"))
+            topics_by_domain[domain].append((tdir.name, ov))
+            total_sources += ov["sources"]
+            for s in ov["sections"]:
+                if s["label"] == "分歧": total_disag += len(s["items"])
+                if s["label"] == "综合": total_synth += 1
+    ntopics = sum(len(v) for v in topics_by_domain.values())
+
+    sections_html = []
+    for domain, topics in topics_by_domain.items():
+        if not topics:
+            continue
+        cards = "\n".join(_render_card(domain, t, ov) for t, ov in topics)
+        sections_html.append(
+            f'<section class="pavilion" data-domain="{domain}">'
+            f'<div class="pav-head reveal"><span class="pav-tab {domain}"></span>'
+            f'<h2>{DOMAIN_NAME[domain]}</h2>'
+            f'<span class="pav-count">{len(topics)} 个主题</span></div>'
+            f'<div class="cards">{cards}</div></section>')
+    if not sections_html:
+        sections_html.append('<p class="none reveal">知识库还是空的——提交报告后跑 <code>python3 distill.py</code>。</p>')
+
+    out = (_KNOWLEDGE_TPL
+           .replace("__TOPICS__", str(ntopics))
+           .replace("__SOURCES__", str(total_sources))
+           .replace("__DISAGREE__", str(total_disag))
+           .replace("__SYNTH__", str(total_synth))
+           .replace("__NTECH__", str(len(topics_by_domain["tech"])))
+           .replace("__NDESIGN__", str(len(topics_by_domain["design"])))
+           .replace("__SECTIONS__", "\n".join(sections_html))
+           .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M")))
+    out_dir = REPO_DIR / "public" / "knowledge"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / "index.html"
+    out_path.write_text(out, encoding="utf-8")
+    return out_path
+
+
+# ============================================================
 # 主流程
 # ============================================================
 
@@ -412,6 +746,11 @@ def distill():
                 print(f"  {e}")
     else:
         print("无新报告需要蒸馏")
+
+    # 藏书楼视图：每次都重建，始终反映当前 knowledge/ 状态
+    if not DRY_RUN:
+        page = build_knowledge_page()
+        print(f"藏书楼视图: {page.relative_to(REPO_DIR)}")
 
 
 if __name__ == "__main__":

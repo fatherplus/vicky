@@ -174,13 +174,14 @@ document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);e
 var si=document.getElementById('tocSearch'),hint=document.getElementById('searchHint'),nores=document.getElementById('noresult');
 var items=Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
 var chips=Array.prototype.slice.call(document.querySelectorAll('.chip'));
-var fTag=null,fSeries=null;
+var fTag=null,fSeries=null,fDomain=null;
 function applyFilter(pop){
-  var q=si.value.trim().toLowerCase(),shown=0,active=!!(q||fTag||fSeries);
+  var q=si.value.trim().toLowerCase(),shown=0,active=!!(q||fTag||fSeries||fDomain);
   items.forEach(function(it){
     var hit=(!q||it.textContent.toLowerCase().indexOf(q)>=0)
       &&(!fTag||it.getAttribute('data-tag')===fTag)
-      &&(!fSeries||it.getAttribute('data-series')===fSeries);
+      &&(!fSeries||it.getAttribute('data-series')===fSeries)
+      &&(!fDomain||it.getAttribute('data-domain')===fDomain);
     it.style.display=hit?'':'none';
     if(hit){shown++;if(pop){it.classList.remove('pop');void it.offsetWidth;it.classList.add('pop');}}
   });
@@ -191,11 +192,12 @@ chips.forEach(function(c){c.addEventListener('click',function(){
   chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');
   fTag=c.getAttribute('data-type')==='tag'?c.getAttribute('data-f'):null;
   fSeries=c.getAttribute('data-type')==='series'?c.getAttribute('data-f'):null;
+  fDomain=c.getAttribute('data-type')==='domain'?c.getAttribute('data-f'):null;
   applyFilter(true);
 });});
 si.addEventListener('input',function(){applyFilter(false);});
 /* 行内 tag / 丛书徽章点击 = 选中对应筹码 */
-Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series'),function(b){
+Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series,.row-domain'),function(b){
   b.addEventListener('click',function(e){
     e.preventDefault();e.stopPropagation();
     for(var i=0;i<chips.length;i++){var c=chips[i];
@@ -253,8 +255,9 @@ def build_index(reports: list[dict]) -> str:
     if fm:
         frontmatter = ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
                        + "\n    ".join(fm) + "\n  </div>")
-    # 时间流（新在上；list_reports 已按日期倒序）+ 类型筹码（tag / 丛书）
-    tag_count, series_count = {}, {}
+    # 时间流（新在上；list_reports 已按日期倒序）+ 类型筹码（tag / 丛书 / domain）
+    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作"}
+    tag_count, series_count, domain_count = {}, {}, {}
     for r in research:
         tag = (r.get("tag") or "研究报告").strip() or "研究报告"
         r["_tag"] = tag
@@ -263,12 +266,19 @@ def build_index(reports: list[dict]) -> str:
         r["_series"] = sname
         if sname:
             series_count[sname] = series_count.get(sname, 0) + 1
+        dom = r.get("domain") or "tech"
+        r["_domain"] = dom
+        domain_count[dom] = domain_count.get(dom, 0) + 1
 
     def toc_row(r, num):
         delay = (num % 12) * 0.04
         esc_tag = html.escape(r["_tag"], quote=True)
         esc_series = html.escape(r["_series"], quote=True)
-        badges = f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>'
+        dom = r["_domain"]
+        esc_dom = html.escape(DOMAIN_LABEL.get(dom, dom), quote=True)
+        badges = (f'<span class="row-domain {dom}" data-type="domain" data-f="{dom}">'
+                  f'{esc_dom}</span> '
+                  f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>')
         if r["_series"]:
             badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
                        f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
@@ -276,7 +286,7 @@ def build_index(reports: list[dict]) -> str:
                if r.get("subtitle") else "")
         updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
         return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/research/reports/{r["file"]}"'
-                f' data-tag="{esc_tag}" data-series="{esc_series}">'
+                f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}">'
                 f'<span class="toc-num">{num:02d}</span>'
                 f'<span class="toc-main"><span class="toc-line">'
                 f'<span class="toc-title">{html.escape(r["title"])}</span>{badges}</span>{sub}</span>'
@@ -287,6 +297,11 @@ def build_index(reports: list[dict]) -> str:
 
     # 筹码：全部 + tag（按数量降序）+ 丛书（按数量降序）；小 tag 不再合并——数量诚实展示
     chips = [f'<span class="chip on" data-type="all" data-f="">全部<span class="n">{len(research)}</span></span>']
+    for dom in ("tech", "design", "ephemeral"):
+        dn = domain_count.get(dom, 0)
+        if dn:
+            chips.append(f'<span class="chip chip-domain {dom}" data-type="domain" data-f="{dom}">'
+                         f'{html.escape(DOMAIN_LABEL.get(dom, dom))}<span class="n">{dn}</span></span>')
     for tag, n in sorted(tag_count.items(), key=lambda kv: (-kv[1], kv[0])):
         chips.append(f'<span class="chip" data-type="tag" data-f="{html.escape(tag, quote=True)}">'
                      f'{html.escape(tag)}<span class="n">{n}</span></span>')
