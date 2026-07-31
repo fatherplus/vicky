@@ -17,6 +17,11 @@
 
 import re
 import sys
+import os
+import json
+import urllib.request
+import urllib.error
+import shutil
 import html as html_mod
 import html  # build_knowledge_page 用 html.escape
 from pathlib import Path
@@ -29,6 +34,12 @@ LOG_PATH = KNOWLEDGE_DIR / "log.md"
 INDEX_PATH = KNOWLEDGE_DIR / "index.md"
 
 DRY_RUN = "--dry-run" in sys.argv
+
+# LLM 编译配置（C 方案）：无 key 时 distill 退回纯规则路径，不破坏现有流程
+AIMETER_KEY = os.environ.get("AIMETER_KEY", "").strip()
+AIMETER_BASE = os.environ.get("AIMETER_BASE", "https://aimeter.xk-devops.com/v1").strip().rstrip("/")
+DISTILL_MODEL = os.environ.get("DISTILL_MODEL", "deepseek-v4-flash").strip()
+LLM_ON = bool(AIMETER_KEY)
 
 
 # ============================================================
@@ -131,6 +142,187 @@ def extract_design(html_content: str, source: str) -> list[dict]:
 
 EXTRACTORS = {"tech": extract_tech, "design": extract_design}
 
+
+# ============================================================
+# LLM 编译层（C 方案）——规则抽骨架，LLM 只做归类/综合/矛盾
+# 无 key 时本层不被调用，distill 退回纯规则 1:1 路径
+# ============================================================
+
+def _parse_json_loose(text: str):
+    """容错解析 LLM 返回的 JSON（剥 ```json 围栏 + 截取首尾括号）。"""
+    t = text.strip()
+    t = re.sub(r"^```(?:json)?\s*", "", t)
+    t = re.sub(r"\s*```$", "", t)
+    try:
+        return json.loads(t)
+    except Exception:
+        pass
+    # 截取首个 [ 或 { 到末尾对应括号
+    for open_c, close_c in (("[", "]"), ("{", "}")):
+        i, j = t.find(open_c), t.rfind(close_c)
+        if i != -1 and j != -1 and j > i:
+            try:
+                return json.loads(t[i:j + 1])
+            except Exception:
+                continue
+    return None
+
+
+def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
+    """纯 stdlib 调 OpenAI 兼容网关。失败返回 None（调用方降级）。"""
+    if not LLM_ON:
+        return None
+    body = json.dumps({
+        "model": DISTILL_MODEL, "temperature": 0, "max_tokens": max_tokens,
+        "messages": messages,
+    }).encode()
+    req = urllib.request.Request(
+        AIMETER_BASE + "/chat/completions", data=body,
+        headers={"Authorization": "Bearer " + AIMETER_KEY,
+                 "Content-Type": "application/json"})
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                d = json.loads(resp.read())
+            msg = d["choices"][0]["message"]
+            content = msg.get("content")
+            # 思考链模型长 prompt 下 content 可能被 reasoning 吃空：回退 reasoning 末尾供解析抠 JSON
+            if not content:
+                content = msg.get("reasoning_content") or ""
+            return content
+        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, TimeoutError) as e:
+            if attempt == 0:
+                import time; time.sleep(1.5); continue
+            print(f"  ! LLM 调用失败: {e}", file=sys.stderr)
+            return None
+    return None
+
+
+def _norm_clusters(data, reports: list) -> list:
+    """宽容归一化 LLM 聚类输出：兼容对象数组 / 嵌套 slug 数组 / dict 三种格式。"""
+    slug_domain = {r["slug"]: r["domain"] for r in reports}
+    slug_title = {r["slug"]: r["title"] for r in reports}
+    valid = set(slug_domain)
+    groups = []  # (topic, [slugs], domain|None)
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if isinstance(v, list):
+                groups.append((str(k), [x for x in v if isinstance(x, str)], None))
+            elif isinstance(v, dict):
+                groups.append((str(k), [x for x in v.get("members", []) if isinstance(x, str)], v.get("domain")))
+    elif isinstance(data, list):
+        for c in data:
+            if isinstance(c, dict):
+                ms = c.get("members") or c.get("slugs") or []
+                groups.append((str(c.get("topic", "")), [x for x in ms if isinstance(x, str)], c.get("domain")))
+            elif isinstance(c, list):
+                groups.append(("", [x for x in c if isinstance(x, str)], None))
+    out, seen = [], set()
+    for topic, slugs, dom in groups:
+        members = [s for s in slugs if s in valid and s not in seen]
+        if not members:
+            continue
+        seen.update(members)
+        if dom not in ("tech", "design"):
+            from collections import Counter
+            dom = Counter(slug_domain[s] for s in members).most_common(1)[0][0]
+        if not topic.strip():
+            topic = "、".join(slug_title[s] for s in members[:2]) + (" 等" if len(members) > 2 else "")
+        out.append({"topic": topic.strip(), "domain": dom, "members": members})
+    for r in reports:
+        if r["slug"] not in seen:
+            out.append({"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+    return out
+
+
+def _cluster_one_batch(batch: list) -> list:
+    """对一批报告（≤12 篇）做一次聚类。思考链模型在短列表上 content 不空。"""
+    lines = [f'- slug={r["slug"]} | {r["title"]}' for r in batch]
+    catalog = "\n".join(lines)
+    prompt = (
+        "你是知识库编辑。下面是若干研究报告（slug + 标题）。"
+        "把它们按【研究主题】聚类，语义相近的归为一组（如多篇 RAG/检索/向量索引归一组）。"
+        "规则：members 必须是上面出现过的 slug 原样字符串；每个 slug 恰好归入一个主题；"
+        "domain 只能是 tech 或 design；topic 用简洁中文短语。"
+        "只输出 JSON 数组，不要任何解释。数组每个元素必须是含 topic 和 members 的对象，"
+        "禁止只输出 slug 数组。形如："
+        '[{"topic":"向量检索","domain":"tech","members":["hnsw-algorithm","dynamic-top-k-rag-adaptive-retrieval"]},'
+        '{"topic":"用量分析","domain":"tech","members":["aws-claude-usage-analysis-v5-2026-june-july"]}]\n\n' + catalog)
+    raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=6000, timeout=200)
+    if not raw:
+        return []
+    data = _parse_json_loose(raw)
+    if data is None:
+        return []
+    return _norm_clusters(data, batch)
+
+
+def llm_cluster(reports: list) -> list:
+    """全局语义聚类：分批（每批 12 篇，避免思考链过载）+ 跨批同名合并。失败返回 None。"""
+    BATCH = 12
+    all_clusters = []
+    for i in range(0, len(reports), BATCH):
+        all_clusters += _cluster_one_batch(reports[i:i + BATCH])
+    if not all_clusters:
+        return None
+    # 跨批同名合并（topic 名去空白归一化后相同则并 members）
+    merged, order = {}, []
+    for c in all_clusters:
+        key = re.sub(r"\s+", "", c["topic"]).lower() or c["topic"]
+        if key not in merged:
+            merged[key] = {"topic": c["topic"], "domain": c["domain"], "members": list(c["members"])}
+            order.append(key)
+        else:
+            seen = set(merged[key]["members"])
+            merged[key]["members"] += [m for m in c["members"] if m not in seen]
+    out = [merged[k] for k in order]
+    seen = {m for c in out for m in c["members"]}
+    for r in reports:
+        if r["slug"] not in seen:
+            out.append({"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+    return out
+
+
+def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
+    """读报告的 .md 李生原文作 LLM 编译原料（信息比规则抽取完整得多）。无则空。"""
+    name = report_file[:-5] if report_file.endswith(".html") else report_file
+    md_path = REPORTS_DIR / (name + ".md")
+    if not md_path.exists():
+        return ""
+    t = md_path.read_text(encoding="utf-8")
+    return t[:maxlen] + ("…[截断]" if len(t) > maxlen else "")
+def llm_compile_topic(topic: str, members: list) -> dict:
+    """对多源主题做综合 + 矛盾检测（合并 1 次调用）。
+    members: [{slug,title,conclusions:[..],traps:[..]}]。返回 {synthesis, contradictions:[{point,sides}]}。"""
+    blocks = []
+    for m in members:
+        ex = m.get("excerpt", "")
+        if ex:
+            blocks.append(f"[{m['slug']}] 《{m['title']}》\n{ex}")
+        else:
+            cs = "\n".join(f"    · 结论: {t}" for t in m["conclusions"]) or "    · （无显式结论）"
+            ts = "\n".join(f"    · 陷阱: {t}" for t in m["traps"])
+            blocks.append(f"[{m['slug']}] 《{m['title']}》\n{cs}" + ("\n" + ts if ts else ""))
+    body = "\n\n".join(blocks)
+    prompt = (
+        f"你是知识库编辑，正在为主题『{topic}』编译来自 {len(members)} 篇报告的交叉知识。下面是各报告正文摘录，请据此提炼。\n"
+        "任务：1) synthesis：用 2-4 句中文综合这些来源的共识、互补与演进脉络，写实质内容，不要废话套话，不要说『缺乏结论』；"
+        "2) contradictions：找出来源之间真正的观点冲突（同一问题给出相反结论/推荐），"
+        "每项给出 point(矛盾点) 和 sides(冲突双方，用 [slug] 开头引用原话)；若无真矛盾返回空数组。"
+        "只输出 JSON 对象，形如 "
+        '{"synthesis":"...","contradictions":[{"point":"...","sides":["[slugA] ...","[slugB] ..."]}]}。\n\n' + body)
+    raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=2000, timeout=300)
+    if not raw:
+        return {"synthesis": "", "contradictions": []}
+    data = _parse_json_loose(raw)
+    if not isinstance(data, dict):
+        return {"synthesis": "", "contradictions": []}
+    contra = []
+    for c in data.get("contradictions", []) or []:
+        if isinstance(c, dict) and c.get("point") and c.get("sides"):
+            contra.append({"point": str(c["point"]).strip(),
+                           "sides": [str(s).strip() for s in c["sides"]]})
+    return {"synthesis": str(data.get("synthesis", "")).strip(), "contradictions": contra}
 
 # ============================================================
 # 报告扫描与路由
@@ -320,6 +512,72 @@ def write_knowledge(domain: str, slug: str, title: str,
     return overview
 
 
+def write_knowledge_compiled(cluster: dict, members_data: dict,
+                             compiled: dict | None) -> Path:
+    """LLM 编译路径：写一个语义主题的 overview.md（多源聚合 + 交叉引用）。"""
+    topic, domain, member_slugs = cluster["topic"], cluster["domain"], cluster["members"]
+    n = len(member_slugs)
+    conf = "high" if n >= 3 else "medium" if n >= 2 else "low"
+    today = datetime.now().strftime("%Y-%m-%d")
+    model_tag = DISTILL_MODEL if (LLM_ON and compiled) else "规则"
+    compiled = compiled or {"synthesis": "", "contradictions": []}
+
+    # 聚合各 kind，保留 [slug] 锚点，去重
+    agg: dict[str, list[str]] = {"conclusion": [], "trap": [], "data": [], "refuted": []}
+    for slug in member_slugs:
+        md = members_data.get(slug, {})
+        for it in md.get("items", []):
+            line = f'{it["text"]} [{slug}]'
+            bucket = agg.setdefault(it["kind"], [])
+            if line not in bucket:
+                bucket.append(line)
+
+    # 一句话结论：优先 LLM 综合，单源/失败时取首条结论兑底
+    oneliner = compiled["synthesis"]
+    if not oneliner:
+        oneliner = (agg["conclusion"][0].rsplit(" [", 1)[0]
+                    if agg["conclusion"] else members_data[member_slugs[0]]["title"])
+
+    lines = [f"# {topic}", "",
+             f"> Updated: {today} | Sources: {n} | Confidence: {conf} | 编译自 {n} 篇 · 模型 {model_tag}", ""]
+    lines += ["## 一句话结论", "", f"- {oneliner}", ""]
+    if n >= 2 and agg["conclusion"]:
+        lines += ["## 共识", ""] + [f"- {x}" for x in agg["conclusion"]] + [""]
+    if compiled["contradictions"]:
+        lines.append("## 分歧")
+        lines.append("")
+        for c in compiled["contradictions"]:
+            sides = "　↔　".join(c["sides"])
+            lines.append(f"- **{c['point']}**：{sides}")
+        lines.append("")
+    if agg["trap"]:
+        lines += ["## 陷阱", ""] + [f"- {x}" for x in agg["trap"]] + [""]
+    if agg["data"]:
+        lines += ["## 关键数据", ""] + [f"- {x}" for x in agg["data"]] + [""]
+    # 来源交叉引用（karpathy 互链）
+    lines.append("## 来源")
+    lines.append("")
+    for slug in member_slugs:
+        lines.append(f"- {members_data[slug]['title']} [{slug}]")
+    lines.append("")
+
+    tdir = _topic_dir(domain, _safe_slug(topic, member_slugs))
+    tdir.mkdir(parents=True, exist_ok=True)
+    overview = tdir / "overview.md"
+    overview.write_text("\n".join(lines), encoding="utf-8")
+    return overview
+
+
+def _safe_slug(topic: str, member_slugs: list) -> str:
+    """主题名 → 目录名：优先用成员 slug 拼接（稳定、可重建），单源直接用该 slug。"""
+    if len(member_slugs) == 1:
+        return member_slugs[0]
+    # 多源：取首个 slug + 主题哈希后缀，避免中文目录名问题
+    import hashlib
+    h = hashlib.md5(topic.encode()).hexdigest()[:6]
+    base = re.sub(r"[^a-z0-9]+", "-", member_slugs[0].lower()).strip("-") or "topic"
+    return f"{base}--{h}"
+
 # ============================================================
 # index.md / log.md
 # ============================================================
@@ -365,7 +623,10 @@ def append_log(entries: list[str]):
 CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
 DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
 SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
-           "关键数据": "data", "分歧": "disag", "综合": "synth"}
+           "关键数据": "data", "分歧": "disag", "综合": "synth",
+           "一句话结论": "concl", "共识": "agree", "来源": "src"}
+# 结构性节（不进 KSI 计数徽章行，只作正文展示）
+STRUCT_SECS = {"一句话结论", "来源"}
 
 _KNOWLEDGE_TPL = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -473,6 +734,8 @@ h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;li
 .kbadge.data{color:var(--sub);background:rgba(0,0,0,.05);font-family:var(--mono);font-size:10.5px}
 .kbadge.disag{color:#FBFAF7;background:var(--seal);font-weight:600}
 .kbadge.synth{color:var(--green);background:rgba(46,125,79,.1);font-weight:600}
+.kbadge.agree{color:var(--green);background:rgba(46,125,79,.1)}
+.kbadge.src{color:var(--sub);background:rgba(0,0,0,.05);font-family:var(--mono);font-size:10.5px}
 .ksec{margin-bottom:14px}
 .ksec:last-child{margin-bottom:0}
 .ksec-l{font-size:11px;font-weight:700;letter-spacing:1.5px;margin-bottom:6px;color:var(--sub)}
@@ -485,6 +748,11 @@ h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;li
 .ksec li::before{content:"·";position:absolute;left:2px;color:var(--sub);font-weight:700}
 .ksec.disag{border-left:2px solid var(--seal);padding-left:12px;margin-left:-14px;background:rgba(166,58,46,.035);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
 .ksec.synth{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
+.ksec.agree{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
+.ksec.src{border-top:1px dashed var(--hairline);padding-top:12px;margin-top:4px}
+.ksec.src .ksec-l{color:var(--sub)}
+.ksec.src li{font-size:12.5px}
+.ksec.src li::before{content:"→";color:var(--accent);font-size:11px}
 .src{font-family:var(--mono);font-size:10px;color:var(--accent);text-decoration:none;
   border-bottom:1px dotted var(--accent);opacity:.75;transition:opacity .2s;white-space:nowrap}
 .src:hover{opacity:1}
@@ -605,8 +873,9 @@ def _src_link(src: str) -> str:
     if not src:
         return ""
     short = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", src).removesuffix(".html")
-    return (f' <a class="src" href="/research/reports/{html.escape(src)}" '
-            f'title="{html.escape(src)}">{html.escape(short)}</a>')
+    href = src if src.endswith(".html") else src + ".html"
+    return (f' <a class="src" href="/research/reports/{html.escape(href)}" '
+            f'title="{html.escape(href)}">{html.escape(short)}</a>')
 
 
 def _render_card(domain: str, topic: str, ov: dict) -> str:
@@ -614,6 +883,8 @@ def _render_card(domain: str, topic: str, ov: dict) -> str:
     # KSI 徽章：只展示存在的节，数量诚实
     badges = []
     for s in ov["sections"]:
+        if s["label"] in STRUCT_SECS:
+            continue
         cls = SEC_CLS.get(s["label"], "")
         n = len(s["items"])
         if s["label"] == "综合":
@@ -659,7 +930,8 @@ def build_knowledge_page() -> Path:
             total_sources += ov["sources"]
             for s in ov["sections"]:
                 if s["label"] == "分歧": total_disag += len(s["items"])
-                if s["label"] == "综合": total_synth += 1
+            if ov["sources"] >= 2:  # 多源 = 经过 LLM 交叉综合
+                total_synth += 1
     ntopics = sum(len(v) for v in topics_by_domain.values())
 
     sections_html = []
@@ -698,60 +970,103 @@ def build_knowledge_page() -> Path:
 
 def distill():
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
-    done = processed_files()
     reports = scan_reports()
-    log_entries = []
-    stats = {"skipped": 0, "processed": 0, "items": 0}
-
-    for r in reports:
-        fname = r["file"]
-        if fname in done:
-            continue
-
-        domain = r["domain"]
-        source = fname  # 证据锚点用文件名
-
-        if domain == "ephemeral":
-            log_entries.append(f"[x] {fname} — skipped (ephemeral)")
-            stats["skipped"] += 1
-            continue
-
-        extractor = EXTRACTORS.get(domain)
-        if not extractor:
-            log_entries.append(f"[x] {fname} — skipped (unknown domain: {domain})")
-            stats["skipped"] += 1
-            continue
-
-        items = extractor(r["content"], source)
-        if not items:
-            log_entries.append(f"[x] {fname} — processed, 0 items extracted")
-            stats["processed"] += 1
-            continue
-
-        overview = write_knowledge(domain, r["slug"], r["title"], items, source)
-        log_entries.append(
-            f"[x] {fname} — {domain}/{r['slug']}/ → {len(items)} items")
-        stats["processed"] += 1
-        stats["items"] += len(items)
-
-    if log_entries:
-        if not DRY_RUN:
-            append_log(log_entries)
-            update_index()
-        print(f"蒸馏完成: {stats['processed']} 篇处理, "
-              f"{stats['skipped']} 篇跳过, {stats['items']} 条知识")
-        if DRY_RUN:
-            print("(dry-run, 未落盘)")
-            for e in log_entries:
-                print(f"  {e}")
+    if LLM_ON:
+        print(f"[LLM 编译模式] model={DISTILL_MODEL}")
+        _run_compiled(reports)
     else:
-        print("无新报告需要蒸馏")
-
-    # 藏书楼视图：每次都重建，始终反映当前 knowledge/ 状态
+        print("[规则模式] 未设 AIMETER_KEY，走 1:1 增量蒸馏")
+        _run_incremental(reports)
     if not DRY_RUN:
         page = build_knowledge_page()
         print(f"藏书楼视图: {page.relative_to(REPO_DIR)}")
 
+
+def _run_incremental(reports: list):
+    """规则路径：增量，1 报告 = 1 主题（无 key 时的兑底，保留原行为）。"""
+    done = processed_files()
+    log_entries, stats = [], {"skipped": 0, "processed": 0, "items": 0}
+    for r in reports:
+        fname, domain, source = r["file"], r["domain"], r["file"]
+        if fname in done:
+            continue
+        if domain == "ephemeral":
+            log_entries.append(f"[x] {fname} — skipped (ephemeral)"); stats["skipped"] += 1; continue
+        extractor = EXTRACTORS.get(domain)
+        if not extractor:
+            log_entries.append(f"[x] {fname} — skipped (unknown domain)"); stats["skipped"] += 1; continue
+        items = extractor(r["content"], source)
+        if not items:
+            log_entries.append(f"[x] {fname} — processed, 0 items extracted"); stats["processed"] += 1; continue
+        write_knowledge(domain, r["slug"], r["title"], items, source)
+        log_entries.append(f"[x] {fname} — {domain}/{r['slug']}/ → {len(items)} items")
+        stats["processed"] += 1; stats["items"] += len(items)
+    if log_entries:
+        if not DRY_RUN:
+            append_log(log_entries); update_index()
+        print(f"蒸馏完成: {stats['processed']} 篇处理, {stats['skipped']} 篇跳过, {stats['items']} 条知识")
+        if DRY_RUN:
+            print("(dry-run, 未落盘)")
+            for e in log_entries: print(f"  {e}")
+    else:
+        print("无新报告需要蒸馏")
+
+
+def _run_compiled(reports: list):
+    """LLM 路径：规则抽骨架 → LLM 语义聚类 → 每主题综合+矛盾 → 全量重编译。"""
+    members_data = {}
+    for r in reports:
+        d = r["domain"]
+        tag = _read_meta(r["content"], "tag")
+        if d == "ephemeral" or d not in EXTRACTORS:
+            continue
+        if tag.upper().startswith("META"):
+            continue  # 卷首/关于本书，非知识，不蒸馏
+        items = EXTRACTORS[d](r["content"], r["file"])
+        if not items:
+            continue  # 抽不到骨架的不进编译
+        members_data[r["slug"]] = {"title": r["title"], "domain": d, "items": items, "file": r["file"]}
+    if not members_data:
+        print("无可编译报告"); return
+
+    catalog = [{"slug": s, "title": m["title"], "items": m["items"], "domain": m["domain"]}
+               for s, m in members_data.items()]
+    clusters = llm_cluster(catalog)
+    if not clusters:
+        print("  ! 聚类失败，退回规则增量")
+        _run_incremental(reports); return
+
+    # 全量重编译：清空旧 topic 目录（knowledge 是 gitignored 构建产物，可重建）
+    if not DRY_RUN:
+        for d in ("tech", "design"):
+            ddir = KNOWLEDGE_DIR / d
+            if ddir.exists():
+                for sub in ddir.iterdir():
+                    if sub.is_dir():
+                        shutil.rmtree(sub)
+
+    n_synth = n_contra = 0
+    for c in clusters:
+        ms = c["members"]
+        compiled = None
+        if len(ms) >= 2:
+            payload = []
+            for s in ms:
+                md = members_data[s]
+                payload.append({"slug": s, "title": md["title"],
+                                "excerpt": _read_md_excerpt(md["file"]),
+                                "conclusions": [it["text"] for it in md["items"] if it["kind"] == "conclusion"],
+                                "traps": [it["text"] for it in md["items"] if it["kind"] == "trap"]})
+            compiled = llm_compile_topic(c["topic"], payload)
+            if compiled["synthesis"]: n_synth += 1
+            n_contra += len(compiled["contradictions"])
+        if not DRY_RUN:
+            write_knowledge_compiled(c, members_data, compiled)
+    if not DRY_RUN:
+        append_log([f"[compiled] {datetime.now().strftime('%Y-%m-%d %H:%M')} "
+                    f"model={DISTILL_MODEL} topics={len(clusters)} synth={n_synth} contra={n_contra}"])
+        update_index()
+    print(f"LLM 编译完成: {len(members_data)} 篇 → {len(clusters)} 主题, 综合 {n_synth}, 分歧 {n_contra}")
 
 if __name__ == "__main__":
     distill()
