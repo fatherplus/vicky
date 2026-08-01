@@ -625,10 +625,11 @@ def _safe_slug(topic: str, member_slugs: list) -> str:
     """主题名 → 目录名：优先用成员 slug 拼接（稳定、可重建），单源直接用该 slug。"""
     if len(member_slugs) == 1:
         return member_slugs[0]
-    # 多源：取首个 slug + 主题哈希后缀，避免中文目录名问题
+    # 多源：目录名 = 排序后成员 slug 集合的 hash（与 LLM 给的 topic 名解耦，稳定不产生孤儿）
     import hashlib
-    h = hashlib.md5(topic.encode()).hexdigest()[:6]
-    base = re.sub(r"[^a-z0-9]+", "-", member_slugs[0].lower()).strip("-") or "topic"
+    sorted_ms = sorted(member_slugs)
+    h = hashlib.md5("|".join(sorted_ms).encode()).hexdigest()[:6]
+    base = re.sub(r"[^a-z0-9]+", "-", sorted_ms[0].lower()).strip("-") or "topic"
     return f"{base}--{h}"
 
 # ============================================================
@@ -937,7 +938,7 @@ def _src_link(src: str) -> str:
             f'title="{html.escape(href)}">{html.escape(short)}</a>')
 
 
-def _render_card(domain: str, topic: str, ov: dict) -> str:
+def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "") -> str:
     conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
     # KSI 徽章：只展示存在的节，数量诚实
     badges = []
@@ -970,7 +971,7 @@ def _render_card(domain: str, topic: str, ov: dict) -> str:
     return (f'<article class="kcard reveal" data-domain="{domain}" data-search="{search_blob}">'
             f'<div class="kcard-top"><span class="dtab {domain}">{domain}</span>'
             f'<span class="conf {conf_cls}" title="置信度：{conf_label}">{conf_label}</span></div>'
-            f'<h3 class="ktitle">{html.escape(ov["title"])}</h3>'
+            f'<h3 class="ktitle">{html.escape(ov["title"])}{html.escape(title_suffix)}</h3>'
             f'<div class="kmeta">更新于 {ov["updated"]} · {ov["sources"]} 篇来源 · '
             f'<code>{html.escape(topic)}</code></div>'
             f'<div class="ksi">{"".join(badges)}</div>'
@@ -997,12 +998,17 @@ def build_knowledge_page() -> Path:
             if ov["sources"] >= 2:  # 多源 = 经过 LLM 交叉综合
                 total_synth += 1
     ntopics = sum(len(v) for v in topics_by_domain.values())
+    # 同名主题（LLM 聚类随机性导致同名不同成员）加来源数后缀，便于区分
+    from collections import Counter
+    title_count = Counter(ov["title"] for dom in topics_by_domain.values() for _, ov in dom)
 
     sections_html = []
     for domain, topics in topics_by_domain.items():
         if not topics:
             continue
-        cards = "\n".join(_render_card(domain, t, ov) for t, ov in topics)
+        cards = "\n".join(
+            _render_card(domain, t, ov, f' · {ov["sources"]}源' if title_count.get(ov["title"], 0) > 1 else "")
+            for t, ov in topics)
         sections_html.append(
             f'<section class="pavilion" data-domain="{domain}">'
             f'<div class="pav-head reveal"><span class="pav-tab {domain}"></span>'
