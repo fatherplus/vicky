@@ -172,15 +172,31 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
     """纯 stdlib 调 OpenAI 兼容网关。失败返回 None（调用方降级）。"""
     if not LLM_ON:
         return None
+    # 节流：网关在密集调用时限流（伪装 400/404），强制调用间最小间隔模拟稳定节奏
+    import time as _t
+    now = _t.time()
+    gap = 5 - (now - getattr(llm_chat, "_last", 0))
+    if gap > 0:
+        _t.sleep(gap)
+    llm_chat._last = _t.time()
+    # 网关对部分模型要求 content 为数组格式，统一规范化（OpenAI 标准兼容）
+    norm_msgs = []
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, str):
+            c = [{"type": "text", "text": c}]
+        norm_msgs.append({"role": m["role"], "content": c})
     body = json.dumps({
         "model": DISTILL_MODEL, "temperature": 0, "max_tokens": max_tokens,
-        "messages": messages,
+        "messages": norm_msgs,
     }).encode()
     req = urllib.request.Request(
         AIMETER_BASE + "/chat/completions", data=body,
         headers={"Authorization": "Bearer " + AIMETER_KEY,
                  "Content-Type": "application/json"})
-    for attempt in range(2):
+    import time
+    BACKOFF = [6, 18, 45]  # 网关把限流伪装成 400/404，长退避给网关恢复时间
+    for attempt in range(4):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 d = json.loads(resp.read())
@@ -190,10 +206,14 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
             if not content:
                 content = msg.get("reasoning_content") or ""
             return content
-        except (urllib.error.URLError, urllib.error.HTTPError, KeyError, TimeoutError) as e:
-            if attempt == 0:
-                import time; time.sleep(1.5); continue
-            print(f"  ! LLM 调用失败: {e}", file=sys.stderr)
+        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, TimeoutError) as e:
+            if attempt < 3:
+                time.sleep(BACKOFF[attempt]); continue
+            err = ""
+            if isinstance(e, urllib.error.HTTPError):
+                try: err = e.read().decode()[:200]
+                except Exception: pass
+            print(f"  ! LLM 调用失败({attempt+1}次): {e} {err}", file=sys.stderr)
             return None
     return None
 
@@ -292,37 +312,55 @@ def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
     t = md_path.read_text(encoding="utf-8")
     return t[:maxlen] + ("…[截断]" if len(t) > maxlen else "")
 def llm_compile_topic(topic: str, members: list) -> dict:
-    """对多源主题做综合 + 矛盾检测（合并 1 次调用）。
-    members: [{slug,title,conclusions:[..],traps:[..]}]。返回 {synthesis, contradictions:[{point,sides}]}。"""
+    """LLM 读各篇原文，为主题编译一整篇浓缩 wiki（结构化 JSON）。
+    返回 {summary, points:[..], data:[..], traps:[..], contradictions:[{point,sides}]}。
+    正文主体全部由 LLM 从原文编译，不再拼规则抽取的碎片。"""
     blocks = []
     for m in members:
         ex = m.get("excerpt", "")
         if ex:
             blocks.append(f"[{m['slug']}] 《{m['title']}》\n{ex}")
         else:
-            cs = "\n".join(f"    · 结论: {t}" for t in m["conclusions"]) or "    · （无显式结论）"
-            ts = "\n".join(f"    · 陷阱: {t}" for t in m["traps"])
-            blocks.append(f"[{m['slug']}] 《{m['title']}》\n{cs}" + ("\n" + ts if ts else ""))
+            blocks.append(f"[{m['slug']}] 《{m['title']}》\n    · （无正文摘录）")
     body = "\n\n".join(blocks)
+    n = len(members)
+    cross = "交叉综合这些来源的共识、互补与演进脉络" if n >= 2 else "提炼这篇报告的核心知识"
     prompt = (
-        f"你是知识库编辑，正在为主题『{topic}』编译来自 {len(members)} 篇报告的交叉知识。下面是各报告正文摘录，请据此提炼。\n"
-        "任务：1) synthesis：用 2-4 句中文综合这些来源的共识、互补与演进脉络，写实质内容，不要废话套话，不要说『缺乏结论』；"
-        "2) contradictions：找出来源之间真正的观点冲突（同一问题给出相反结论/推荐），"
-        "每项给出 point(矛盾点) 和 sides(冲突双方，用 [slug] 开头引用原话)；若无真矛盾返回空数组。"
-        "只输出 JSON 对象，形如 "
-        '{"synthesis":"...","contradictions":[{"point":"...","sides":["[slugA] ...","[slugB] ..."]}]}。\n\n' + body)
-    raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=2000, timeout=300)
+        f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {n} 篇报告（下方摘录，每段以 [slug] 标注来源）。\n"
+        f"请{cross}，产出一份读者读完即懂该主题的完整浓缩内容。要求：写实质内容，含具体机制/数字/名称，不要废话套话，不要说『缺乏结论』；"
+        "每条要点/数据/陷阱末尾用 [slug] 标注它出自哪篇（可多个）。\n"
+        "输出一个 JSON 对象，字段：\n"
+        '- summary: 字符串，2-4 句概述该主题是什么、解决什么问题、各来源如何互补或演进；\n',
+        '- points: 字符串数组，核心要点（3-8 条），每条一句实质陈述，编译自原文，不要照抄标题；\n',
+        '- data: 字符串数组，真正有意义的数字/事实/对比（0-6 条），只收有信息量的，禁止空泛行；\n',
+        '- traps: 字符串数组，陷阱/反模式/踩坑点（0-5 条）；\n',
+        '- contradictions: 数组，来源间真正的观点冲突，每项 {point, sides:[\"[slugX] 原话\",...]}；无则空数组。\n',
+        '只输出该 JSON 对象，不要任何解释。\n\n' + body)
+    raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=3000, timeout=300)
+    empty = {"summary": "", "points": [], "data": [], "traps": [], "contradictions": []}
     if not raw:
-        return {"synthesis": "", "contradictions": []}
+        return empty
     data = _parse_json_loose(raw)
     if not isinstance(data, dict):
-        return {"synthesis": "", "contradictions": []}
+        return empty
+    def strs(key, lim):
+        out = []
+        for x in (data.get(key) or [])[:lim]:
+            if isinstance(x, str) and x.strip():
+                out.append(x.strip())
+        return out
     contra = []
-    for c in data.get("contradictions", []) or []:
+    for c in (data.get("contradictions") or [])[:6]:
         if isinstance(c, dict) and c.get("point") and c.get("sides"):
             contra.append({"point": str(c["point"]).strip(),
                            "sides": [str(s).strip() for s in c["sides"]]})
-    return {"synthesis": str(data.get("synthesis", "")).strip(), "contradictions": contra}
+    return {
+        "summary": str(data.get("summary", "")).strip(),
+        "points": strs("points", 8),
+        "data": strs("data", 6),
+        "traps": strs("traps", 5),
+        "contradictions": contra,
+    }
 
 # ============================================================
 # 报告扫描与路由
@@ -520,29 +558,24 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     conf = "high" if n >= 3 else "medium" if n >= 2 else "low"
     today = datetime.now().strftime("%Y-%m-%d")
     model_tag = DISTILL_MODEL if (LLM_ON and compiled) else "规则"
-    compiled = compiled or {"synthesis": "", "contradictions": []}
+    compiled = compiled or {"summary": "", "points": [], "data": [], "traps": [], "contradictions": []}
+    # 容错：LLM 编译无实质内容时不写（不拿空页/标题兑底页覆盖旧的好内容）
+    if not compiled["summary"] and not compiled["points"] and not compiled["contradictions"]:
+        return None
 
-    # 聚合各 kind，保留 [slug] 锚点，去重
-    agg: dict[str, list[str]] = {"conclusion": [], "trap": [], "data": [], "refuted": []}
-    for slug in member_slugs:
-        md = members_data.get(slug, {})
-        for it in md.get("items", []):
-            line = f'{it["text"]} [{slug}]'
-            bucket = agg.setdefault(it["kind"], [])
-            if line not in bucket:
-                bucket.append(line)
-
-    # 一句话结论：优先 LLM 综合，单源/失败时取首条结论兑底
-    oneliner = compiled["synthesis"]
-    if not oneliner:
-        oneliner = (agg["conclusion"][0].rsplit(" [", 1)[0]
-                    if agg["conclusion"] else members_data[member_slugs[0]]["title"])
+    summary = compiled["summary"]
+    if not summary:
+        summary = members_data[member_slugs[0]]["title"]  # 有 points 但无 summary 时的兑底
 
     lines = [f"# {topic}", "",
-             f"> Updated: {today} | Sources: {n} | Confidence: {conf} | 编译自 {n} 篇 · 模型 {model_tag}", ""]
-    lines += ["## 一句话结论", "", f"- {oneliner}", ""]
-    if n >= 2 and agg["conclusion"]:
-        lines += ["## 共识", ""] + [f"- {x}" for x in agg["conclusion"]] + [""]
+             f"> Updated: {today} | Sources: {n} | Confidence: {conf} | 编译自 {n} 篇 · 模型 {model_tag}", "",
+             "## 概述", "", summary, ""]
+    if compiled["points"]:
+        lines += ["## 核心要点", ""] + [f"- {x}" for x in compiled["points"]] + [""]
+    if compiled["data"]:
+        lines += ["## 关键数据", ""] + [f"- {x}" for x in compiled["data"]] + [""]
+    if compiled["traps"]:
+        lines += ["## 陷阱与反模式", ""] + [f"- {x}" for x in compiled["traps"]] + [""]
     if compiled["contradictions"]:
         lines.append("## 分歧")
         lines.append("")
@@ -550,14 +583,10 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
             sides = "　↔　".join(c["sides"])
             lines.append(f"- **{c['point']}**：{sides}")
         lines.append("")
-    if agg["trap"]:
-        lines += ["## 陷阱", ""] + [f"- {x}" for x in agg["trap"]] + [""]
-    if agg["data"]:
-        lines += ["## 关键数据", ""] + [f"- {x}" for x in agg["data"]] + [""]
-    # 来源交叉引用（karpathy 互链）
+    # 来源交叉引用（karpathy 互链）——去重保序
     lines.append("## 来源")
     lines.append("")
-    for slug in member_slugs:
+    for slug in dict.fromkeys(member_slugs):
         lines.append(f"- {members_data[slug]['title']} [{slug}]")
     lines.append("")
 
@@ -624,9 +653,10 @@ CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存
 DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
 SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
            "关键数据": "data", "分歧": "disag", "综合": "synth",
-           "一句话结论": "concl", "共识": "agree", "来源": "src"}
+           "一句话结论": "concl", "共识": "agree", "来源": "src",
+           "概述": "concl", "核心要点": "concl", "陷阱与反模式": "trap"}
 # 结构性节（不进 KSI 计数徽章行，只作正文展示）
-STRUCT_SECS = {"一句话结论", "来源"}
+STRUCT_SECS = {"一句话结论", "概述", "来源"}
 
 _KNOWLEDGE_TPL = """<!DOCTYPE html>
 <html lang="zh-CN">
@@ -746,6 +776,8 @@ h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;li
 .ksec ul{list-style:none}
 .ksec li{font-size:13.5px;line-height:1.65;padding:5px 0 5px 16px;position:relative;color:var(--ink)}
 .ksec li::before{content:"·";position:absolute;left:2px;color:var(--sub);font-weight:700}
+.kprose{font-size:13.5px;line-height:1.75;color:var(--ink);margin:0;padding-left:12px;
+  border-left:2px solid var(--accent);opacity:.92}
 .ksec.disag{border-left:2px solid var(--seal);padding-left:12px;margin-left:-14px;background:rgba(166,58,46,.035);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
 .ksec.synth{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
 .ksec.agree{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
@@ -865,6 +897,9 @@ def parse_overview(text: str) -> dict:
             sm = re.search(r"\[([^\]]+)\]$", item)
             src = sm.group(1) if sm else ""
             cur["items"].append({"text": _strip_tags(re.sub(r"\s*\[[^\]]+\]$", "", item)), "source": src})
+        elif cur is not None and line.strip():
+            # 裸文本行（如「概述」散文）也收为条目，保证 LLM 编译的正文能显示
+            cur["items"].append({"text": _strip_tags(line.strip()), "source": ""})
     return {"title": title, **meta, "sections": sections}
 
 
@@ -897,6 +932,11 @@ def _render_card(domain: str, topic: str, ov: dict) -> str:
         if not s["items"]:
             continue
         cls = SEC_CLS.get(s["label"], "")
+        if s["label"] in ("概述", "一句话结论"):
+            prose = " ".join(html.escape(it["text"]) for it in s["items"])
+            secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html.escape(s["label"])}</div>'
+                        f'<p class="kprose">{prose}</p></div>')
+            continue
         lis = "".join(
             f'<li>{html.escape(it["text"])}{_src_link(it["source"])}</li>' for it in s["items"])
         secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html.escape(s["label"])}</div>'
@@ -1036,37 +1076,30 @@ def _run_compiled(reports: list):
         print("  ! 聚类失败，退回规则增量")
         _run_incremental(reports); return
 
-    # 全量重编译：清空旧 topic 目录（knowledge 是 gitignored 构建产物，可重建）
-    if not DRY_RUN:
-        for d in ("tech", "design"):
-            ddir = KNOWLEDGE_DIR / d
-            if ddir.exists():
-                for sub in ddir.iterdir():
-                    if sub.is_dir():
-                        shutil.rmtree(sub)
+    # 容错增量：不清空旧目录。compile 成功的主题写盘，失败的保留旧内容（write 内部判空不写）。
+    # 多次跑可累积成功编译；网关抖动时不会拿空页/垃圾覆盖已有的好内容。
 
-    n_synth = n_contra = 0
+    n_synth = n_contra = n_fail = 0
     for c in clusters:
         ms = c["members"]
-        compiled = None
-        if len(ms) >= 2:
-            payload = []
-            for s in ms:
-                md = members_data[s]
-                payload.append({"slug": s, "title": md["title"],
-                                "excerpt": _read_md_excerpt(md["file"]),
-                                "conclusions": [it["text"] for it in md["items"] if it["kind"] == "conclusion"],
-                                "traps": [it["text"] for it in md["items"] if it["kind"] == "trap"]})
-            compiled = llm_compile_topic(c["topic"], payload)
-            if compiled["synthesis"]: n_synth += 1
-            n_contra += len(compiled["contradictions"])
+        # excerpt 动态长度：多源每篇短、单源可长，防思考链超时
+        maxlen = max(1200, min(3000, 6000 // len(ms)))
+        payload = [{"slug": s, "title": members_data[s]["title"],
+                    "excerpt": _read_md_excerpt(members_data[s]["file"], maxlen)}
+                   for s in ms]
+        compiled = llm_compile_topic(c["topic"], payload)
+        n_contra += len(compiled["contradictions"])
         if not DRY_RUN:
-            write_knowledge_compiled(c, members_data, compiled)
+            written = write_knowledge_compiled(c, members_data, compiled)
+            if written:
+                if compiled["summary"] or compiled["points"]: n_synth += 1
+            else:
+                n_fail += 1  # compile 无实质内容，保留旧 overview
     if not DRY_RUN:
         append_log([f"[compiled] {datetime.now().strftime('%Y-%m-%d %H:%M')} "
-                    f"model={DISTILL_MODEL} topics={len(clusters)} synth={n_synth} contra={n_contra}"])
+                    f"model={DISTILL_MODEL} topics={len(clusters)} synth={n_synth} contra={n_contra} fail={n_fail}"])
         update_index()
-    print(f"LLM 编译完成: {len(members_data)} 篇 → {len(clusters)} 主题, 综合 {n_synth}, 分歧 {n_contra}")
+    print(f"LLM 编译完成: {len(members_data)} 篇 → {len(clusters)} 主题, 综合 {n_synth}, 分歧 {n_contra}, 失败保留旧 {n_fail}")
 
 if __name__ == "__main__":
     distill()
