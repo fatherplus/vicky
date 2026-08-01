@@ -34,11 +34,12 @@ LOG_PATH = KNOWLEDGE_DIR / "log.md"
 INDEX_PATH = KNOWLEDGE_DIR / "index.md"
 
 DRY_RUN = "--dry-run" in sys.argv
+CLEAN = "--clean" in sys.argv  # 显式清空 knowledge 重建（部署/换模型时用；日常增量不删，防网关抖动丢内容）
 
 # LLM 编译配置（C 方案）：无 key 时 distill 退回纯规则路径，不破坏现有流程
 AIMETER_KEY = os.environ.get("AIMETER_KEY", "").strip()
 AIMETER_BASE = os.environ.get("AIMETER_BASE", "https://aimeter.xk-devops.com/v1").strip().rstrip("/")
-DISTILL_MODEL = os.environ.get("DISTILL_MODEL", "deepseek-v4-flash").strip()
+DISTILL_MODEL = os.environ.get("DISTILL_MODEL", "glm-5.2-fast").strip()  # 非思考链、JSON 遵从好、整跑稳；deepseek-v4-flash 思考链易吃空 content
 LLM_ON = bool(AIMETER_KEY)
 
 
@@ -175,7 +176,7 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
     # 节流：网关在密集调用时限流（伪装 400/404），强制调用间最小间隔模拟稳定节奏
     import time as _t
     now = _t.time()
-    gap = 5 - (now - getattr(llm_chat, "_last", 0))
+    gap = 4 - (now - getattr(llm_chat, "_last", 0))
     if gap > 0:
         _t.sleep(gap)
     llm_chat._last = _t.time()
@@ -194,28 +195,24 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
         AIMETER_BASE + "/chat/completions", data=body,
         headers={"Authorization": "Bearer " + AIMETER_KEY,
                  "Content-Type": "application/json"})
-    import time
-    BACKOFF = [6, 18, 45]  # 网关把限流伪装成 400/404，长退避给网关恢复时间
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                d = json.loads(resp.read())
-            msg = d["choices"][0]["message"]
-            content = msg.get("content")
-            # 思考链模型长 prompt 下 content 可能被 reasoning 吃空：回退 reasoning 末尾供解析抠 JSON
-            if not content:
-                content = msg.get("reasoning_content") or ""
-            return content
-        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, TimeoutError) as e:
-            if attempt < 3:
-                time.sleep(BACKOFF[attempt]); continue
-            err = ""
-            if isinstance(e, urllib.error.HTTPError):
-                try: err = e.read().decode()[:200]
-                except Exception: pass
-            print(f"  ! LLM 调用失败({attempt+1}次): {e} {err}", file=sys.stderr)
-            return None
-    return None
+    # 不重试：失败重试会在网关限流时连发形成风暴（诊断证明无重试+固定间隔才稳）；
+    # 丢的主题靠容错增量下一轮补。节奏完全由函数开头的节流控制。
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            d = json.loads(resp.read())
+        msg = d["choices"][0]["message"]
+        content = msg.get("content")
+        # 思考链模型长 prompt 下 content 可能被 reasoning 吃空：回退 reasoning 末尾供解析抠 JSON
+        if not content:
+            content = msg.get("reasoning_content") or ""
+        return content
+    except (urllib.error.HTTPError, urllib.error.URLError, KeyError, TimeoutError) as e:
+        err = ""
+        if isinstance(e, urllib.error.HTTPError):
+            try: err = e.read().decode()[:160]
+            except Exception: pass
+        print(f"  ! LLM 调用失败: {e} {err}", file=sys.stderr)
+        return None
 
 
 def _norm_clusters(data, reports: list) -> list:
@@ -303,6 +300,31 @@ def llm_cluster(reports: list) -> list:
     return out
 
 
+def _heuristic_cluster(catalog: list) -> list:
+    """启发式兆底聚类：网关不可用时按关键词把报告聚成多源主题。
+    不完美但保证多源分组成立，比 1:1 垃圾强；网关恢复后 LLM 聚类会覆盖它。"""
+    BUCKETS = [  # (主题名, domain, 关键词)
+        ("向量检索与 RAG", "tech", ["rag", "retrieval", "top-k", "topk", "hnsw", "向量", "检索", "lightrag", "embed"]),
+        ("Agent 记忆与上下文", "tech", ["memory", "hindsight", "记忆", "weaver", "上下文"]),
+        ("图谱与知识库基础设施", "tech", ["pggraph", "pgcontext", "图谱", "graph", "gamekb", "知识库"]),
+        ("用量与成本治理", "tech", ["用量", "usage", "cost", "成本", "aimeter", "治理", "token"]),
+        ("Agent 工程工具链", "tech", ["codegraph", "ponytail", "context7", "skill", "工具链"]),
+        ("知识数据源配置", "tech", ["knowledge-sources", "数据源", "知识源"]),
+    ]
+    groups = {name: {"topic": name, "domain": dom, "members": []} for name, dom, _ in BUCKETS}
+    used = set()
+    for r in catalog:
+        hay = (r["slug"] + " " + r["title"]).lower()
+        placed = False
+        for name, dom, kws in BUCKETS:
+            if any(k in hay for k in kws):
+                groups[name]["members"].append(r["slug"]); used.add(r["slug"]); placed = True; break
+        if not placed:
+            groups[r["title"]] = {"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]}
+            used.add(r["slug"])
+    out = [g for g in groups.values() if g["members"]]
+    return out or None
+
 def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
     """读报告的 .md 李生原文作 LLM 编译原料（信息比规则抽取完整得多）。无则空。"""
     name = report_file[:-5] if report_file.endswith(".html") else report_file
@@ -317,24 +339,26 @@ def llm_compile_topic(topic: str, members: list) -> dict:
     正文主体全部由 LLM 从原文编译，不再拼规则抽取的碎片。"""
     blocks = []
     for m in members:
-        ex = m.get("excerpt", "")
-        if ex:
-            blocks.append(f"[{m['slug']}] 《{m['title']}》\n{ex}")
-        else:
-            blocks.append(f"[{m['slug']}] 《{m['title']}》\n    · （无正文摘录）")
+        # 喂规则抽的结构化摘要（短，网关能跑），而非全文 excerpt（长，整跑负载下网关 400/思考链爆）
+        parts = ([f"    · 结论: {t}" for t in (m.get("conclusions") or [])]
+                 + [f"    · 陷阱: {t}" for t in (m.get("traps") or [])]
+                 + [f"    · 数据: {t}" for t in (m.get("data") or [])])
+        if not parts:
+            parts = ["    · （无结构化摘要）"]
+        blocks.append(f"[{m['slug']}] 《{m['title']}》\n" + "\n".join(parts))
     body = "\n\n".join(blocks)
     n = len(members)
     cross = "交叉综合这些来源的共识、互补与演进脉络" if n >= 2 else "提炼这篇报告的核心知识"
     prompt = (
-        f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {n} 篇报告（下方摘录，每段以 [slug] 标注来源）。\n"
+        f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {n} 篇报告的结构化摘要（结论/陷阱/数据，每段以 [slug] 标注来源）。\n"
         f"请{cross}，产出一份读者读完即懂该主题的完整浓缩内容。要求：写实质内容，含具体机制/数字/名称，不要废话套话，不要说『缺乏结论』；"
         "每条要点/数据/陷阱末尾用 [slug] 标注它出自哪篇（可多个）。\n"
         "输出一个 JSON 对象，字段：\n"
-        '- summary: 字符串，2-4 句概述该主题是什么、解决什么问题、各来源如何互补或演进；\n',
-        '- points: 字符串数组，核心要点（3-8 条），每条一句实质陈述，编译自原文，不要照抄标题；\n',
-        '- data: 字符串数组，真正有意义的数字/事实/对比（0-6 条），只收有信息量的，禁止空泛行；\n',
-        '- traps: 字符串数组，陷阱/反模式/踩坑点（0-5 条）；\n',
-        '- contradictions: 数组，来源间真正的观点冲突，每项 {point, sides:[\"[slugX] 原话\",...]}；无则空数组。\n',
+        '- summary: 字符串，2-4 句概述该主题是什么、解决什么问题、各来源如何互补或演进；\n'
+        '- points: 字符串数组，核心要点（3-8 条），每条一句实质陈述，编译自原文，不要照抄标题；\n'
+        '- data: 字符串数组，真正有意义的数字/事实/对比（0-6 条），只收有信息量的，禁止空泛行；\n'
+        '- traps: 字符串数组，陷阱/反模式/踩坑点（0-5 条）；\n'
+        '- contradictions: 数组，来源间真正的观点冲突，每项 {point, sides:[\"[slugX] 原话\",...]}；无则空数组。\n'
         '只输出该 JSON 对象，不要任何解释。\n\n' + body)
     raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=3000, timeout=300)
     empty = {"summary": "", "points": [], "data": [], "traps": [], "contradictions": []}
@@ -1010,6 +1034,14 @@ def build_knowledge_page() -> Path:
 
 def distill():
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
+    if CLEAN:
+        for d in ("tech", "design"):
+            ddir = KNOWLEDGE_DIR / d
+            if ddir.exists():
+                for sub in ddir.iterdir():
+                    if sub.is_dir():
+                        shutil.rmtree(sub)
+        print("[clean] 已清空 knowledge/{tech,design}")
     reports = scan_reports()
     if LLM_ON:
         print(f"[LLM 编译模式] model={DISTILL_MODEL}")
@@ -1073,8 +1105,10 @@ def _run_compiled(reports: list):
                for s, m in members_data.items()]
     clusters = llm_cluster(catalog)
     if not clusters:
-        print("  ! 聚类失败，退回规则增量")
-        _run_incremental(reports); return
+        print("  ! LLM 聚类不可用（网关抖动），用启发式兆底聚类")
+        clusters = _heuristic_cluster(catalog)
+    if not clusters:
+        print("无可聚类内容"); return
 
     # 容错增量：不清空旧目录。compile 成功的主题写盘，失败的保留旧内容（write 内部判空不写）。
     # 多次跑可累积成功编译；网关抖动时不会拿空页/垃圾覆盖已有的好内容。
@@ -1082,10 +1116,10 @@ def _run_compiled(reports: list):
     n_synth = n_contra = n_fail = 0
     for c in clusters:
         ms = c["members"]
-        # excerpt 动态长度：多源每篇短、单源可长，防思考链超时
-        maxlen = max(1200, min(3000, 6000 // len(ms)))
         payload = [{"slug": s, "title": members_data[s]["title"],
-                    "excerpt": _read_md_excerpt(members_data[s]["file"], maxlen)}
+                    "conclusions": [it["text"] for it in members_data[s]["items"] if it["kind"] == "conclusion"],
+                    "traps": [it["text"] for it in members_data[s]["items"] if it["kind"] == "trap"],
+                    "data": [it["text"] for it in members_data[s]["items"] if it["kind"] == "data"]}
                    for s in ms]
         compiled = llm_compile_topic(c["topic"], payload)
         n_contra += len(compiled["contradictions"])
