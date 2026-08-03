@@ -25,7 +25,7 @@ import shutil
 import html as html_mod
 import html  # build_knowledge_page 用 html.escape
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 
 REPO_DIR = Path(__file__).resolve().parent
 REPORTS_DIR = REPO_DIR / "public" / "reports"
@@ -41,6 +41,7 @@ AIMETER_KEY = os.environ.get("AIMETER_KEY", "").strip()
 AIMETER_BASE = os.environ.get("AIMETER_BASE", "https://aimeter.xk-devops.com/v1").strip().rstrip("/")
 DISTILL_MODEL = os.environ.get("DISTILL_MODEL", "glm-5.2-fast").strip()  # 非思考链、JSON 遵从好、整跑稳；deepseek-v4-flash 思考链易吃空 content
 LLM_ON = bool(AIMETER_KEY)
+STALE_DAYS = 90  # 编译知识的默认保鲜期（过期视图标红提示重验）；按 type/domain 分化时改这里
 
 
 # ============================================================
@@ -215,27 +216,30 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
         return None
 
 
-def _norm_clusters(data, reports: list) -> list:
-    """宽容归一化 LLM 聚类输出：兼容对象数组 / 嵌套 slug 数组 / dict 三种格式。"""
+def _norm_clusters(data, reports: list, anchors: list | None = None) -> list:
+    """宽容归一化 LLM 聚类输出，并解析概念 id（命中锚点才认，防幻觉 id）。"""
+    anchors = anchors or []
+    anchor_by_id = {a["id"]: a for a in anchors if a.get("id")}
     slug_domain = {r["slug"]: r["domain"] for r in reports}
     slug_title = {r["slug"]: r["title"] for r in reports}
     valid = set(slug_domain)
-    groups = []  # (topic, [slugs], domain|None)
+    groups = []  # (cid, topic, [slugs], domain|None)
     if isinstance(data, dict):
         for k, v in data.items():
             if isinstance(v, list):
-                groups.append((str(k), [x for x in v if isinstance(x, str)], None))
+                groups.append(("", str(k), [x for x in v if isinstance(x, str)], None))
             elif isinstance(v, dict):
-                groups.append((str(k), [x for x in v.get("members", []) if isinstance(x, str)], v.get("domain")))
+                groups.append(("", str(k), [x for x in v.get("members", []) if isinstance(x, str)], v.get("domain")))
     elif isinstance(data, list):
         for c in data:
             if isinstance(c, dict):
                 ms = c.get("members") or c.get("slugs") or []
-                groups.append((str(c.get("topic", "")), [x for x in ms if isinstance(x, str)], c.get("domain")))
+                groups.append((str(c.get("id", "") or ""), str(c.get("topic", "")),
+                               [x for x in ms if isinstance(x, str)], c.get("domain")))
             elif isinstance(c, list):
-                groups.append(("", [x for x in c if isinstance(x, str)], None))
+                groups.append(("", "", [x for x in c if isinstance(x, str)], None))
     out, seen = [], set()
-    for topic, slugs, dom in groups:
+    for cid, topic, slugs, dom in groups:
         members = [s for s in slugs if s in valid and s not in seen]
         if not members:
             continue
@@ -243,60 +247,98 @@ def _norm_clusters(data, reports: list) -> list:
         if dom not in ("tech", "design"):
             from collections import Counter
             dom = Counter(slug_domain[s] for s in members).most_common(1)[0][0]
+        rid = cid if cid in anchor_by_id else ""  # 只认锚点里的 id，其余当新概念
         if not topic.strip():
-            topic = "、".join(slug_title[s] for s in members[:2]) + (" 等" if len(members) > 2 else "")
-        out.append({"topic": topic.strip(), "domain": dom, "members": members})
+            topic = (anchor_by_id[rid]["title"] if rid else
+                     "、".join(slug_title[s] for s in members[:2]) + (" 等" if len(members) > 2 else ""))
+        out.append({"id": rid, "topic": topic.strip(), "domain": dom, "members": members})
     for r in reports:
         if r["slug"] not in seen:
-            out.append({"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+            out.append({"id": "", "topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
     return out
 
 
-def _cluster_one_batch(batch: list) -> list:
-    """对一批报告（≤12 篇）做一次聚类。思考链模型在短列表上 content 不空。"""
+def _cluster_one_batch(batch: list, anchors: list | None = None) -> list:
+    """对一批报告（≤12 篇）聚类。anchors 非空时做增量聚类：优先归入已有概念。"""
+    anchors = anchors or []
+    anchor_block = ""
+    if anchors:
+        alines = []
+        for a in anchors:
+            have = ", ".join(a["members"][:8]) + ("…" if len(a["members"]) > 8 else "")
+            alines.append(f'- id={a["id"]} | {a["title"]} | 已含: {have or "无"}')
+        anchor_block = ("【已有概念】（语义匹配时优先归入，复用其 id 与 topic）\n" + "\n".join(alines) +
+                        "\n注意：members 只列下方【待归类报告】中你归进来的 slug，不要抄已含列表。\n\n")
     lines = [f'- slug={r["slug"]} | {r["title"]}' for r in batch]
     catalog = "\n".join(lines)
+    extra = ("把每篇待归类报告归入最匹配的已有概念（输出该概念的 id 与 topic）；" if anchors else
+             "把它们按【研究主题】聚类，语义相近的归为一组；")
+    id_rule = ("已有概念复用其 id；语义都不符才开新概念，新概念 id 填空字符串 \"\"、topic 用简洁中文短语。" if anchors else
+               "topic 用简洁中文短语。")
     prompt = (
-        "你是知识库编辑。下面是若干研究报告（slug + 标题）。"
-        "把它们按【研究主题】聚类，语义相近的归为一组（如多篇 RAG/检索/向量索引归一组）。"
-        "规则：members 必须是上面出现过的 slug 原样字符串；每个 slug 恰好归入一个主题；"
-        "domain 只能是 tech 或 design；topic 用简洁中文短语。"
-        "只输出 JSON 数组，不要任何解释。数组每个元素必须是含 topic 和 members 的对象，"
-        "禁止只输出 slug 数组。形如："
-        '[{"topic":"向量检索","domain":"tech","members":["hnsw-algorithm","dynamic-top-k-rag-adaptive-retrieval"]},'
-        '{"topic":"用量分析","domain":"tech","members":["aws-claude-usage-analysis-v5-2026-june-july"]}]\n\n' + catalog)
+        "你是知识库编辑。" + (anchor_block or "") + "【待归类报告】（slug + 标题）：\n" + catalog + "\n"
+        + extra + "规则：members 必须是待归类报告里的 slug 原样字符串；每个 slug 恰好归一处；"
+        "domain 只能是 tech 或 design；" + id_rule +
+        "只输出 JSON 数组，不要任何解释。每个元素是含 id/topic/domain/members 的对象，禁止只输出 slug 数组。形如："
+        '[{"id":"","topic":"向量检索","domain":"tech","members":["hnsw-algorithm"]},'
+        '{"id":"usage--abc","topic":"用量分析","domain":"tech","members":["aws-claude-usage"]}]\n\n')
     raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=6000, timeout=200)
     if not raw:
         return []
     data = _parse_json_loose(raw)
     if data is None:
         return []
-    return _norm_clusters(data, batch)
+    return _norm_clusters(data, batch, anchors)
 
 
-def llm_cluster(reports: list) -> list:
-    """全局语义聚类：分批（每批 12 篇，避免思考链过载）+ 跨批同名合并。失败返回 None。"""
+def _load_existing_concepts() -> list:
+    """读现有 knowledge 概念作增量聚类锚点（id + title + members）。兼容新旧格式。"""
+    anchors = []
+    for domain in ("tech", "design"):
+        ddir = KNOWLEDGE_DIR / domain
+        if not ddir.exists():
+            continue
+        for tdir in sorted(ddir.iterdir()):
+            ovf = tdir / "overview.md"
+            if not tdir.is_dir() or not ovf.exists():
+                continue
+            ov = parse_overview(ovf.read_text(encoding="utf-8"))
+            if not ov["title"]:
+                continue
+            cid = ov.get("id") or tdir.name
+            members = ov.get("source_reports") or []
+            if not members:  # 旧散文格式回退：从「来源」节抠 slug
+                for s in ov["sections"]:
+                    if s["label"] == "来源":
+                        members = [it["source"] for it in s["items"] if it["source"]]
+            anchors.append({"id": cid, "title": ov["title"], "members": members})
+    return anchors
+
+
+def llm_cluster(reports: list, anchors: list | None = None) -> list:
+    """全局语义聚类：分批（每批 12 篇）+ 跨批合并（id 优先，其次 topic 名）。失败返回 None。"""
     BATCH = 12
     all_clusters = []
     for i in range(0, len(reports), BATCH):
-        all_clusters += _cluster_one_batch(reports[i:i + BATCH])
+        all_clusters += _cluster_one_batch(reports[i:i + BATCH], anchors)
     if not all_clusters:
         return None
-    # 跨批同名合并（topic 名去空白归一化后相同则并 members）
     merged, order = {}, []
     for c in all_clusters:
-        key = re.sub(r"\s+", "", c["topic"]).lower() or c["topic"]
+        key = c["id"] if c["id"] else ("T:" + (re.sub(r"\s+", "", c["topic"]).lower() or c["topic"]))
         if key not in merged:
-            merged[key] = {"topic": c["topic"], "domain": c["domain"], "members": list(c["members"])}
+            merged[key] = {"id": c["id"], "topic": c["topic"], "domain": c["domain"], "members": list(c["members"])}
             order.append(key)
         else:
             seen = set(merged[key]["members"])
             merged[key]["members"] += [m for m in c["members"] if m not in seen]
+            if not merged[key]["id"]:  # 合并时若任一批带 id 则采纳
+                merged[key]["id"] = c["id"]
     out = [merged[k] for k in order]
     seen = {m for c in out for m in c["members"]}
     for r in reports:
         if r["slug"] not in seen:
-            out.append({"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+            out.append({"id": "", "topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
     return out
 
 
@@ -591,9 +633,20 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     if not summary:
         summary = members_data[member_slugs[0]]["title"]  # 有 points 但无 summary 时的兑底
 
-    lines = [f"# {topic}", "",
-             f"> Updated: {today} | Sources: {n} | Confidence: {conf} | 编译自 {n} 篇 · 模型 {model_tag}", "",
-             "## 概述", "", summary, ""]
+    # 目录名 = 持久 id（增量聚类复用 existing_id；id 落盘即持久，与目录名恒等）
+    slug = _safe_slug(topic, member_slugs, cluster.get("id", ""))
+    verified = "machine-confirmed" if n >= 2 else "unverified"
+    stale_after = (datetime.now() + timedelta(days=STALE_DAYS)).strftime("%Y-%m-%d")
+    meta = {
+        "id": slug, "title": topic, "type": "Topic", "domain": domain,
+        "status": "stable",
+        "generated": {"by": f"agent:{model_tag}", "at": today},
+        "verified": verified, "sources_count": n, "stale_after": stale_after,
+        "confidence": conf,
+        "source_reports": list(dict.fromkeys(member_slugs)),
+    }
+
+    lines = ["## 概述", "", summary, ""]
     if compiled["points"]:
         lines += ["## 核心要点", ""] + [f"- {x}" for x in compiled["points"]] + [""]
     if compiled["data"]:
@@ -607,22 +660,25 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
             sides = "　↔　".join(c["sides"])
             lines.append(f"- **{c['point']}**：{sides}")
         lines.append("")
-    # 来源交叉引用（karpathy 互链）——去重保序
+    # 来源交叉引用（人类读 + 视图渲染；机器读走 frontmatter 的 source_reports）
     lines.append("## 来源")
     lines.append("")
-    for slug in dict.fromkeys(member_slugs):
-        lines.append(f"- {members_data[slug]['title']} [{slug}]")
+    for s in dict.fromkeys(member_slugs):
+        lines.append(f"- {members_data[s]['title']} [{s}]")
     lines.append("")
 
-    tdir = _topic_dir(domain, _safe_slug(topic, member_slugs))
+    tdir = _topic_dir(domain, slug)
     tdir.mkdir(parents=True, exist_ok=True)
     overview = tdir / "overview.md"
-    overview.write_text("\n".join(lines), encoding="utf-8")
+    overview.write_text(dump_frontmatter(meta) + "\n".join(lines), encoding="utf-8")
     return overview
 
 
-def _safe_slug(topic: str, member_slugs: list) -> str:
-    """主题名 → 目录名：优先用成员 slug 拼接（稳定、可重建），单源直接用该 slug。"""
+def _safe_slug(topic: str, member_slugs: list, existing_id: str = "") -> str:
+    """主题 → 目录名。existing_id 非空时直接用（概念持久身份，增量聚类复用已有目录，
+    id 落盘即持久，不再重算，根除同名/孤儿）；否则单源用 slug、多源用成员集合 hash。"""
+    if existing_id:
+        return existing_id
     if len(member_slugs) == 1:
         return member_slugs[0]
     # 多源：目录名 = 排序后成员 slug 集合的 hash（与 LLM 给的 topic 名解耦，稳定不产生孤儿）
@@ -675,6 +731,8 @@ def append_log(entries: list[str]):
 # ============================================================
 
 CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
+VER_LABEL = {"unverified": ("未验证", "v-unv"), "machine-confirmed": ("机确认", "v-mach"),
+             "human-reviewed": ("人审", "v-human")}  # OKF 信任层级
 DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
 SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
            "关键数据": "data", "分歧": "disag", "综合": "synth",
@@ -781,6 +839,15 @@ h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;li
 .ktitle{font-family:var(--serif);font-size:19px;font-weight:700;line-height:1.4;margin-bottom:6px}
 .kmeta{font-size:12px;color:var(--sub);margin-bottom:12px}
 .kmeta code{font-family:var(--mono);font-size:10.5px;background:rgba(0,0,0,.05);padding:1px 6px;border-radius:2px}
+/* OKF 信任徽章 */
+.vbadge{font-size:10px;font-weight:600;letter-spacing:.5px;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px;vertical-align:1px}
+.v-unv{color:var(--sub);border-color:var(--sub);opacity:.8}
+.v-mach{color:var(--accent);border-color:rgba(12,74,110,.4);background:rgba(12,74,110,.05)}
+.v-human{color:var(--green);border-color:rgba(46,125,79,.45);background:rgba(46,125,79,.06)}
+.stale{color:#A63A2E;border-color:rgba(166,58,46,.5);background:rgba(166,58,46,.06);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px}
+.st-deprecated{color:#FBFAF7;background:var(--sub);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;margin-left:6px}
+.st-draft{color:var(--amber);border-color:rgba(176,141,87,.5);background:rgba(176,141,87,.08);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px}
+.kcard[data-status=deprecated]{opacity:.55;filter:saturate(.6)}
 .ksi{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px dashed var(--hairline);margin-bottom:14px}
 .kbadge{font-size:11px;padding:3px 9px;border-radius:2px;font-weight:500}
 .kbadge.concl{color:var(--accent);background:rgba(12,74,110,.09)}
@@ -900,13 +967,136 @@ __SECTIONS__
 </body>
 </html>"""
 
+# ============================================================
+# OKF 风格 frontmatter（自写解析/序列化，纯 stdlib，不引 PyYAML）
+# 只支持我们真用到的四种结构：标量 / 整数 / 内联映射 {} / 标量列表 -。
+# 概念持久身份、信任信号、过期时间都走这里，替代旧的散文元行。
+# ============================================================
+
+def _fm_q(s: str) -> str:
+    """标量序列化：需要时加双引号（含 : / # / 引号 / 花括号 / 逗号 / 空串 / 首尾空格）。"""
+    if (s == "" or s != s.strip() or ":" in s or "#" in s or
+            "\"" in s or "\\" in s or "{" in s or "}" in s or "," in s or "\n" in s):
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return s
+
+
+def _fm_unq(s: str) -> str:
+    """标量反序列化：去首尾空白 + 去配对双引号并反转义。"""
+    s = s.strip()
+    if len(s) >= 2 and s[0] == '"' and s[-1] == '"':
+        return s[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    return s
+
+
+def _fm_dump_val(v) -> str:
+    """值序列化：内联映射 → {k: v, ...}；其余当标量/整数。"""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, dict):
+        parts = [f"{k}: {_fm_q(str(vv))}" for k, vv in v.items()]
+        return "{" + ", ".join(parts) + "}"
+    return _fm_q(str(v))
+
+
+def dump_frontmatter(d: dict) -> str:
+    """dict → '---\\n...\\n---\\n'。列表写成多行 - 项。"""
+    lines = ["---"]
+    for k, v in d.items():
+        if isinstance(v, list):
+            lines.append(f"{k}:")
+            for item in v:
+                lines.append(f"  - {_fm_dump_val(item)}")
+        else:
+            lines.append(f"{k}: {_fm_dump_val(v)}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+def _fm_parse_inline(s: str) -> dict:
+    """解析内联映射 '{a: 1, b: x:y}'。值用首个 ': ' 分割（值内冒号无空格故安全）。"""
+    s = s.strip()
+    if s.startswith("{") and s.endswith("}"):
+        s = s[1:-1].strip()
+    out = {}
+    if not s:
+        return out
+    for part in s.split(", "):
+        if ": " in part:
+            kk, vv = part.split(": ", 1)
+            out[kk.strip()] = _fm_unq(vv)
+        elif ":" in part:  # 值无空格的退化情况
+            kk, vv = part.split(":", 1)
+            out[kk.strip()] = _fm_unq(vv)
+    return out
+
+
+def parse_frontmatter(text: str):
+    """解析 OKF frontmatter。返回 (meta_dict, body_str)；无 frontmatter 返回 ({}, text)。"""
+    if not text.startswith("---"):
+        return {}, text
+    lines = text.splitlines()
+    # 找第二个 ---
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end == -1:
+        return {}, text
+    meta, i, cur_list = {}, 1, None
+    for line in lines[1:end]:
+        if line.startswith("  - ") or line.startswith("- "):
+            if cur_list is not None:
+                cur_list.append(_fm_unq(line.split("- ", 1)[1]))
+            continue
+        if ":" not in line:
+            continue
+        k, rest = line.split(":", 1)
+        k = k.strip()
+        rest = rest.strip()
+        if rest == "":
+            meta[k] = []
+            cur_list = meta[k]
+        elif rest.startswith("{"):
+            meta[k] = _fm_parse_inline(rest)
+            cur_list = None
+        elif rest.lstrip("-").isdigit() and rest not in ("", "-"):
+            meta[k] = int(rest)
+            cur_list = None
+        else:
+            meta[k] = _fm_unq(rest)
+            cur_list = None
+    body = "\n".join(lines[end + 1:])
+    return meta, body
+
 
 def parse_overview(text: str) -> dict:
-    """把 overview.md 解析成结构化数据（标题/元信息/分节条目）。"""
-    title, meta, sections, cur = "", {"updated": "", "sources": 0, "confidence": "low"}, [], None
-    for line in text.splitlines():
+    """把 overview.md 解析成结构化数据。OKF frontmatter 优先，旧散文元行回退。"""
+    meta_fm, body = parse_frontmatter(text)
+    meta = {"updated": "", "sources": 0, "confidence": "low",
+            "status": "stable", "verified": "unverified", "stale_after": "",
+            "id": "", "generated": {}, "source_reports": []}
+    title = ""
+    if meta_fm:
+        title = str(meta_fm.get("title", ""))
+        gen = meta_fm.get("generated", {})
+        meta["updated"] = gen.get("at", "") if isinstance(gen, dict) else ""
+        meta["sources"] = meta_fm.get("sources_count", len(meta_fm.get("source_reports", [])))
+        meta["confidence"] = str(meta_fm.get("confidence", "low"))
+        meta["status"] = str(meta_fm.get("status", "stable"))
+        meta["verified"] = str(meta_fm.get("verified", "unverified"))
+        meta["stale_after"] = str(meta_fm.get("stale_after", ""))
+        meta["id"] = str(meta_fm.get("id", ""))
+        meta["generated"] = gen
+        meta["source_reports"] = meta_fm.get("source_reports", []) or []
+    sections, cur, scan = [], None, (body if meta_fm else text)
+    for line in scan.splitlines():
         if line.startswith("# "):
-            title = line[2:].strip()
+            if not title:
+                title = line[2:].strip()
         elif line.startswith("> "):
             m = re.search(r"Updated: ([\d-]+)", line)
             if m: meta["updated"] = m.group(1)
@@ -923,7 +1113,6 @@ def parse_overview(text: str) -> dict:
             src = sm.group(1) if sm else ""
             cur["items"].append({"text": _strip_tags(re.sub(r"\s*\[[^\]]+\]$", "", item)), "source": src})
         elif cur is not None and line.strip():
-            # 裸文本行（如「概述」散文）也收为条目，保证 LLM 编译的正文能显示
             cur["items"].append({"text": _strip_tags(line.strip()), "source": ""})
     return {"title": title, **meta, "sections": sections}
 
@@ -940,6 +1129,20 @@ def _src_link(src: str) -> str:
 
 def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "") -> str:
     conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
+    # OKF 信任徽章：verified 层级 + status + 过期（纯视觉提示，不建过滤筹码——0 数据时 YAGNI）
+    vlabel, vcls = VER_LABEL.get(ov.get("verified", "unverified"), ("未验证", "v-unv"))
+    vbadge = f'<span class="vbadge {vcls}" title="验证层级：{vlabel}">{vlabel}</span>'
+    status_tag = {"deprecated": '<span class="st-deprecated">已废弃</span>',
+                  "draft": '<span class="st-draft">草稿</span>'}.get(ov.get("status", "stable"), "")
+    stale = ""
+    sa = ov.get("stale_after", "")
+    if sa:
+        try:
+            if datetime.strptime(sa, "%Y-%m-%d") < datetime.now():
+                stale = '<span class="stale" title="已过保鲜期，建议重新验证">已过期</span>'
+        except ValueError:
+            pass
+    trust = f"{vbadge}{status_tag}{stale}"
     # KSI 徽章：只展示存在的节，数量诚实
     badges = []
     for s in ov["sections"]:
@@ -968,12 +1171,12 @@ def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "") -> s
                     f'<ul>{lis}</ul></div>')
     search_blob = html.escape((ov["title"] + " " + topic + " " +
                                " ".join(it["text"] for s in ov["sections"] for it in s["items"])).lower(), quote=True)
-    return (f'<article class="kcard reveal" data-domain="{domain}" data-search="{search_blob}">'
+    return (f'<article class="kcard reveal" data-domain="{domain}" data-status="{ov.get("status", "stable")}" data-search="{search_blob}">'
             f'<div class="kcard-top"><span class="dtab {domain}">{domain}</span>'
             f'<span class="conf {conf_cls}" title="置信度：{conf_label}">{conf_label}</span></div>'
             f'<h3 class="ktitle">{html.escape(ov["title"])}{html.escape(title_suffix)}</h3>'
             f'<div class="kmeta">更新于 {ov["updated"]} · {ov["sources"]} 篇来源 · '
-            f'<code>{html.escape(topic)}</code></div>'
+            f'<code>{html.escape(topic)}</code> {trust}</div>'
             f'<div class="ksi">{"".join(badges)}</div>'
             f'<div class="kbody">{"".join(secs)}</div></article>')
 
@@ -1109,7 +1312,10 @@ def _run_compiled(reports: list):
 
     catalog = [{"slug": s, "title": m["title"], "items": m["items"], "domain": m["domain"]}
                for s, m in members_data.items()]
-    clusters = llm_cluster(catalog)
+    anchors = _load_existing_concepts()  # 增量聚类：读现有概念作锚点（CLEAN 后为空→全量）
+    if anchors:
+        print(f"  增量聚类锚点: {len(anchors)} 个已有概念")
+    clusters = llm_cluster(catalog, anchors)
     if not clusters:
         print("  ! LLM 聚类不可用（网关抖动），用启发式兆底聚类")
         clusters = _heuristic_cluster(catalog)
