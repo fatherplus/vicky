@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>藏书楼 · 知识库 — ai-report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/research/assets/knowledge.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead reveal">
+    <div class="seal-big" aria-hidden="true">藏</div>
+    <div>
+      <div class="kicker">Knowledge Archive · 自动蒸馏</div>
+      <h1>藏书楼</h1>
+      <p class="mast-sub">从研究报告中蒸馏的可持续知识。每一页由 distill 自动运维，随报告提交而进化。</p>
+    </div>
+    <div class="ledger">
+      <div class="stat"><span class="stat-n" data-count="__TOPICS__">0</span><span class="stat-l">知识主题</span></div>
+      <div class="stat"><span class="stat-n" data-count="__SOURCES__">0</span><span class="stat-l">报告来源</span></div>
+      <div class="stat"><span class="stat-n" data-count="__DISAGREE__">0</span><span class="stat-l">分歧待裁</span></div>
+      <div class="stat"><span class="stat-n" data-count="__SYNTH__">0</span><span class="stat-l">已综合</span></div>
+    </div>
+  </header>
+
+  <div class="toolbar reveal">
+    <input id="q" class="search" type="search" placeholder="检索知识…" aria-label="检索知识">
+    <div class="chips">
+      <span class="chip on" data-d="all">全部<span class="n">__TOPICS__</span></span>
+      <span class="chip" data-d="tech">tech 阁<span class="n">__NTECH__</span></span>
+      <span class="chip" data-d="design">design 阁<span class="n">__NDESIGN__</span></span>
+    </div>
+  </div>
+
+  <main>
+__SECTIONS__
+    <div id="empty">无匹配的知识条目。</div>
+  </main>
+
+  <footer class="colophon">
+    <a href="/research/">← 返回目录</a>
+    <span>知识由 <code>distill.py</code> 自动蒸馏 · KSI 进化（AGREE · DISAGREE · SYNTHESIZE）· 生成于 __GEN__</span>
+  </footer>
+</div>
+
+<script>
+(function(){
+  var q=document.getElementById('q'),chips=[].slice.call(document.querySelectorAll('.chip')),domain='all';
+  function apply(){
+    var term=q.value.trim().toLowerCase();
+    [].forEach.call(document.querySelectorAll('.kcard'),function(c){
+      var okD=domain==='all'||c.dataset.domain===domain;
+      var okQ=!term||c.dataset.search.indexOf(term)>=0;
+      c.classList.toggle('hide',!(okD&&okQ));
+    });
+    [].forEach.call(document.querySelectorAll('.pavilion'),function(p){
+      var any=[].some.call(p.querySelectorAll('.kcard'),function(c){return !c.classList.contains('hide');});
+      p.classList.toggle('hide',!any);
+    });
+    document.getElementById('empty').classList.toggle('show',!document.querySelector('.pavilion:not(.hide)'));
+  }
+  chips.forEach(function(c){c.addEventListener('click',function(){
+    chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');domain=c.dataset.d;apply();});});
+  q.addEventListener('input',apply);
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.06});
+  [].forEach.call(document.querySelectorAll('.reveal'),function(el){io.observe(el);});
+  [].forEach.call(document.querySelectorAll('[data-count]'),function(el){
+    var target=+el.dataset.count,t0=null,dur=900;
+    function tick(t){if(t0===null)t0=t;var p=Math.min(1,(t-t0)/dur);
+      el.textContent=Math.round(target*(1-Math.pow(1-p,3)));if(p<1)requestAnimationFrame(tick);}
+    requestAnimationFrame(tick);});
+})();
+</script>
+</body>
+</html>

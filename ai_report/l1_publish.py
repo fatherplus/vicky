@@ -14,6 +14,7 @@ from pathlib import Path
 from . import config
 from . import store
 from . import l0_ingest
+from . import ui
 from .html_to_md import html_to_md
 
 # ============================================================
@@ -65,225 +66,31 @@ def render(template: str, **kwargs) -> str:
     return template
 
 
-_INDEX_TPL = """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 研究报告集 · 目录</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/research/assets/index.css">
-</head>
-<body>
-<div id="ribbon"></div>
-<header class="runninghead">
-  <div class="inner"><span class="book">《AI 研究报告集》</span><span class="chapter">目录 · CONTENTS</span></div>
-</header>
-
-<main class="page">
-  <div class="frontispiece">
-    <div class="kicker">AI-REPORT · 研究文库</div>
-    <div class="titleblock">
-      <div class="seal" aria-hidden="true">藏</div>
-      <h1>AI <span class="mark">研究</span>报告集</h1>
-      <p class="subtitle">技术研究与方案归档 —— 开源项目、算法机制与工程实践的深度研究。</p>
-    </div>
-    <div class="volume">
-      <span class="vtag">第一卷</span><span class="sep">·</span>
-      <span>__YEAR__</span><span class="sep">·</span>
-      <span>共 __TOTAL__ 篇</span>
-    </div>
-  </div>
-  __FRONTMATTER__
-  <div class="contents">
-    <div class="chead"><h2>目录</h2></div>
-    <div class="csub">CONTENTS · 按时间倒序 · 点类型筹码筛选，可与搜索叠加</div>
-
-    <div class="searchbox reveal">
-      <span class="search-ic">检</span>
-      <input type="text" id="tocSearch" placeholder="输入关键词，模糊匹配报告标题……" autocomplete="off">
-      <span class="search-hint" id="searchHint"></span>
-    </div>
-    <div class="noresult" id="noresult">没有匹配的报告</div>
-
-    <div class="chips reveal" id="chips">__CHIPS__</div>
-
-    __TOC__
-  </div>
-
-  <div class="agentpage">
-    <div class="acard reveal">
-      <div class="aseal" aria-hidden="true">启</div>
-      <div class="akicker">FOR AGENTS · 写作入口</div>
-      <h2 class="atitle">AI Agent 接入</h2>
-      <p class="adesc">本平台为 AI Agent 提供统一的研究报告发布入口。把提示词交给你的 Agent，或让它下载 Skill——它会先读写作规范，再按统一的"书"风格提交报告，自动套用主题色、版式与导航。</p>
-      <div class="asteps">
-        <div class="astep"><span class="anum">壹</span><div><b>读规范</b><code>GET /api/guide</code></div></div>
-        <div class="astep"><span class="anum">贰</span><div><b>看模板</b><code>GET /api/template</code></div></div>
-        <div class="astep"><span class="anum">叁</span><div><b>交报告</b><code>POST /api/reports</code></div></div>
-      </div>
-      <div class="abtns">
-        <button class="abtn primary" onclick="copyPrompt()">复制提示词</button>
-        <a class="abtn ghost" id="skillLink" href="/api/skill" download="ai-report-skill.md">下载 Skill</a>
-      </div>
-    </div>
-  </div>
-
-  <footer class="colophon">
-    <div class="book">《AI 研究报告集》· 第一卷</div>
-    <div class="pg">ai-report · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
-  </footer>
-</main>
-
-<script>
-var ribbon=document.getElementById('ribbon');
-function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';}
-addEventListener('scroll',setRibbon,{passive:true});setRibbon();
-var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
-document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
-/* 目录筛选：类型筹码 × 关键词搜索叠加生效 */
-var si=document.getElementById('tocSearch'),hint=document.getElementById('searchHint'),nores=document.getElementById('noresult');
-var items=Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
-var chips=Array.prototype.slice.call(document.querySelectorAll('.chip'));
-var fTag=null,fSeries=null,fDomain=null;
-function applyFilter(pop){
-  var q=si.value.trim().toLowerCase(),shown=0,active=!!(q||fTag||fSeries||fDomain);
-  items.forEach(function(it){
-    var hit=(!q||it.textContent.toLowerCase().indexOf(q)>=0)
-      &&(!fTag||it.getAttribute('data-tag')===fTag)
-      &&(!fSeries||it.getAttribute('data-series')===fSeries)
-      &&(!fDomain||it.getAttribute('data-domain')===fDomain);
-    it.style.display=hit?'':'none';
-    if(hit){shown++;if(pop){it.classList.remove('pop');void it.offsetWidth;it.classList.add('pop');}}
-  });
-  hint.textContent=active?shown+' 篇匹配':'';
-  nores.style.display=(active&&shown===0)?'block':'none';
-}
-chips.forEach(function(c){c.addEventListener('click',function(){
-  chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');
-  fTag=c.getAttribute('data-type')==='tag'?c.getAttribute('data-f'):null;
-  fSeries=c.getAttribute('data-type')==='series'?c.getAttribute('data-f'):null;
-  fDomain=c.getAttribute('data-type')==='domain'?c.getAttribute('data-f'):null;
-  applyFilter(true);
-});});
-si.addEventListener('input',function(){applyFilter(false);});
-/* 行内 tag / 丛书徽章点击 = 选中对应筹码 */
-Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series,.row-domain'),function(b){
-  b.addEventListener('click',function(e){
-    e.preventDefault();e.stopPropagation();
-    for(var i=0;i<chips.length;i++){var c=chips[i];
-      if(c.getAttribute('data-type')===b.getAttribute('data-type')&&c.getAttribute('data-f')===b.getAttribute('data-f')){c.click();break;}}
-  });
-});
-/* Agent 接入：API 与页面同源（Nginx 反代 /api/ → server.py）*/
-var API=location.origin;
-document.getElementById('skillLink').href=API+'/api/skill';
-function copyText(s){
-  if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(s);
-  return new Promise(function(res,rej){
-    var ta=document.createElement('textarea');ta.value=s;
-    ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
-    document.body.appendChild(ta);ta.focus();ta.select();
-    var ok=false;try{ok=document.execCommand('copy');}catch(e){}
-    ta.remove();ok?res():rej(new Error('copy failed'));
-  });
-}
-function toast(msg){
-  var t=document.createElement('div');t.className='atoast show';t.textContent=msg;document.body.appendChild(t);
-  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
-}
-function copyPrompt(){
-  var p=`当你需要写技术研究报告时，使用 ai-report 平台。
-1. 读取写作规范：GET ${API}/api/guide
-2. 查看 HTML 模板结构：GET ${API}/api/template
-3. 按规范写内容，提交：POST ${API}/api/reports
-   Body: {"title":"标题", "slug":"slug", "tag":"标签", "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
-4. 查看已发布报告：GET ${API}/api/reports`;
-  copyText(p).then(function(){toast('已复制到剪贴板');})
-    .catch(function(){toast('复制失败，请手动选择文本');});
-}
-</script>
-</body>
-</html>"""
+# _INDEX_TPL 已迁出到 views/index.html，通过 ui.load_view("index.html") 加载
+# 保留模块级别名供测试兼容（tests/util.py 注入 _INDEX_TPL 属性）
+_INDEX_TPL = None  # P3 前端抢救：启动时由 _init_index_tpl() 填充
 
 
 def build_index(reports: list[dict]) -> str:
     """生成书风格索引页。tag 以 META 开头的文档钉住「卷首」（关于本书），
-    其余按时间倒序进目录流，类型筹码（tag / 丛书）前端筛选。"""
+    其余按时间倒序进目录流，类型筹码（tag / 丛书）前端筛选。
+    P3 前端抢救：模板从 views/index.html 加载，片段用 ui.py。"""
     total = len(reports)
     front = [r for r in reports if r.get("tag", "").upper().startswith("META")]
     research = [r for r in reports if not r.get("tag", "").upper().startswith("META")]
-    # 卷首区（关于本书）
-    fm = [
-        f'<a class="fm-item reveal" href="/research/reports/{r["file"]}">'
-        f'<span class="fm-seal" aria-hidden="true">序</span>'
-        f'<span class="fm-body"><span class="fm-title">{html_mod.escape(r["title"])}</span>'
-        f'<span class="fm-desc">{html_mod.escape(r.get("subtitle") or "关于这个平台本身的设计说明。")}</span></span>'
-        f'<span class="fm-arrow">→</span></a>'
-        for r in front
-    ]
-    frontmatter = ""
-    if fm:
-        frontmatter = ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
-                       + "\n    ".join(fm) + "\n  </div>")
-    # 时间流（新在上；list_reports 已按日期倒序）+ 类型筹码（tag / 丛书 / domain）
-    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作"}
-    tag_count, series_count, domain_count = {}, {}, {}
+    # 给每条 research 打上 _tag/_series/_domain 字段供 ui.chips_html / ui.toc_row 使用
     for r in research:
-        tag = (r.get("tag") or "研究报告").strip() or "研究报告"
-        r["_tag"] = tag
-        tag_count[tag] = tag_count.get(tag, 0) + 1
-        sname = normalize_series(r["series"]) if r.get("series") else ""
-        r["_series"] = sname
-        if sname:
-            series_count[sname] = series_count.get(sname, 0) + 1
-        dom = r.get("domain") or "tech"
-        r["_domain"] = dom
-        domain_count[dom] = domain_count.get(dom, 0) + 1
+        r["_tag"] = (r.get("tag") or "研究报告").strip() or "研究报告"
+        r["_series"] = normalize_series(r["series"]) if r.get("series") else ""
+        r["_domain"] = r.get("domain") or "tech"
 
-    def toc_row(r, num):
-        delay = (num % 12) * 0.04
-        esc_tag = html_mod.escape(r["_tag"], quote=True)
-        esc_series = html_mod.escape(r["_series"], quote=True)
-        dom = r["_domain"]
-        esc_dom = html_mod.escape(DOMAIN_LABEL.get(dom, dom), quote=True)
-        badges = (f'<span class="row-domain {dom}" data-type="domain" data-f="{dom}">'
-                  f'{esc_dom}</span> '
-                  f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>')
-        if r["_series"]:
-            badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
-                       f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
-        sub = (f'<span class="toc-sub">{html_mod.escape(r["subtitle"])}</span>'
-               if r.get("subtitle") else "")
-        updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
-        return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/research/reports/{r["file"]}"'
-                f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}">'
-                f'<span class="toc-num">{num:02d}</span>'
-                f'<span class="toc-main"><span class="toc-line">'
-                f'<span class="toc-title">{html_mod.escape(r["title"])}</span>{badges}</span>{sub}</span>'
-                f'<span class="toc-dots"></span>'
-                f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
-
-    rows = [toc_row(r, i) for i, r in enumerate(research, 1)]
-
-    # 筹码：全部 + tag（按数量降序）+ 丛书（按数量降序）；小 tag 不再合并——数量诚实展示
-    chips = [f'<span class="chip on" data-type="all" data-f="">全部<span class="n">{len(research)}</span></span>']
-    for dom in ("tech", "design", "ephemeral"):
-        dn = domain_count.get(dom, 0)
-        if dn:
-            chips.append(f'<span class="chip chip-domain {dom}" data-type="domain" data-f="{dom}">'
-                         f'{html_mod.escape(DOMAIN_LABEL.get(dom, dom))}<span class="n">{dn}</span></span>')
-    for tag, n in sorted(tag_count.items(), key=lambda kv: (-kv[1], kv[0])):
-        chips.append(f'<span class="chip" data-type="tag" data-f="{html_mod.escape(tag, quote=True)}">'
-                     f'{html_mod.escape(tag)}<span class="n">{n}</span></span>')
-    for sname, n in sorted(series_count.items(), key=lambda kv: (-kv[1], kv[0])):
-        chips.append(f'<span class="chip chip-series" data-type="series" data-f="{html_mod.escape(sname, quote=True)}">'
-                     f'《{html_mod.escape(sname)}》<span class="n">{n}</span></span>')
-
+    frontmatter = ui.frontmatter_html(front)
+    chips = ui.chips_html(research)
+    rows = [ui.toc_row(r, i) for i, r in enumerate(research, 1)]
     year = reports[0]["date"][:4] if reports else str(datetime.now().year)
-    return (_INDEX_TPL
+
+    tpl = ui.load_view("index.html")
+    return (tpl
             .replace("__FRONTMATTER__", frontmatter)
             .replace("__CHIPS__", "\n    ".join(chips))
             .replace("__TOC__", "\n    ".join(rows))
@@ -399,15 +206,8 @@ def _series_siblings(series: str, reports: list) -> list:
     return sorted(sibs, key=lambda r: r["series_order"])
 
 
-def volume_nav_html(series: str, order: int, siblings: list) -> str:
-    prev_r = next((r for r in siblings if r["series_order"] == order - 1), None)
-    next_r = next((r for r in siblings if r["series_order"] == order + 1), None)
-    links = ""
-    if prev_r:
-        links += f'<a class="vol prev" href="{prev_r["file"]}">← 上一卷 · {html_mod.escape(prev_r["title"])}</a>'
-    if next_r:
-        links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html_mod.escape(next_r["title"])} →</a>'
-    return f'<nav class="volume-nav" data-series="{html_mod.escape(normalize_series(series))}">{links}</nav>'
+# P3 前端抢救：volume_nav_html 迁入 ui.py，此处保留别名供存量调用方（maintain_series_siblings 等）
+volume_nav_html = ui.volume_nav_html
 
 
 NAV_RE = re.compile(r'<nav class="volume-nav"[\s\S]*?</nav>')

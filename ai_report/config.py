@@ -13,6 +13,7 @@ from pathlib import Path
 REPO_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_DIR / "data"           # L0 快照 + sqlite DB（git-ignore）
 TEMPLATES_DIR = REPO_DIR / "templates"
+VIEWS_DIR = REPO_DIR / "views"         # P3 前端抢救：整页模板，纯 HTML + __占位符__
 DEFAULT_TEMPLATE = "book"
 REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"

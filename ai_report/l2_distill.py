@@ -29,6 +29,8 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 from . import config
+from . import store  # P2: adopted 反馈直查 feedbacks 表（不 import l3_feedback，防环，规格 §3）
+from . import ui  # P3 前端抢救：HTML 片段归拢 ui.py
 
 REPO_DIR = config.REPO_DIR
 REPORTS_DIR = config.REPORTS_DIR
@@ -146,7 +148,85 @@ def extract_design(html_content: str, source: str) -> list[dict]:
     return items
 
 
-EXTRACTORS = {"tech": extract_tech, "design": extract_design}
+def extract_tech_md(md_content: str, source: str) -> list[dict]:
+    """P2：从 .md 孪生报告提取技术知识条目（extract_tech 的 md 对应版）。
+    html_to_md 的映射：blockquote → `> …`；callout warn → `> ⚠️ …`；callout note → `> 📝 …`。
+    note 类 HTML 版本就不抽（只抽 warn），这里保持一致跳过 📝。"""
+    items = []
+    for text in _md_blockquotes(md_content):
+        if text.startswith("⚠️"):
+            items.append({"kind": "trap", "text": text.lstrip("⚠️").strip(), "source": source})
+        elif text.startswith("📝"):
+            continue  # callout note：与 HTML 版一致，不进骨架
+        else:
+            items.append({"kind": "conclusion", "text": text, "source": source})
+    for m in re.findall(r"~~([^~\n]+)~~", md_content):
+        items.append({"kind": "refuted", "text": m.strip(), "source": source})
+    for text in _md_tables(md_content):
+        items.append({"kind": "data", "text": text, "source": source})
+    return items
+
+
+def extract_design_md(md_content: str, source: str) -> list[dict]:
+    """P2：extract_design 的 md 对应版（反模式/结论/工具链/风格样本）。"""
+    items = []
+    for text in _md_blockquotes(md_content):
+        if text.startswith("⚠️"):
+            text = text.lstrip("⚠️").strip()
+            items.append({"kind": "trap", "text": text, "source": source})
+        elif text.startswith("📝"):
+            continue
+        elif re.search(r"不要|禁止|避免|不许|不能|别用", text):
+            items.append({"kind": "trap", "text": text, "source": source})
+        else:
+            items.append({"kind": "conclusion", "text": text, "source": source})
+    # 工具链：行内/围栏代码中的 npx/npm/pip 命令
+    for m in re.findall(r"`([^`]*(?:npx|npm|pip)[^`]*)`", md_content):
+        items.append({"kind": "data", "text": f"工具: {m.strip()}", "source": source})
+    # 样本：markdown 图片链接里的平台资产图
+    for m in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", md_content):
+        if "/assets/img/" in m:
+            items.append({"kind": "data", "text": f"风格样本: {m}", "source": source})
+    return items
+
+
+def _md_blockquotes(md_content: str) -> list[str]:
+    """连续 `> ` 行合成一个引用块，返回去前缀文本列表。"""
+    out, buf = [], []
+    for ln in md_content.splitlines():
+        if ln.startswith(">"):
+            buf.append(ln.lstrip(">").strip())
+        else:
+            if buf:
+                out.append(" ".join(x for x in buf if x).strip())
+                buf = []
+    if buf:
+        out.append(" ".join(x for x in buf if x).strip())
+    return [t for t in out if t]
+
+
+def _md_tables(md_content: str) -> list[str]:
+    """md 表格 → 关键数据点（对齐 HTML 版：取首行数据）。md 无 caption，用「数据表」。"""
+    results = []
+    lines = md_content.splitlines()
+    i = 0
+    while i < len(lines):
+        if lines[i].lstrip().startswith("|"):
+            block = []
+            while i < len(lines) and lines[i].lstrip().startswith("|"):
+                block.append(lines[i].strip())
+                i += 1
+            data_rows = [b for b in block if not re.fullmatch(r"\|(\s*:?-+:?\s*\|)+", b)]
+            # data_rows[0] 是表头，[1] 才是首行数据
+            if len(data_rows) >= 2:
+                cells = [c.strip() for c in data_rows[1].strip("|").split("|")]
+                results.append("数据表: " + " | ".join(c.replace("\\|", "|") for c in cells))
+        else:
+            i += 1
+    return results
+
+
+EXTRACTORS = {"tech": extract_tech_md, "design": extract_design_md}  # P2: 输入换 .md 孪生
 
 
 # ============================================================
@@ -379,10 +459,13 @@ def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
         return ""
     t = md_path.read_text(encoding="utf-8")
     return t[:maxlen] + ("…[截断]" if len(t) > maxlen else "")
-def llm_compile_topic(topic: str, members: list) -> dict:
+def llm_compile_topic(topic: str, members: list, feedbacks: list | None = None) -> dict:
     """LLM 读各篇原文，为主题编译一整篇浓缩 wiki（结构化 JSON）。
     返回 {summary, points:[..], data:[..], traps:[..], contradictions:[{point,sides}]}。
-    正文主体全部由 LLM 从原文编译，不再拼规则抽取的碎片。"""
+    正文主体全部由 LLM 从原文编译，不再拼规则抽取的碎片。
+    P2（规格 §6③）：feedbacks 为 adopted 使用写回，以 type=feedback 来源与报告平级进综合，
+    走既有 AGREE/DISAGREE/SYNTHESIZE 语义（[feedback#id] 可进 contradictions 的 sides）。"""
+    feedbacks = feedbacks or []
     blocks = []
     for m in members:
         # 喂规则抽的结构化摘要（短，网关能跑），而非全文 excerpt（长，整跑负载下网关 400/思考链爆）
@@ -392,13 +475,21 @@ def llm_compile_topic(topic: str, members: list) -> dict:
         if not parts:
             parts = ["    · （无结构化摘要）"]
         blocks.append(f"[{m['slug']}] 《{m['title']}》\n" + "\n".join(parts))
+    # P2：adopted 反馈作为平级来源进编译（证据+意见，agent 自报）
+    for fb in feedbacks:
+        blocks.append(f"[feedback#{fb['id']}] （使用写回 · {fb['agent']}）\n"
+                      f"    · 证据: {fb['evidence']}\n"
+                      f"    · 意见: {fb['opinion']}")
     body = "\n\n".join(blocks)
     n = len(members)
-    cross = "交叉综合这些来源的共识、互补与演进脉络" if n >= 2 else "提炼这篇报告的核心知识"
+    src_desc = (f"{n} 篇报告的结构化摘要（结论/陷阱/数据，每段以 [slug] 标注来源）"
+                if not feedbacks else
+                f"{n} 篇报告的结构化摘要与 {len(feedbacks)} 条已采纳的使用写回反馈（每段以 [slug] 或 [feedback#id] 标注来源）")
+    cross = "交叉综合这些来源的共识、互补与演进脉络" if (n + len(feedbacks)) >= 2 else "提炼这篇报告的核心知识"
     prompt = (
-        f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {n} 篇报告的结构化摘要（结论/陷阱/数据，每段以 [slug] 标注来源）。\n"
+        f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {src_desc}。\n"
         f"请{cross}，产出一份读者读完即懂该主题的完整浓缩内容。要求：写实质内容，含具体机制/数字/名称，不要废话套话，不要说『缺乏结论』；"
-        "每条要点/数据/陷阱末尾用 [slug] 标注它出自哪篇（可多个）。\n"
+        "每条要点/数据/陷阱末尾用 [slug] 或 [feedback#id] 标注它出自哪个来源（可多个）。\n"
         "输出一个 JSON 对象，字段：\n"
         '- summary: 字符串，2-4 句概述该主题是什么、解决什么问题、各来源如何互补或演进；\n'
         '- points: 字符串数组，核心要点（3-8 条），每条一句实质陈述，编译自原文，不要照抄标题；\n'
@@ -442,20 +533,31 @@ def _read_meta(html_content: str, name: str) -> str:
 
 
 def scan_reports() -> list[dict]:
-    """扫描 reports/，返回 [{file, domain, slug, title}]"""
+    """扫描 reports/，返回 [{file, domain, slug, title, content}]。
+    P2（规格 §2/§9-P2）：蒸馏输入从 .html 换成 .md 孪生文件——content 读 .md；
+    元数据（domain）查 L1 reports 表（元数据单一真相源，正则刮 HTML 退休），
+    title 从 md 首个 # 标题取；DB 无登记时 domain 兜底 tech。
+    file 字段仍记 .html 名——log.md 存量条目按 .html 名记，保持 processed_files 兼容。"""
     if not REPORTS_DIR.exists():
         return []
-    out = []
-    for f in sorted(REPORTS_DIR.glob("*.html")):
-        content = f.read_text(encoding="utf-8")
-        domain = _read_meta(content, "domain") or "tech"
-        slug_m = re.match(r"\d{4}-\d{2}-\d{2}-(.+)\.html", f.name)
-        slug = slug_m.group(1) if slug_m else f.stem
-        title_m = re.search(r"<title>(.+?)</title>", content)
-        title = title_m.group(1) if title_m else f.name
-        out.append({"file": f.name, "path": f, "domain": domain,
-                    "slug": slug, "title": title, "content": content})
-    return out
+    conn = store.get_db()
+    try:
+        out = []
+        for f in sorted(REPORTS_DIR.glob("*.md")):
+            slug_m = re.match(r"\d{4}-\d{2}-\d{2}-(.+)\.md", f.name)
+            slug = slug_m.group(1) if slug_m else f.stem
+            content = f.read_text(encoding="utf-8")
+            title_m = re.search(r"^# (.+)$", content, re.MULTILINE)
+            title = title_m.group(1).strip() if title_m else slug
+            row = store.get_report_by_slug(conn, slug)
+            domain = (row or {}).get("domain") or "tech"
+            if row and row.get("title"):
+                title = row["title"]  # DB 是元数据真相源，md 标题只是兜底
+            out.append({"file": f.name[:-3] + ".html", "path": f, "domain": domain,
+                        "slug": slug, "title": title, "content": content})
+        return out
+    finally:
+        conn.close()
 
 
 def processed_files() -> set[str]:
@@ -621,8 +723,10 @@ def write_knowledge(domain: str, slug: str, title: str,
 
 
 def write_knowledge_compiled(cluster: dict, members_data: dict,
-                             compiled: dict | None) -> Path:
-    """LLM 编译路径：写一个语义主题的 overview.md（多源聚合 + 交叉引用）。"""
+                             compiled: dict | None, feedbacks: list | None = None) -> Path:
+    """LLM 编译路径：写一个语义主题的 overview.md（多源聚合 + 交叉引用）。
+    P2：feedbacks 为本轮消费的 adopted 写回——frontmatter 记 feedback_sources: N（信任元数据，规格 §6③）。"""
+    feedbacks = feedbacks or []
     topic, domain, member_slugs = cluster["topic"], cluster["domain"], cluster["members"]
     n = len(member_slugs)
     conf = "high" if n >= 3 else "medium" if n >= 2 else "low"
@@ -648,6 +752,8 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
         "verified": verified, "sources_count": n, "stale_after": stale_after,
         "confidence": conf,
         "source_reports": list(dict.fromkeys(member_slugs)),
+        # P2（规格 §6③）：被使用、被检验写进信任元数据；0 也记，表明该主题尚未经使用回路
+        "feedback_sources": len(feedbacks),
     }
 
     lines = ["## 概述", "", summary, ""]
@@ -669,6 +775,8 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     lines.append("")
     for s in dict.fromkeys(member_slugs):
         lines.append(f"- {members_data[s]['title']} [{s}]")
+    for fb in feedbacks:  # P2：反馈即来源，与报告平级列在来源节
+        lines.append(f"- 使用写回（{fb['agent']}）：{fb['opinion']} [feedback#{fb['id']}]")
     lines.append("")
 
     tdir = _topic_dir(domain, slug)
@@ -731,245 +839,78 @@ def append_log(entries: list[str]):
 
 
 # ============================================================
-# 藏书楼视图（knowledge/ → public/knowledge/index.html）
+# P2：反馈消费与翻案（规格 §6③）
 # ============================================================
 
-CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
-VER_LABEL = {"unverified": ("未验证", "v-unv"), "machine-confirmed": ("机确认", "v-mach"),
-             "human-reviewed": ("人审", "v-human")}  # OKF 信任层级
-DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
-SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
-           "关键数据": "data", "分歧": "disag", "综合": "synth",
-           "一句话结论": "concl", "共识": "agree", "来源": "src",
-           "概述": "concl", "核心要点": "concl", "陷阱与反模式": "trap"}
-# 结构性节（不进 KSI 计数徽章行，只作正文展示）
-STRUCT_SECS = {"一句话结论", "概述", "来源"}
+# overview 里的反馈证据行（规则路径 sweep 用）
+FEEDBACK_LINE_RE = re.compile(r"^- .*\[feedback#\d+\].*$", re.MULTILINE)
 
-_KNOWLEDGE_TPL = """<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>藏书楼 · 知识库 — ai-report</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-<style>
-:root{--paper:#FBFAF7;--ink:#23272E;--sub:#6E7278;--accent:#0C4A6E;--seal:#A63A2E;
-  --green:#2E7D4F;--amber:#B08D57;--hairline:rgba(0,0,0,.08);--card:#FDFCF9;
-  --serif:'Noto Serif SC',serif;--sans:'Noto Sans SC',-apple-system,'PingFang SC',sans-serif;
-  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;}
-*{margin:0;padding:0;box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.7;
-  -webkit-font-smoothing:antialiased;}
-/* 栏线：古籍页面边框，双线 */
-body::before{content:"";position:fixed;inset:14px;border:1px solid var(--hairline);pointer-events:none;z-index:50}
-body::after{content:"";position:fixed;inset:19px;border:1px solid rgba(0,0,0,.045);pointer-events:none;z-index:50}
-::selection{background:rgba(12,74,110,.16)}
-.wrap{max-width:1080px;margin:0 auto;padding:0 44px}
 
-/* ===== 卷首：藏印 + 账本 ===== */
-.masthead{display:grid;grid-template-columns:auto 1fr auto;gap:36px;align-items:center;
-  padding:72px 0 40px;border-bottom:2px solid var(--ink);position:relative}
-.masthead::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:1px;background:var(--hairline)}
-.seal-big{width:96px;height:96px;background:var(--seal);color:#FBFAF7;font-family:var(--serif);
-  font-size:52px;font-weight:900;display:flex;align-items:center;justify-content:center;
-  border-radius:8px;transform:rotate(-4deg);box-shadow:inset 0 0 0 3px rgba(251,250,247,.28),
-  inset 0 0 18px rgba(0,0,0,.18),0 4px 14px rgba(166,58,46,.3);user-select:none;
-  transition:transform .4s cubic-bezier(.34,1.56,.64,1)}
-.masthead:hover .seal-big{transform:rotate(0deg) scale(1.03)}
-.kicker{font-family:var(--mono);font-size:11px;letter-spacing:2.5px;color:var(--seal);
-  text-transform:uppercase;font-weight:600;margin-bottom:10px}
-h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;line-height:1.1}
-.mast-sub{color:var(--sub);font-size:14px;margin-top:12px;max-width:460px}
-.ledger{display:grid;grid-template-columns:repeat(2,minmax(96px,auto));gap:0;border-left:1px solid var(--hairline);padding-left:36px}
-.stat{padding:10px 22px 10px 0;border-bottom:1px dashed var(--hairline)}
-.stat:nth-child(even){border-left:1px dashed var(--hairline);padding-left:22px}
-.stat:nth-child(3),.stat:nth-child(4){border-bottom:none}
-.stat-n{display:block;font-family:var(--mono);font-size:30px;font-weight:600;color:var(--accent);line-height:1.1}
-.stat:nth-child(3) .stat-n{color:var(--seal)}
-.stat:nth-child(4) .stat-n{color:var(--green)}
-.stat-l{font-size:11px;color:var(--sub);letter-spacing:1px}
+def _last_consumed_sets() -> dict:
+    """从 log.md 解析每主题最后一次消费的反馈 id 集：`- [fb] {topic} consumed: 1,2,3`。
+    append-only 日志，后记覆盖前记——翻案/新采纳都与它对比，不一致即重编译（防重复消费）。"""
+    sets = {}
+    if LOG_PATH.exists():
+        for m in re.finditer(r"^- \[fb\] (\S+) consumed: ([0-9, ]*)$",
+                             LOG_PATH.read_text(encoding="utf-8"), re.MULTILINE):
+            sets[m.group(1)] = {int(x) for x in re.findall(r"\d+", m.group(2))}
+    return sets
 
-/* ===== 检索 + 筛选 ===== */
-.toolbar{position:sticky;top:0;z-index:40;background:rgba(251,250,247,.92);backdrop-filter:blur(6px);
-  display:flex;gap:16px;align-items:center;padding:18px 0;border-bottom:1px solid var(--hairline)}
-.search{flex:0 0 260px;font-family:var(--sans);font-size:14px;padding:9px 14px;border:1px solid var(--hairline);
-  border-bottom:2px solid var(--sub);background:transparent;color:var(--ink);border-radius:2px;
-  transition:border-color .2s,box-shadow .2s;outline:none}
-.search:focus{border-bottom-color:var(--accent);box-shadow:0 2px 0 0 var(--accent)}
-.search::placeholder{color:var(--sub)}
-.chips{display:flex;gap:8px;flex-wrap:wrap}
-.chip{font-size:12.5px;padding:6px 14px;border:1px solid var(--hairline);border-radius:2px;cursor:pointer;
-  color:var(--sub);background:transparent;transition:all .2s;user-select:none}
-.chip .n{font-family:var(--mono);font-size:10.5px;margin-left:5px;opacity:.7}
-.chip:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
-.chip.on{background:var(--ink);color:var(--paper);border-color:var(--ink)}
-.chip.on .n{opacity:.85}
 
-/* ===== 阁（domain 分区）===== */
-.pavilion{padding:44px 0 8px}
-.pav-head{display:flex;align-items:baseline;gap:14px;margin-bottom:24px}
-.pav-tab{width:8px;height:26px;align-self:center;border-radius:1px}
-.pav-tab.tech{background:var(--accent)}
-.pav-tab.design{background:var(--seal)}
-.pav-head h2{font-family:var(--serif);font-size:26px;font-weight:700;letter-spacing:2px}
-.pav-count{font-family:var(--mono);font-size:12px;color:var(--sub)}
+def _sweep_feedbacks() -> list:
+    """规则（无 LLM）路径的反馈回灌：把每个主题的 overview 对齐到当前 adopted 集合。
+    - 新采纳 → 追加证据行；翻案（adopted→rejected）→ 删对应行，下轮即生效（规格 §6③）
+    - 幂等：与 log 里最后消费集一致的主题跳过；变更后记 [fb] 日志防重复。
+    - 外科式改文本（不走 write_knowledge 重建）：编译式/规则式 overview 都不破坏原结构。"""
+    consumed = _last_consumed_sets()
+    log_entries = []
+    conn = store.get_db()
+    try:
+        for domain in ("tech", "design"):
+            ddir = KNOWLEDGE_DIR / domain
+            if not ddir.exists():
+                continue
+            for tdir in sorted(ddir.iterdir()):
+                ovf = tdir / "overview.md"
+                if not tdir.is_dir() or not ovf.exists():
+                    continue
+                topic = tdir.name
+                adopted = store.adopted_feedbacks(conn, topic)
+                adopted_ids = {fb["id"] for fb in adopted}
+                if adopted_ids == consumed.get(topic, set()):
+                    continue  # 无变化（含「无反馈」主题），不碰文件
+                text = ovf.read_text(encoding="utf-8")
+                # 先清旧反馈行与旧「使用写回」整节（翻案即在这里生效）
+                text = FEEDBACK_LINE_RE.sub("", text)
+                text = re.sub(r"\n## 使用写回\s*\n(?:(?!## )[\s\S]*?)(?=\n## |\Z)", "\n", text)
+                if adopted:
+                    lines = [f"- {fb['evidence']}——意见：{fb['opinion']}（{fb['agent']}） [feedback#{fb['id']}]"
+                             for fb in adopted]
+                    text = text.rstrip() + "\n\n## 使用写回\n\n" + "\n".join(lines) + "\n"
+                ovf.write_text(text, encoding="utf-8")
+                ids = ",".join(str(i) for i in sorted(adopted_ids))
+                log_entries.append(f"[fb] {topic} consumed: {ids}")
+    finally:
+        conn.close()
+    return log_entries
 
-/* ===== 藏书卡片（masonry）===== */
-.cards{column-count:2;column-gap:22px}
-@media(max-width:820px){.cards{column-count:1}.masthead{grid-template-columns:auto 1fr}.ledger{display:none}}
-.kcard{break-inside:avoid;background:var(--card);border:1px solid var(--hairline);border-radius:3px;
-  padding:24px 26px 20px;margin-bottom:22px;position:relative;
-  transition:transform .25s ease,box-shadow .25s ease,border-color .25s ease}
-.kcard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:3px 0 0 3px;
-  background:var(--accent);opacity:.85;transition:width .25s}
-.kcard[data-domain=design]::before{background:var(--seal)}
-.kcard:hover{transform:translateY(-4px);box-shadow:0 10px 26px rgba(35,39,46,.1);border-color:rgba(0,0,0,.14)}
-.kcard:hover::before{width:5px}
-.kcard.hide{display:none}
-.kcard-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.dtab{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
-  padding:3px 9px;border-radius:2px;font-weight:600}
-.dtab.tech{color:var(--accent);background:rgba(12,74,110,.09)}
-.dtab.design{color:var(--seal);background:rgba(166,58,46,.09)}
-.conf{font-family:var(--serif);font-size:12px;font-weight:700;padding:3px 10px;border-radius:2px;
-  border:1.5px solid;transform:rotate(2deg);letter-spacing:2px;transition:transform .3s}
-.kcard:hover .conf{transform:rotate(0deg)}
-.conf.hi{color:var(--seal);border-color:var(--seal);background:rgba(166,58,46,.07)}
-.conf.mid{color:var(--amber);border-color:var(--amber);background:rgba(176,141,87,.08)}
-.conf.lo{color:var(--sub);border-color:var(--sub);opacity:.75}
-.ktitle{font-family:var(--serif);font-size:19px;font-weight:700;line-height:1.4;margin-bottom:6px}
-.kmeta{font-size:12px;color:var(--sub);margin-bottom:12px}
-.kmeta code{font-family:var(--mono);font-size:10.5px;background:rgba(0,0,0,.05);padding:1px 6px;border-radius:2px}
-/* OKF 信任徽章 */
-.vbadge{font-size:10px;font-weight:600;letter-spacing:.5px;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px;vertical-align:1px}
-.v-unv{color:var(--sub);border-color:var(--sub);opacity:.8}
-.v-mach{color:var(--accent);border-color:rgba(12,74,110,.4);background:rgba(12,74,110,.05)}
-.v-human{color:var(--green);border-color:rgba(46,125,79,.45);background:rgba(46,125,79,.06)}
-.stale{color:#A63A2E;border-color:rgba(166,58,46,.5);background:rgba(166,58,46,.06);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px}
-.st-deprecated{color:#FBFAF7;background:var(--sub);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;margin-left:6px}
-.st-draft{color:var(--amber);border-color:rgba(176,141,87,.5);background:rgba(176,141,87,.08);font-size:10px;font-weight:700;padding:2px 7px;border-radius:2px;border:1px solid;margin-left:6px}
-.kcard[data-status=deprecated]{opacity:.55;filter:saturate(.6)}
-.ksi{display:flex;gap:6px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px dashed var(--hairline);margin-bottom:14px}
-.kbadge{font-size:11px;padding:3px 9px;border-radius:2px;font-weight:500}
-.kbadge.concl{color:var(--accent);background:rgba(12,74,110,.09)}
-.kbadge.refut{color:var(--sub);background:rgba(0,0,0,.05)}
-.kbadge.trap{color:var(--amber);background:rgba(176,141,87,.12)}
-.kbadge.data{color:var(--sub);background:rgba(0,0,0,.05);font-family:var(--mono);font-size:10.5px}
-.kbadge.disag{color:#FBFAF7;background:var(--seal);font-weight:600}
-.kbadge.synth{color:var(--green);background:rgba(46,125,79,.1);font-weight:600}
-.kbadge.agree{color:var(--green);background:rgba(46,125,79,.1)}
-.kbadge.src{color:var(--sub);background:rgba(0,0,0,.05);font-family:var(--mono);font-size:10.5px}
-.ksec{margin-bottom:14px}
-.ksec:last-child{margin-bottom:0}
-.ksec-l{font-size:11px;font-weight:700;letter-spacing:1.5px;margin-bottom:6px;color:var(--sub)}
-.ksec.concl .ksec-l{color:var(--accent)}
-.ksec.disag .ksec-l{color:var(--seal)}
-.ksec.synth .ksec-l{color:var(--green)}
-.ksec.trap .ksec-l{color:var(--amber)}
-.ksec ul{list-style:none}
-.ksec li{font-size:13.5px;line-height:1.65;padding:5px 0 5px 16px;position:relative;color:var(--ink)}
-.ksec li::before{content:"·";position:absolute;left:2px;color:var(--sub);font-weight:700}
-.kprose{font-size:13.5px;line-height:1.75;color:var(--ink);margin:0;padding-left:12px;
-  border-left:2px solid var(--accent);opacity:.92}
-.ksec.disag{border-left:2px solid var(--seal);padding-left:12px;margin-left:-14px;background:rgba(166,58,46,.035);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
-.ksec.synth{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
-.ksec.agree{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px;background:rgba(46,125,79,.04);padding-top:8px;padding-bottom:8px;border-radius:0 2px 2px 0}
-.ksec.src{border-top:1px dashed var(--hairline);padding-top:12px;margin-top:4px}
-.ksec.src .ksec-l{color:var(--sub)}
-.ksec.src li{font-size:12.5px}
-.ksec.src li::before{content:"→";color:var(--accent);font-size:11px}
-.src{font-family:var(--mono);font-size:10px;color:var(--accent);text-decoration:none;
-  border-bottom:1px dotted var(--accent);opacity:.75;transition:opacity .2s;white-space:nowrap}
-.src:hover{opacity:1}
 
-/* ===== 空态 / 书尾 ===== */
-.none{text-align:center;color:var(--sub);padding:80px 0;font-size:14px}
-.none code{font-family:var(--mono);background:rgba(0,0,0,.05);padding:2px 8px;border-radius:2px}
-#empty{display:none;text-align:center;color:var(--sub);padding:60px 0;font-size:14px}
-#empty.show{display:block}
-.colophon{margin-top:60px;padding:28px 0 44px;border-top:2px solid var(--ink);display:flex;
-  justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--sub)}
-.colophon a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(12,74,110,.3);transition:border-color .2s}
-.colophon a:hover{border-bottom-color:var(--accent)}
-.colophon code{font-family:var(--mono);background:rgba(0,0,0,.05);padding:1px 6px;border-radius:2px}
+# ============================================================
+# 藏书楼视图（knowledge/ → public/knowledge/index.html）
+# P3 前端抢救：_KNOWLEDGE_TPL 迁到 views/knowledge.html
+# _render_card / _src_link 迁到 ui.py
+# 内联 CSS 提取到 public/assets/knowledge.css
+# ============================================================
 
-/* ===== 动效（克制）===== */
-.reveal{opacity:0;transform:translateY(16px);transition:opacity .6s ease,transform .6s cubic-bezier(.22,1,.36,1)}
-.reveal.in{opacity:1;transform:translateY(0)}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.reveal{opacity:1;transform:none}}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header class="masthead reveal">
-    <div class="seal-big" aria-hidden="true">藏</div>
-    <div>
-      <div class="kicker">Knowledge Archive · 自动蒸馏</div>
-      <h1>藏书楼</h1>
-      <p class="mast-sub">从研究报告中蒸馏的可持续知识。每一页由 distill 自动运维，随报告提交而进化。</p>
-    </div>
-    <div class="ledger">
-      <div class="stat"><span class="stat-n" data-count="__TOPICS__">0</span><span class="stat-l">知识主题</span></div>
-      <div class="stat"><span class="stat-n" data-count="__SOURCES__">0</span><span class="stat-l">报告来源</span></div>
-      <div class="stat"><span class="stat-n" data-count="__DISAGREE__">0</span><span class="stat-l">分歧待裁</span></div>
-      <div class="stat"><span class="stat-n" data-count="__SYNTH__">0</span><span class="stat-l">已综合</span></div>
-    </div>
-  </header>
+# P3 前端抢救：常量共享给 ui.py（此处保留别名，build_knowledge_page 中 DOMAIN_NAME 仍用）
+DOMAIN_NAME = ui.DOMAIN_NAME
 
-  <div class="toolbar reveal">
-    <input id="q" class="search" type="search" placeholder="检索知识…" aria-label="检索知识">
-    <div class="chips">
-      <span class="chip on" data-d="all">全部<span class="n">__TOPICS__</span></span>
-      <span class="chip" data-d="tech">tech 阁<span class="n">__NTECH__</span></span>
-      <span class="chip" data-d="design">design 阁<span class="n">__NDESIGN__</span></span>
-    </div>
-  </div>
+# 旧引用别名（build_knowledge_page 通过 _render_card 调用 ui.render_knowledge_card）
+_render_card = ui.render_knowledge_card
+_src_link = ui._src_link
 
-  <main>
-__SECTIONS__
-    <div id="empty">无匹配的知识条目。</div>
-  </main>
-
-  <footer class="colophon">
-    <a href="/research/">← 返回目录</a>
-    <span>知识由 <code>distill.py</code> 自动蒸馏 · KSI 进化（AGREE · DISAGREE · SYNTHESIZE）· 生成于 __GEN__</span>
-  </footer>
-</div>
-
-<script>
-(function(){
-  var q=document.getElementById('q'),chips=[].slice.call(document.querySelectorAll('.chip')),domain='all';
-  function apply(){
-    var term=q.value.trim().toLowerCase();
-    [].forEach.call(document.querySelectorAll('.kcard'),function(c){
-      var okD=domain==='all'||c.dataset.domain===domain;
-      var okQ=!term||c.dataset.search.indexOf(term)>=0;
-      c.classList.toggle('hide',!(okD&&okQ));
-    });
-    [].forEach.call(document.querySelectorAll('.pavilion'),function(p){
-      var any=[].some.call(p.querySelectorAll('.kcard'),function(c){return !c.classList.contains('hide');});
-      p.classList.toggle('hide',!any);
-    });
-    document.getElementById('empty').classList.toggle('show',!document.querySelector('.pavilion:not(.hide)'));
-  }
-  chips.forEach(function(c){c.addEventListener('click',function(){
-    chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');domain=c.dataset.d;apply();});});
-  q.addEventListener('input',apply);
-  var io=new IntersectionObserver(function(es){es.forEach(function(e){
-    if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.06});
-  [].forEach.call(document.querySelectorAll('.reveal'),function(el){io.observe(el);});
-  [].forEach.call(document.querySelectorAll('[data-count]'),function(el){
-    var target=+el.dataset.count,t0=null,dur=900;
-    function tick(t){if(t0===null)t0=t;var p=Math.min(1,(t-t0)/dur);
-      el.textContent=Math.round(target*(1-Math.pow(1-p,3)));if(p<1)requestAnimationFrame(tick);}
-    requestAnimationFrame(tick);});
-})();
-</script>
-</body>
-</html>"""
+# _KNOWLEDGE_TPL 已迁出到 views/knowledge.html，通过 ui.load_view("knowledge.html") 加载
+_KNOWLEDGE_TPL = None  # P3 前端抢救
 
 # ============================================================
 # OKF 风格 frontmatter（自写解析/序列化，纯 stdlib，不引 PyYAML）
@@ -1121,74 +1062,27 @@ def parse_overview(text: str) -> dict:
     return {"title": title, **meta, "sections": sections}
 
 
+# P3 前端抢救：_src_link 与 _render_card 已迁入 ui.py，此处保留别名
 def _src_link(src: str) -> str:
-    """证据锚点 → 报告短链接（去日期前缀，mono 小字）。"""
-    if not src:
-        return ""
-    short = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", src).removesuffix(".html")
-    href = src if src.endswith(".html") else src + ".html"
-    return (f' <a class="src" href="/research/reports/{html.escape(href)}" '
-            f'title="{html.escape(href)}">{html.escape(short)}</a>')
+    return ui._src_link(src)
 
 
-def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "") -> str:
-    conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
-    # OKF 信任徽章：verified 层级 + status + 过期（纯视觉提示，不建过滤筹码——0 数据时 YAGNI）
-    vlabel, vcls = VER_LABEL.get(ov.get("verified", "unverified"), ("未验证", "v-unv"))
-    vbadge = f'<span class="vbadge {vcls}" title="验证层级：{vlabel}">{vlabel}</span>'
-    status_tag = {"deprecated": '<span class="st-deprecated">已废弃</span>',
-                  "draft": '<span class="st-draft">草稿</span>'}.get(ov.get("status", "stable"), "")
-    stale = ""
-    sa = ov.get("stale_after", "")
-    if sa:
-        try:
-            if datetime.strptime(sa, "%Y-%m-%d") < datetime.now():
-                stale = '<span class="stale" title="已过保鲜期，建议重新验证">已过期</span>'
-        except ValueError:
-            pass
-    trust = f"{vbadge}{status_tag}{stale}"
-    # KSI 徽章：只展示存在的节，数量诚实
-    badges = []
-    for s in ov["sections"]:
-        if s["label"] in STRUCT_SECS:
-            continue
-        cls = SEC_CLS.get(s["label"], "")
-        n = len(s["items"])
-        if s["label"] == "综合":
-            badges.append(f'<span class="kbadge {cls}">综合 ✓</span>')
-        elif n:
-            badges.append(f'<span class="kbadge {cls}">{html.escape(s["label"])} {n}</span>')
-    # 正文分节
-    secs = []
-    for s in ov["sections"]:
-        if not s["items"]:
-            continue
-        cls = SEC_CLS.get(s["label"], "")
-        if s["label"] in ("概述", "一句话结论"):
-            prose = " ".join(html.escape(it["text"]) for it in s["items"])
-            secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html.escape(s["label"])}</div>'
-                        f'<p class="kprose">{prose}</p></div>')
-            continue
-        lis = "".join(
-            f'<li>{html.escape(it["text"])}{_src_link(it["source"])}</li>' for it in s["items"])
-        secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html.escape(s["label"])}</div>'
-                    f'<ul>{lis}</ul></div>')
-    search_blob = html.escape((ov["title"] + " " + topic + " " +
-                               " ".join(it["text"] for s in ov["sections"] for it in s["items"])).lower(), quote=True)
-    return (f'<article class="kcard reveal" data-domain="{domain}" data-status="{ov.get("status", "stable")}" data-search="{search_blob}">'
-            f'<div class="kcard-top"><span class="dtab {domain}">{domain}</span>'
-            f'<span class="conf {conf_cls}" title="置信度：{conf_label}">{conf_label}</span></div>'
-            f'<h3 class="ktitle">{html.escape(ov["title"])}{html.escape(title_suffix)}</h3>'
-            f'<div class="kmeta">更新于 {ov["updated"]} · {ov["sources"]} 篇来源 · '
-            f'<code>{html.escape(topic)}</code> {trust}</div>'
-            f'<div class="ksi">{"".join(badges)}</div>'
-            f'<div class="kbody">{"".join(secs)}</div></article>')
+def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "",
+                 fb_count: int = 0) -> str:
+    return ui.render_knowledge_card(domain, topic, ov, title_suffix, fb_count)
 
 
 def build_knowledge_page() -> Path:
-    """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。"""
+    """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。
+    P3 前端抢救：模板从 views/knowledge.html 加载，卡片片段用 ui.py。"""
     topics_by_domain: dict[str, list] = {"tech": [], "design": []}
     total_sources = total_disag = total_synth = 0
+    # P2：写回次数批量查（一次查完，卡片渲染用；循环可见，规格 §6④）
+    conn = store.get_db()
+    try:
+        fb_counts = store.feedback_counts(conn)
+    finally:
+        conn.close()
     for domain in ("tech", "design"):
         ddir = KNOWLEDGE_DIR / domain
         if not ddir.exists():
@@ -1213,19 +1107,12 @@ def build_knowledge_page() -> Path:
     for domain, topics in topics_by_domain.items():
         if not topics:
             continue
-        cards = "\n".join(
-            _render_card(domain, t, ov, f' · {ov["sources"]}源' if title_count.get(ov["title"], 0) > 1 else "")
-            for t, ov in topics)
-        sections_html.append(
-            f'<section class="pavilion" data-domain="{domain}">'
-            f'<div class="pav-head reveal"><span class="pav-tab {domain}"></span>'
-            f'<h2>{DOMAIN_NAME[domain]}</h2>'
-            f'<span class="pav-count">{len(topics)} 个主题</span></div>'
-            f'<div class="cards">{cards}</div></section>')
+        sections_html.append(ui.knowledge_pavilion_html(domain, topics, title_count, fb_counts))
     if not sections_html:
         sections_html.append('<p class="none reveal">知识库还是空的——提交报告后跑 <code>python3 distill.py</code>。</p>')
 
-    out = (_KNOWLEDGE_TPL
+    tpl = ui.load_view("knowledge.html")
+    out = (tpl
            .replace("__TOPICS__", str(ntopics))
            .replace("__SOURCES__", str(total_sources))
            .replace("__DISAGREE__", str(total_disag))
@@ -1267,8 +1154,15 @@ def distill():
         print(f"藏书楼视图: {page.relative_to(REPO_DIR)}")
 
 
+def _md_tag(md_content: str) -> str:
+    """md 孪生的 tag：首行 `_..._` 斜体 kicker（html_to_md 把 <div class=kicker> 映成它）。"""
+    m = re.match(r"\A_(.+)_\s*$", md_content)
+    return m.group(1).strip() if m else ""
+
+
 def _run_incremental(reports: list):
-    """规则路径：增量，1 报告 = 1 主题（无 key 时的兑底，保留原行为）。"""
+    """规则路径：增量，1 报告 = 1 主题（无 key 时的兑底，保留原行为）。
+    P2：报告循环后追加反馈 sweep——adopted 写回进 overview，翻案即删（规格 §6③）。"""
     done = processed_files()
     log_entries, stats = [], {"skipped": 0, "processed": 0, "items": 0}
     for r in reports:
@@ -1286,10 +1180,14 @@ def _run_incremental(reports: list):
         write_knowledge(domain, r["slug"], r["title"], items, source)
         log_entries.append(f"[x] {fname} — {domain}/{r['slug']}/ → {len(items)} items")
         stats["processed"] += 1; stats["items"] += len(items)
+    # P2：反馈回灌（新报告已处理/无新报告都要跑——反馈状态随时会变）
+    fb_entries = _sweep_feedbacks()
+    log_entries += fb_entries
     if log_entries:
         if not DRY_RUN:
             append_log(log_entries); update_index()
-        print(f"蒸馏完成: {stats['processed']} 篇处理, {stats['skipped']} 篇跳过, {stats['items']} 条知识")
+        print(f"蒸馏完成: {stats['processed']} 篇处理, {stats['skipped']} 篇跳过, "
+              f"{stats['items']} 条知识, {len(fb_entries)} 个主题反馈更新")
         if DRY_RUN:
             print("(dry-run, 未落盘)")
             for e in log_entries: print(f"  {e}")
@@ -1298,11 +1196,13 @@ def _run_incremental(reports: list):
 
 
 def _run_compiled(reports: list):
-    """LLM 路径：规则抽骨架 → LLM 语义聚类 → 每主题综合+矛盾 → 全量重编译。"""
+    """LLM 路径：规则抽骨架 → LLM 语义聚类 → 每主题综合+矛盾 → 全量重编译。
+    P2（规格 §6③）：每主题编译输入 += 该主题 adopted 反馈（直查 store，防环）；
+    消费的 id 记 [fb] 日志；全量重编译天然覆盖翻案（adopted→rejected 下轮自动生效）。"""
     members_data = {}
     for r in reports:
         d = r["domain"]
-        tag = _read_meta(r["content"], "tag")
+        tag = _md_tag(r["content"])  # P2：输入换 .md 后从 md kicker 读 tag
         if d == "ephemeral" or d not in EXTRACTORS:
             continue
         if tag.upper().startswith("META"):
@@ -1330,24 +1230,36 @@ def _run_compiled(reports: list):
     # 多次跑可累积成功编译；网关抖动时不会拿空页/垃圾覆盖已有的好内容。
 
     n_synth = n_contra = n_fail = 0
-    for c in clusters:
-        ms = c["members"]
-        payload = [{"slug": s, "title": members_data[s]["title"],
-                    "conclusions": [it["text"] for it in members_data[s]["items"] if it["kind"] == "conclusion"],
-                    "traps": [it["text"] for it in members_data[s]["items"] if it["kind"] == "trap"],
-                    "data": [it["text"] for it in members_data[s]["items"] if it["kind"] == "data"]}
-                   for s in ms]
-        compiled = llm_compile_topic(c["topic"], payload)
-        n_contra += len(compiled["contradictions"])
-        if not DRY_RUN:
-            written = write_knowledge_compiled(c, members_data, compiled)
-            if written:
-                if compiled["summary"] or compiled["points"]: n_synth += 1
-            else:
-                n_fail += 1  # compile 无实质内容，保留旧 overview
+    fb_log_entries = []
+    conn = store.get_db()
+    try:
+        for c in clusters:
+            ms = c["members"]
+            payload = [{"slug": s, "title": members_data[s]["title"],
+                        "conclusions": [it["text"] for it in members_data[s]["items"] if it["kind"] == "conclusion"],
+                        "traps": [it["text"] for it in members_data[s]["items"] if it["kind"] == "trap"],
+                        "data": [it["text"] for it in members_data[s]["items"] if it["kind"] == "data"]}
+                       for s in ms]
+            # P2：主题目录 id 即反馈 topic——先算 id 再查 adopted（与 write 时的 _safe_slug 同参，恒等）
+            tid = _safe_slug(c["topic"], ms, c.get("id", ""))
+            fbs = store.adopted_feedbacks(conn, tid)
+            compiled = llm_compile_topic(c["topic"], payload, fbs)
+            n_contra += len(compiled["contradictions"])
+            if not DRY_RUN:
+                written = write_knowledge_compiled(c, members_data, compiled, fbs)
+                if written:
+                    if compiled["summary"] or compiled["points"]: n_synth += 1
+                    if fbs:  # 消费落日志：防重复 + 翻案对比基线（规格 §6③）
+                        fb_log_entries.append(
+                            f"[fb] {tid} consumed: " + ",".join(str(f["id"]) for f in fbs))
+                else:
+                    n_fail += 1  # compile 无实质内容，保留旧 overview（反馈本轮未消费，不记日志）
+    finally:
+        conn.close()
     if not DRY_RUN:
         append_log([f"[compiled] {datetime.now().strftime('%Y-%m-%d %H:%M')} "
-                    f"model={DISTILL_MODEL} topics={len(clusters)} synth={n_synth} contra={n_contra} fail={n_fail}"])
+                    f"model={DISTILL_MODEL} topics={len(clusters)} synth={n_synth} contra={n_contra} fail={n_fail}"]
+                   + fb_log_entries)
         update_index()
     print(f"LLM 编译完成: {len(members_data)} 篇 → {len(clusters)} 主题, 综合 {n_synth}, 分歧 {n_contra}, 失败保留旧 {n_fail}")
 
