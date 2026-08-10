@@ -173,7 +173,7 @@ class TestMcpTools(unittest.TestCase):
             status, data = _call_tool("submit_feedback", {
                 "topic": "hnsw-algorithm", "domain": "tech", "agent": "mcp-test",
                 "evidence": "实测 hnsw 检索延迟符合 overview 描述（小数据集 10 万条 8ms）",
-                "opinion": "建议补充索引构建耗时的对比", "cited": ["test-report-1"]})
+                "opinion": "建议补充索引构建耗时的对比"})
             self.assertEqual(status, 200)
             self.assertNotIn("error", data)
             result = _tool_result(data)

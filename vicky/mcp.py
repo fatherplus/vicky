@@ -141,6 +141,7 @@ from . import l0_ingest
 from . import l1_publish
 from . import l3_feedback
 from . import knowledge_query  # P4 读线：知识 Wiki 查询（三阶段管线）
+from . import store  # P5 引用回灌：知识条目 ID 校验
 
 # domain 路由表：与 AGENT-GUIDE.md「domain 路由」表格一致（key 取自 config.DOMAINS）
 DOMAIN_DESCRIPTIONS = {
@@ -263,9 +264,18 @@ def _submit_feedback(params: dict) -> dict:
     opinion = str(params.get("opinion") or "").strip()
     cited = params.get("cited") or []
     if isinstance(cited, list):
-        cited_str = ",".join(str(c) for c in cited if str(c).strip())
+        cited_ids = [str(c).strip() for c in cited if str(c).strip()]
+        cited_str = ",".join(cited_ids)
     else:
         cited_str = str(cited or "").strip()
+        cited_ids = [c.strip() for c in cited_str.split(",") if c.strip()]
+
+    # P5 引用回灌：校验 cited ID 真实存在
+    if cited_ids:
+        invalid = store.validate_cited_ids(cited_ids)
+        if invalid:
+            raise RPCError(INVALID_PARAMS,
+                           f"引用了不存在的知识条目 ID: {', '.join(invalid)}")
 
     if not topic:
         raise RPCError(INVALID_PARAMS, "topic 必填")

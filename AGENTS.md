@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-个人知识平台：任何 AI Agent 调研完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档，并经 L0-L3 蒸馏成可持续演化的知识 Wiki——正在按 `docs/plans/2026-08-knowledge-mcp-dev-plan.md` 演进为 MCP 知识服务。
+个人知识平台：任何 AI Agent 调研完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档，并经 L0-L3 蒸馏成可持续演化的知识 Wiki。**已落地 MCP 知识服务**：agent 可通过 `POST /mcp` 挂载五工具——投稿（submit_report）、查知识（knowledge_query）、写反馈（submit_feedback）、看规范（authoring_guide）、注册模板（register_template）。HTTP API 并行保留作为底座。
 
 **核心问题**：不同 agent、不同时间写的报告，风格五花八门；研究结论散落在单篇报告里，难以被后续 Agent 直接复用。
 **解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS）；内容 taste 分三层——表述形态由 server 门禁强制（裸表格/无结论对比直接拒收），语义词汇由表述规范约束，框内的画完全放开。`/api/guide` 暴露写作规范。知识层由 L2 蒸馏沉淀、L3 反馈回灌，逐步长成可供 Agent 查询的知识服务。
@@ -96,25 +96,39 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 ## API
 
+### HTTP（存量，保留不动）
+
 ```
 POST /api/reports                    创建/修订报告（同 slug upsert）
 POST /api/validate                   预检（violations/warnings/components，不落盘）
 POST /api/templates                  创建模板（provisional；门禁：占位符/token/契约）
-POST /api/knowledge/feedback         新：L3 写回（evidence 必填，topic 必须已存在）   body: {topic, domain, agent, evidence, opinion, cited?}
-POST /api/knowledge/feedback/{id}/judge  新：人工裁决                                body: {verdict: "adopt"|"reject", note?}
+POST /api/knowledge/feedback         L3 写回（evidence 必填，topic 必须已存在）
+POST /api/knowledge/feedback/{id}/judge  人工裁决
 GET  /api/reports                    列出所有报告
-GET  /api/knowledge                  知识库（?domain=&topic= 查单页；不带参列全部；含 feedback_count/feedback_last_used）
-GET  /api/knowledge/feedback         新：账本可查（?topic=&status=）
+GET  /api/knowledge                  知识库（?domain=&topic= 查单页；不带参列全部）
+GET  /api/knowledge/feedback         账本可查（?topic=&status=）
 GET  /api/guide                      写作指南（markdown）
 GET  /api/skill                      下载写作指南（.md 附件）
 GET  /api/template                   查看 HTML 模板（?name=，默认 book）
 GET  /api/templates                  模板目录
-GET  /api/design                     设计 token 总纲（design.md 的 .md 孪生，稳定别名）
-GET  /api/design.css                 设计 CSS 资源包（下载 book-style.css）
+GET  /api/design                     设计 token 总纲
+GET  /api/design.css                 设计 CSS 资源包
 GET  /api/principles                 叙事宪法（markdown）
 GET  /api/health                     健康检查
-GET  /research/*                     静态自伺服兼容入口（根级 `/*` 直出同内容）
+GET  /research/*                     静态自伺服兼容入口
 ```
+
+### MCP（agent 工具协议，`POST /mcp`）
+
+| 工具 | 方向 | 职责 |
+|---|---|---|
+| `submit_report` | agent → 平台 | 完整投稿，`dry_run=true` 即预检（report + validate 合一） |
+| `submit_feedback` | agent → 平台 | L3 使用回写，`cited` 引知识条目 ID（无效 ID 拒收） |
+| `register_template` | agent → 平台 | 模板注册 |
+| `knowledge_query` | agent ← 平台 | 预算内片段流 + 引用 ID——Mintlify 式知识查询 |
+| `authoring_guide` | agent ← 平台 | 写作工具包一次取全：规范 + 模板目录 + domain 路由 + 叙事宪法 |
+
+judge 不暴露为 MCP 工具（人工裁决权）。
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
 

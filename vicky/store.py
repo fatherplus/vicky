@@ -455,3 +455,20 @@ def item_sources(conn: sqlite3.Connection | None, item_ids: list[str]) -> dict:
     finally:
         if own:
             conn.close()
+
+
+def validate_cited_ids(item_ids: list[str]) -> list[str]:
+    """校验 cited 里的知识条目 ID 是否真实存在。
+    返回无效 ID 列表（空=全部有效）。P5 引用回灌闭合用。"""
+    if not item_ids:
+        return []
+    conn = get_db()
+    try:
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = conn.execute(
+            f"SELECT id FROM knowledge_items WHERE id IN ({placeholders})",
+            item_ids).fetchall()
+        valid = {r["id"] for r in rows}
+        return [iid for iid in item_ids if iid not in valid]
+    finally:
+        conn.close()
