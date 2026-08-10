@@ -35,6 +35,10 @@ rsync -avz \
   --exclude='data/' \
   $SRCS "$HOST:$DST/"
 
+# 新架构首跑必做：从远端自己的 reports 回填 L0 快照 + DB（幂等，已有快照跳过）。
+# 必须在 restart 前：新 list_reports 只读 DB，DB 为空则 /api/reports 返回空。
+echo "Backfilling L0+DB from remote reports (idempotent)..."
+ssh "$HOST" "cd $DST && python3 -m ai_report.cli backfill"
 # 顺序：先起 app 再切 Nginx——旧 alias 继续伺服静态直到 app 在 9091 验证起来，
 # 切换纯反代零停机窗口；set -e 下 app 起不来则 Nginx 保持旧配置（不切代理）。
 echo "Installing systemd service (python3 -m ai_report.web)..."

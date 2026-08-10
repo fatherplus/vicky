@@ -34,8 +34,15 @@ rsync -avz \
   --exclude='data/' \
   $SRCS "$HOST:$DST/"
 
-# 顺序：先起 app 再切 Nginx——旧 alias 继续伺服静态直到 app 在 9091 验证起来，
-# 切换纯反代零停机窗口；set -e 下 app 起不来则 Nginx 保持旧配置（不切代理）。
+# 新架构首跑必做：从远端自己的 reports 回填 L0 快照 + DB（幂等，已有快照跳过）。
+# 必须在 restart 前：新 list_reports 只读 DB，DB 为空则 /api/reports 返回空。
+# （远端 service 的 ExecStart 仍是旧入口 python3 server.py，经 shim 委托新包，可运行；
+#   如需改直连新入口，手动改远端 /etc/systemd/system/ai-report.service。）
+echo "Backfilling L0+DB from remote reports (idempotent)..."
+ssh "$HOST" "cd $DST && python3 -m ai_report.cli backfill"
+
+# 顺序：先起 app 再切 Nginx——旧 alias 继续伺服静态直到 app 验证起来，set -e 下
+# app 起不来则 Nginx 保持旧配置（不切代理）。
 echo "Restarting service..."
 ssh "$HOST" "systemctl restart ai-report && sleep 1 && systemctl is-active ai-report"
 
