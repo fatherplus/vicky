@@ -229,6 +229,9 @@ def content_html(p):
   <ol>""" + "".join(
             f'<li><strong>{i + 1}</strong> · <code>{r["id"]}</code> — {r["note"]}</li>'
             for i, r in enumerate(g["route"])) + "</ol></div></section>"
+    lbl = {n["id"]: n["label"] for n in g["nodes"]}
+    mp = g.get("mainPath") or [r["id"] for r in (g.get("route") or [])]
+    mainpath = ('<p class="af-mainpath">主链 · ' + " → ".join(lbl.get(i, i) for i in mp) + "</p>") if mp else ""
     gloss = ""
     if p.get("glossary"):
         gloss = """<section class="reveal"><div class="wrap">
@@ -250,6 +253,7 @@ def content_html(p):
 <section class="reveal"><div class="wrap">
   <p class="section-label">04 · 全局流程图</p>
   <h2>全局流程图</h2>
+  {mainpath}
   <figure class="figure">
     <div class="arch-flow">
       <script type="application/json">{gj}</script>
@@ -302,9 +306,6 @@ def enrich():
     for n in g["nodes"]:
         if n["id"] == "store": n["core"] = True
     M = g["modules"]
-    M["ingest"]["why"] = {"problem": "Markdown 切片边界不可控，语义块被拦腰切断",
-                          "choice": "标题即边界，不引入切片模型",
-                          "otherwise": "跨标题切片导致召回与溯源双双失真"}
     M["ingest"]["mechanisms"] = [
         {"name": "title-as-boundary", "how": "标题层级变化即切点，节点永不跨标题，溯源可回指"},
         {"name": "node-as-unit", "how": "切片即存储单元，五存储共享同一节点 ID"}]
@@ -330,15 +331,9 @@ def enrich():
     for n in g["nodes"]:
         if n["id"] == "types": n["core"] = True
     M = g["modules"]
-    M["contracts"]["why"] = {"problem": "层间互依赖实现，换存储即全仓改动",
-                             "choice": "跨层契约集中于 types/interfaces",
-                             "otherwise": "契约散落各层，骨架退化为目录约定"}
     M["contracts"]["stats"] = [{"k": "规模", "v": "一个 interfaces 包"}]
     M["pipeline"]["mechanisms"] = [{"name": "plugin-chain", "how": "检索→重排→生成各为插件，可插拔可单测，三档功能按开关"}]
     M["pipeline"]["stats"] = [{"k": "规模", "v": "插件链 · 每插件独立验收"}]
-    M["di"]["why"] = {"problem": "new 散落业务代码，装配关系不可见",
-                      "choice": "container·dig 唯一装配点",
-                      "otherwise": "依赖关系靠 grep 猜，重构即排雷"}
     G["knowledge-base-skeleton-design"]["principles"] = [
         {"tenet": "契约先于实现", "evidence": "删掉任何功能模块，六件骨架仍成立"},
         {"tenet": "装配点唯一", "evidence": "dig 容器集中 Provide，依赖方向图上可见"},
@@ -355,14 +350,8 @@ def enrich():
     for n in g["nodes"]:
         if n["id"] == "svc": n["core"] = True
     M = g["modules"]
-    M["keys"]["why"] = {"problem": "bcrypt 抗暴力破解针对低熵口令",
-                        "choice": "Key 是高熵随机值，sha256 快且足够",
-                        "otherwise": "为不存在的威胁付每次请求的算力税"}
     M["keys"]["judge_why"] = "凭据裁决必须 fail-closed：未命中即 401，宁可拒服务不放水"
     M["keys"]["stats"] = [{"k": "规模", "v": "一张 api_keys 表 · 两阶段 TDD"}]
-    M["multi"]["why"] = {"problem": "每库一路径，端点随库数爆炸",
-                         "choice": "多库端点 + 调用方传实体",
-                         "otherwise": "服务端 LLM 抽实体，慢且不可控"}
     G["xknow-retrieval-exposure-apikey-design"]["principles"] = [
         {"tenet": "交出去，不再造", "evidence": "外曝已有检索能力，服务层一条收束"},
         {"tenet": "Key 生在可信会话，死在可信会话", "evidence": "创建/吊销都走既有会话凭据，明文只返回一次"},
@@ -379,9 +368,6 @@ def enrich():
     for n in g["nodes"]:
         if n["id"] == "queue": n["core"] = True
     M = g["modules"]
-    M["queue"]["why"] = {"problem": "三条提取路径各自写库，状态散落互相覆盖",
-                         "choice": "共享增量队列，状态所有权单一",
-                         "otherwise": "靠更多 try/catch 补可靠性，越补越脆"}
     M["queue"]["stats"] = [{"k": "规模", "v": "三源一队 · 单一所有者"}]
     M["recall"]["mechanisms"] = [
         {"name": "recall-order", "how": "术语→项目→全局→原文：精度递减、广度递增，顺序即成本曲线"}]
@@ -396,6 +382,65 @@ def enrich():
     G["pi-memory-weaver-tdai-architecture-review-v2"]["glossary"] = [
         {"term": "身份模型", "def": "以项目身份字段做隔离，而非目录物理隔离"},
         {"term": "压缩前抢救", "def": "上下文压缩触发前把将失信息提为记忆"}]
+
+
+
+
+def enrich2():
+    G = {p["slug"]: p for p in PROJECTS}
+    g = G["gamekb-architecture"]["graph"]
+    g["mainPath"] = ["producer", "ingest", "j-vocab", "store", "j-route", "fuse", "api"]
+    M = g["modules"]
+    M["ingest"]["logic"] = [
+        {"action": "解析标题层级", "output": "节点树", "mechanisms": ["title-as-boundary"]},
+        {"action": "节点即切片，不跨标题", "output": "结构化切片", "mechanisms": ["node-as-unit"]},
+        {"action": "节点文本向量化", "output": "向量库"}]
+    M["retrieval"]["logic"] = [
+        {"action": "向量召回 · 找相似", "output": "候选节点"},
+        {"action": "图谱召回 · 找关系", "output": "邻居节点"},
+        {"action": "融合排序", "output": "排序结果"},
+        {"action": "depth 上下文扩展", "output": "结构化知识"}]
+    M["storage"]["logic"] = [
+        {"action": "节点 ID 贯穿五存储", "output": "文档库/节点树/图谱/向量/溯源"},
+        {"action": "溯源索引回指原文", "output": "答案有出处"}]
+
+    g = G["knowledge-base-skeleton-design"]["graph"]
+    g["mainPath"] = ["handler", "service", "pipe", "repo"]
+    M = g["modules"]
+    M["pipeline"]["logic"] = [
+        {"action": "检索插件", "output": "候选片段"},
+        {"action": "重排插件", "output": "精排片段"},
+        {"action": "生成插件", "output": "SSE 流"}]
+
+    g = G["xknow-retrieval-exposure-apikey-design"]["graph"]
+    g["mainPath"] = ["c-api", "j-auth", "svc", "j-ent", "store"]
+    M = g["modules"]
+    M["keys"]["logic"] = [
+        {"action": "Key 创建：明文仅返回一次", "output": "id + sha256(secret)"},
+        {"action": "中间件先 session 后 Key", "kind": "judge",
+         "branches": [{"label": "sha256 命中且未吊销", "to": "放行"},
+                      {"label": "未命中/已吊销", "to": "401", "deny": True}]},
+        {"action": "吊销走可信会话", "output": "api_keys 表状态位"}]
+    M["multi"]["logic"] = [
+        {"action": "多库端点收束开口", "output": "统一请求"},
+        {"action": "实体传否裁决", "kind": "judge",
+         "branches": [{"label": "传实体", "to": "向量+图谱组合"},
+                      {"label": "不传", "to": "向量单路"}]},
+        {"action": "同库两路召回组合", "output": "检索结果"}]
+
+    g = G["pi-memory-weaver-tdai-architecture-review-v2"]["graph"]
+    g["mainPath"] = ["src-auto", "queue", "mw", "j-id", "tdai-p", "recall"]
+    M = g["modules"]
+    M["queue"]["logic"] = [
+        {"action": "三源信号入队", "output": "有序增量"},
+        {"action": "单一所有者消费", "output": "写入指令", "mechanisms": ["state-ownership"]}]
+    M["recall"]["logic"] = [
+        {"action": "精确术语命中", "output": "glossary 条目"},
+        {"action": "项目知识召回", "output": "项目记忆"},
+        {"action": "全局知识兜底", "output": "全局记忆"},
+        {"action": "按需回指原文", "output": "原文片段", "mechanisms": ["recall-order"]}]
+
+enrich2()
 
 
 if __name__ == "__main__":

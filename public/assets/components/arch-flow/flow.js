@@ -26,7 +26,6 @@
     if (m.logic && m.logic.length) n++;
     if (m.decisions && m.decisions.length) n++;
     if (m.provides) n++;
-    if (m.why) n++;
     if (m.mechanisms && m.mechanisms.length) n++;
     if (m.entrypoints && m.entrypoints.length) n++;
     if (m.stats) n++;
@@ -35,13 +34,20 @@
 
   // 耦合面：由 edges 推导 callers/callees，邻节点带 module 则可点击跳抽屉
   function couplingHtml(data, id) {
-    var nid = null, byId = {};
-    (data.nodes || []).forEach(function (n) { byId[n.id] = n; if (n.module === id) nid = n.id; });
-    if (!nid) return "";
-    var items = [];
+    var nids = {}, byId = {};
+    (data.nodes || []).forEach(function (n) { byId[n.id] = n; if (n.module === id) nids[n.id] = true; });
+    if (!Object.keys(nids).length) return "";
+    var items = [], seen = {};
+    function push(other, label, dir) {
+      var k = dir + "|" + other + "|" + label;
+      if (seen[k]) return;
+      seen[k] = true;
+      items.push({ other: other, label: label || "", dir: dir });
+    }
     (data.edges || []).forEach(function (e) {
-      if (e.to === nid) items.push({ other: e.from, label: e.label || "", dir: "上游" });
-      if (e.from === nid) items.push({ other: e.to, label: e.label || "", dir: "下游" });
+      var fin = nids[e.from], tin = nids[e.to];
+      if (tin && !fin) push(e.from, e.label, "上游");
+      if (fin && !tin) push(e.to, e.label, "下游");
     });
     if (!items.length) return "";
     return '<div class="af-couple">' + items.map(function (it) {
@@ -50,6 +56,27 @@
         (it.label ? ' <i>' + esc(it.label) + "</i>" : "");
       if (on && on.module) return '<button class="af-chip af-link" data-mod="' + esc(on.module) + '">' + inner + "</button>";
       return '<span class="af-chip af-chip-ghost">' + inner + "</span>";
+    }).join("") + "</div>";
+  }
+
+  // 工作逻辑 → 竖向 Pipeline：字符串兼容为普通步骤；judge 步骤带分支
+  function pipelineHtml(logic) {
+    return '<div class="af-pipe">' + logic.map(function (st, i) {
+      if (typeof st === "string") st = { action: st };
+      var judge = st.kind === "judge";
+      return '<div class="af-pipe-step' + (judge ? " af-pipe-judge" : "") + '">' +
+        '<span class="af-pipe-dot">' + (i + 1) + "</span>" +
+        '<div class="af-pipe-body">' +
+        '<div class="af-pipe-action">' + esc(st.action) + "</div>" +
+        (st.output ? '<div class="af-pipe-out">→ ' + esc(st.output) + "</div>" : "") +
+        (st.mechanisms ? '<div class="af-pipe-mech">' + st.mechanisms.map(function (mm) {
+          return "<code>" + esc(mm) + "</code>";
+        }).join("") + "</div>" : "") +
+        (st.branches ? '<div class="af-pipe-br">' + st.branches.map(function (b) {
+          return '<span class="' + (b.deny ? "af-br-deny" : "af-br-ok") + '">' +
+            esc(b.label) + " → " + esc(b.to) + "</span>";
+        }).join("") + "</div>" : "") +
+        "</div></div>";
     }).join("") + "</div>";
   }
 
@@ -235,7 +262,7 @@
       } else {
         d.innerHTML = '<div class="af-node-label">' + esc(n.label) + "</div>" +
           (n.sub ? '<div class="af-node-sub">' + esc(n.sub) + "</div>" : "") +
-          (p.meta ? '<div class="af-node-meta">↑' + (inD[n.id] || 0) + " ↓" + (outD[n.id] || 0) +
+          (p.meta ? '<div class="af-node-meta">入 ' + (inD[n.id] || 0) + " · 出 " + (outD[n.id] || 0) +
             (n.scale ? " · " + esc(n.scale) : "") +
             (n.module ? " · " + segs((data.modules || {})[n.module]) + " 段" : "") + "</div>" : "");
       }
@@ -324,10 +351,6 @@
       '<h3 class="af-dr-title">' + esc(m.label || id) + "</h3>" +
       '<div class="af-dr-id">' + esc(id) + "</div></header><div class='af-dr-body'>";
     if (m.purpose) h += section("定位", '<p class="af-p">' + esc(m.purpose) + "</p>");
-    if (m.why) h += section("为什么", '<div class="af-why">' +
-      (m.why.problem ? '<p><b>解决什么 · </b>' + esc(m.why.problem) + "</p>" : "") +
-      (m.why.choice ? '<p><b>为什么是它 · </b>' + esc(m.why.choice) + "</p>" : "") +
-      (m.why.otherwise ? '<p><b>不这么做呢 · </b>' + esc(m.why.otherwise) + "</p>" : "") + "</div>");
     if (m.input || m.output) {
       h += section("输入 / 输出",
         (m.input ? ioRow("in", "IN", m.input, m.input_example) : "") +
@@ -336,7 +359,7 @@
     var coup = couplingHtml(data, id);
     if (coup) h += section("耦合面", coup);
     if (m.logic && m.logic.length) {
-      h += section("工作逻辑", "<ol>" + m.logic.map(function (x) { return "<li>" + esc(x) + "</li>"; }).join("") + "</ol>");
+      h += section("工作逻辑", pipelineHtml(m.logic));
     }
     if (m.decisions && m.decisions.length) {
       h += section("判断规则", '<table class="af-dec">' +
