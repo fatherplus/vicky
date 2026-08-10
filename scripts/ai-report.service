@@ -7,9 +7,9 @@ Wants=network-online.target
 Type=simple
 User=hgf
 Group=hgf
-# P4：包入口 python3 -m ai_report.web（config.PORT 读 argv[1]=9091；
+# 包入口 python3 -m ai_report.web（argv[1]=9093 端口、argv[2]=0.0.0.0 绑定，正门直连；
 # WorkingDirectory=/home/deploy/ai-report 保证 -m ai_report 可解析，其余项不动）
-ExecStart=/usr/bin/python3 -m ai_report.web 9091
+ExecStart=/usr/bin/python3 -m ai_report.web 9093 0.0.0.0
 WorkingDirectory=/home/deploy/ai-report
 Restart=on-failure
 RestartSec=30

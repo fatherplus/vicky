@@ -171,7 +171,7 @@ GET  /research/*                     静态自伺服（reports / assets / knowle
 
 ```bash
 # 启动服务（自伺服静态文件 + API）
-python3 -m ai_report.web [port]          # 默认 9091，位置参数
+python3 -m ai_report.web [port] [host]  # 默认 9091 / 127.0.0.1，位置参数
 
 # CLI 离线操作
 python3 -m ai_report.cli backfill [--force]    # 存量报告 → L0 快照（一次性）
@@ -192,14 +192,15 @@ curl http://localhost:9091/api/health
 ### 本地开发
 
 - `python3 -m ai_report.web` 启动，自伺服全部内容
-- 直连 `http://localhost:9091/research/` 即可浏览
+- 直连 `http://localhost:9091/` 即可浏览（首页门户；`/reports/*`、`/assets/*`、`/design.html`、`/knowledge` 根级直出，`/research/*` 旧前缀兼容保留）
 - Nginx 不需要——app 内置静态文件伺服
 
 ### 个人环境（192.168.1.100）
 
-- systemd 服务 `ai-report.service`，`ExecStart=python3 -m ai_report.web`，绑定 127.0.0.1:9091
-- Nginx 纯反向代理：`/research/` 与 `/api/` 全部 `proxy_pass http://127.0.0.1:9091`
-- 内部访问：`http://192.168.1.100:9090/research/`（Nginx → app）
+- systemd 服务 `ai-report.service`，`ExecStart=python3 -m ai_report.web 9093 0.0.0.0`，绑定 0.0.0.0:9093（直连正门）
+- Nginx 9090 纯反代：`/research/` 与 `/api/` 全部 `proxy_pass http://127.0.0.1:9093`（`/research/` 为兼容入口；9090 上其他目录不动）
+- 内部访问正门：`http://192.168.1.100:9093/`（含首页门户，Nginx 不经手）
+- 兼容入口：`http://192.168.1.100:9090/research/`（Nginx → app 9093）
 - 外部访问：`https://fatherplus.github.io/vicky/`（GitLab Pages）
 - 仓库：`https://github.com/fatherplus/vicky`
 - 部署脚本：`scripts/deploy.sh`（rsync 同步代码 + Nginx 重载；排除 `data/` 保留远端快照）

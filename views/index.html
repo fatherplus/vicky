@@ -112,6 +112,14 @@ Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series,.ro
       if(c.getAttribute('data-type')===b.getAttribute('data-type')&&c.getAttribute('data-f')===b.getAttribute('data-f')){c.click();break;}}
   });
 });
+/* 深链：URL ?domain= 参数 = 加载时点按对应 domain 筹码（复用现有筛选逻辑） */
+(function(){
+  var m=(location.search||'').match(/[?&]domain=([^&]+)/);
+  if(!m)return;
+  var dom=decodeURIComponent(m[1]);
+  for(var i=0;i<chips.length;i++){var c=chips[i];
+    if(c.getAttribute('data-type')==='domain'&&c.getAttribute('data-f')===dom){c.click();break;}}
+})();
 /* Agent 接入：API 与页面同源（Nginx 反代 /api/ → server.py）*/
 var API=location.origin;
 document.getElementById('skillLink').href=API+'/api/skill';

@@ -3,7 +3,7 @@ Web 路由层——薄路由 + 静态自伺服（/research/*）。
 P0 包化：从 server.py 搬迁 Handler + 启动逻辑。
 行为零变化——API 契约不变；补全 /research/ 前缀处理（P4 部署切换前置能力）。
 
-启动: python3 -m ai_report.web [port]
+启动: python3 -m ai_report.web [port] [host]
 """
 
 import json
@@ -50,11 +50,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _serve_static(self):
-        """Serve static files from config.PUBLIC_DIR (index + reports + assets + knowledge)。
-        P0: 处理 /research/ 前缀（P4 Nginx 纯反代时 app 直接收到带前缀的 URL）。"""
+        """Serve static files from config.PUBLIC_DIR (home + index + reports + assets + knowledge)。
+        P0: 处理 /research/ 前缀（P4 Nginx 纯反代时 app 直接收到带前缀的 URL）。
+        P2: 根路径 `/` = 首页门户 home.html；reports/assets/design.html/knowledge 根级直出。"""
         req = self.path.split("?")[0].rstrip("/")
         if req == "" or req == "/":
-            req = "/index.html"
+            req = "/home.html"
         # P0: 自伺服 /research/* 前缀——strip 后映射到 config.PUBLIC_DIR
         if req.startswith("/research/"):
             req = req[len("/research"):]
@@ -362,13 +363,14 @@ def main():
     # 启动时重建索引（手动操作/迁移后索引可能过期）
     reports = l1_publish.list_reports()
     config.INDEX_PATH.write_text(l1_publish.build_index(reports), encoding="utf-8")
-    print(f"📄 ai-report service starting on 127.0.0.1:{config.PORT}")
+    l1_publish.refresh_home()
+    print(f"📄 ai-report service starting on {config.HOST}:{config.PORT}")
     print(f"   Templates: {config.TEMPLATES_DIR} (default: {config.DEFAULT_TEMPLATE})")
     print(f"   Reports:  {config.REPORTS_DIR} ({len(reports)} reports)")
     print(f"   Index:    {config.INDEX_PATH}")
     # ThreadingHTTPServer: 一个挂住的连接（慢客户端/未完成请求）不能把单线程 HTTPServer 堵死，经历过一次
-    # 绑定 127.0.0.1：生产环境由 Nginx 反代，不对外暴露
-    server = ThreadingHTTPServer(("127.0.0.1", config.PORT), Handler)
+    # 绑定 config.HOST：生产环境由 Nginx 反代；9093 直连传 0.0.0.0 对外暴露
+    server = ThreadingHTTPServer((config.HOST, config.PORT), Handler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

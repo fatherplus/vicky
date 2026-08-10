@@ -23,7 +23,7 @@ IMG_DIR = PUBLIC_DIR / "assets" / "img"
 KNOWLEDGE_DIR = REPO_DIR / "knowledge"
 
 # ============================================================
-# 端口（server.py 位置参数；-m ai_report.web 同款）
+# 端口 / 绑定地址（server.py 位置参数；-m ai_report.web 同款）
 # ============================================================
 def _parse_port() -> int:
     try:
@@ -31,7 +31,15 @@ def _parse_port() -> int:
     except (IndexError, ValueError):
         return 9091
 
+def _parse_host() -> str:
+    """绑定地址：argv[2]，默认 127.0.0.1（生产由 Nginx 反代；9093 直连传 0.0.0.0）。"""
+    try:
+        return sys.argv[2]
+    except IndexError:
+        return "127.0.0.1"
+
 PORT = _parse_port()
+HOST = _parse_host()
 
 # ============================================================
 # 契约与领域常量
@@ -74,6 +82,14 @@ COMPONENTS = {
         "head": (
             '<script src="../assets/components/mermaid/mermaid-11.9.0.min.js" defer></script>',
             '<script src="../assets/components/mermaid/init.v1.js" defer></script>',
+        ),
+    },
+    "arch-flow": {
+        "detect": lambda content: bool(re.search(
+            r'<div\b[^>]*\bclass=["\'][^"\']*\barch-flow\b', content, re.I)),
+        "head": (
+            '<link rel="stylesheet" href="../assets/components/arch-flow/flow.css">',
+            '<script src="../assets/components/arch-flow/flow.js" defer></script>',
         ),
     },
 }

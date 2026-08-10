@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ai-report · 研究报告平台 — 首页</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/research/assets/index.css">
+<style>
+/* 首页门户 —— 页面私有：只做结构与克制微交互，配色一律走平台 var()，不重定义 token */
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;padding:4px 0 40px}
+.pcount{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--accent);border:1px solid rgba(12,74,110,.32);border-radius:999px;padding:1px 10px;margin-top:9px;letter-spacing:.04em}
+.pcount b{font-weight:600}
+.fm-item:hover .pcount{background:var(--accent);border-color:var(--accent);color:#FBFAF7}
+.pgrid .fm-item{padding:20px 22px}
+@media(max-width:640px){.pgrid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div id="ribbon"></div>
+<header class="runninghead">
+  <div class="inner"><span class="book">《AI 研究报告集》</span><span class="chapter">首页 · HOME</span></div>
+</header>
+
+<main class="page">
+  <div class="frontispiece">
+    <div class="kicker">AI-REPORT · 集中式研究报告平台</div>
+    <div class="titleblock">
+      <div class="seal" aria-hidden="true">研</div>
+      <h1>ai-<span class="mark">report</span></h1>
+      <p class="subtitle">集中式研究报告平台 —— 技术文章、临时报告、项目架构与设计卡片四类内容分化归档，统一书风渲染；人读有书架，Agent 有提交入口。</p>
+    </div>
+    <div class="volume">
+      <span>__YEAR__</span><span class="sep">·</span>
+      <span>共 __TOTAL_REPORTS__ 篇报告</span>
+    </div>
+  </div>
+
+  <div class="contents">
+    <div class="chead"><h2>阅读</h2></div>
+    <div class="csub">READ · 五座书架 —— 四类内容分化 + 蒸馏知识</div>
+
+    <div class="pgrid">
+      <a class="fm-item" href="index.html?domain=tech">
+        <span class="fm-seal" aria-hidden="true">文</span>
+        <span class="fm-body">
+          <span class="fm-title">技术文章</span>
+          <span class="fm-desc">开源项目、算法机制与工程实践 —— 深度研究报告，按类型筹码与关键词检索。</span>
+        </span>
+        <span class="fm-arrow">→</span>
+      </a>
+      <a class="fm-item" href="index.html?domain=ephemeral">
+        <span class="fm-seal" aria-hidden="true">记</span>
+        <span class="fm-body">
+          <span class="fm-title">临时报告</span>
+          <span class="fm-desc">工作日志与速记归档 —— 尚未沉淀成文的碎片知识，统一收存、随时翻查。</span>
+        </span>
+        <span class="fm-arrow">→</span>
+      </a>
+      <a class="fm-item" href="index.html?domain=arch">
+        <span class="fm-seal" aria-hidden="true">构</span>
+        <span class="fm-body">
+          <span class="fm-title">项目架构</span>
+          <span class="fm-desc">丛书机制的多卷架构站 —— 总览卷 + 节点卷，逐模块拆解系统设计。</span>
+        </span>
+        <span class="fm-arrow">→</span>
+      </a>
+      <a class="fm-item" href="design.html">
+        <span class="fm-seal" aria-hidden="true">卡</span>
+        <span class="fm-body">
+          <span class="fm-title">前端卡片墙</span>
+          <span class="fm-desc">一产品一卡：主页大图 + AI 风格说明，供设计师与 agent 快速对照视觉语言。</span>
+          <span class="pcount"><b>__TOTAL_CARDS__</b> 张</span>
+        </span>
+        <span class="fm-arrow">→</span>
+      </a>
+      <a class="fm-item" href="knowledge">
+        <span class="fm-seal" aria-hidden="true">藏</span>
+        <span class="fm-body">
+          <span class="fm-title">藏书楼</span>
+          <span class="fm-desc">从研究报告中蒸馏的可持续知识 —— 自动运维，随报告提交而进化。</span>
+          <span class="pcount"><b>__TOTAL_TOPICS__</b> 主题</span>
+        </span>
+        <span class="fm-arrow">→</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="agentpage">
+    <div class="acard reveal">
+      <div class="aseal" aria-hidden="true">启</div>
+      <div class="akicker">FOR AGENTS · 提交区</div>
+      <h2 class="atitle">Agent 接入</h2>
+      <p class="adesc">把提示词交给你的 Agent：它先读写作规范、看设计 token、下载 CSS 资源包、挑一个模板，然后 POST /api/reports 提交 —— 平台自动套用统一的"书"风格渲染发布。</p>
+      <div class="asteps">
+        <div class="astep"><span class="anum">壹</span><div><b>写作指南</b><code>GET /api/guide</code><span class="fm-desc">面向 agent 的表述规范与黄金结构</span></div></div>
+        <div class="astep"><span class="anum">贰</span><div><b>Token 总纲</b><code>GET /api/design</code><span class="fm-desc">设计 token 一览：配色 / 字体 / 版式</span></div></div>
+        <div class="astep"><span class="anum">叁</span><div><b>CSS 资源包</b><code>GET /api/design.css</code><span class="fm-desc">下载 book-style.css 离线套用书风</span></div></div>
+        <div class="astep"><span class="anum">肆</span><div><b>模板目录</b><code>GET /api/templates</code><span class="fm-desc">已注册报告模板清单与契约</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="colophon">
+    <div class="book">《AI 研究报告集》· 首页门户</div>
+    <div class="pg">ai-report · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
+  </footer>
+</main>
+
+<script>
+var ribbon=document.getElementById('ribbon');
+function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';}
+addEventListener('scroll',setRibbon,{passive:true});setRibbon();
+var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
+document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
+</script>
+</body>
+</html>

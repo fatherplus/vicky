@@ -353,6 +353,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")
     refresh_card_wall()
+    refresh_home()
 
     if series:
         maintain_series_siblings(series)
@@ -444,6 +445,7 @@ def rebuild_index():
     reports = list_reports()
     INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
     refresh_card_wall()
+    refresh_home()
     # 全量丛书维护
     conn = store.get_db()
     try:
@@ -482,3 +484,44 @@ def refresh_card_wall():
     """刷新 public/design.html（与索引页同目录；随发布与 cli render 重渲染调用）。"""
     wall = config.INDEX_PATH.parent / "design.html"
     wall.write_text(build_card_wall(), encoding="utf-8")
+
+
+# ============================================================
+# 首页门户（P2）——public/home.html，与索引页同目录
+# 占位符：__TOTAL_REPORTS__ / __TOTAL_CARDS__ / __TOTAL_TOPICS__ / __YEAR__
+# ============================================================
+def count_knowledge_topics() -> int:
+    """knowledge/ 主题目录数：有 overview.md 的才算（与 GET /api/knowledge 列表口径一致）。"""
+    kdir = config.KNOWLEDGE_DIR
+    total = 0
+    if kdir.exists():
+        for dd in sorted(kdir.iterdir()):
+            if not dd.is_dir() or dd.name.startswith("."):
+                continue
+            for td in sorted(dd.iterdir()):
+                if (td / "overview.md").exists():
+                    total += 1
+    return total
+
+
+def build_home() -> str:
+    """生成首页门户：从 store 取 reports 总数 / design 数，扫 knowledge/ 主题数，填 views/home.html。"""
+    conn = store.get_db()
+    try:
+        total_reports = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
+        total_cards = conn.execute(
+            "SELECT COUNT(*) FROM reports WHERE domain='design'").fetchone()[0]
+    finally:
+        conn.close()
+    tpl = ui.load_view("home.html")
+    return (tpl
+            .replace("__TOTAL_REPORTS__", str(total_reports))
+            .replace("__TOTAL_CARDS__", str(total_cards))
+            .replace("__TOTAL_TOPICS__", str(count_knowledge_topics()))
+            .replace("__YEAR__", str(datetime.now().year)))
+
+
+def refresh_home():
+    """刷新 public/home.html（与索引页同目录；随发布与 cli render 重渲染调用）。"""
+    home = config.INDEX_PATH.parent / "home.html"
+    home.write_text(build_home(), encoding="utf-8")
