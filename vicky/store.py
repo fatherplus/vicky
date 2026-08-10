@@ -5,7 +5,8 @@ L0 存储层——sqlite3 唯一 DB 出口（P1 完整实现）。
 设计决策（依据 specs/2026-08-10-l0-l3... §5）：
 - WAL 模式：并发读不阻塞写，ThreadingHTTPServer 下最省事
 - 每请求开连接：短连接避免跨请求状态泄漏，ThreadingHTTPServer 线程数不大
-- 三张表：submissions（L0 不可变快照）、reports（L1 当前态）、feedbacks（L3 账本）
+- 五张表：submissions（L0 不可变快照）、reports（L1 当前态）、feedbacks（L3 账本）、
+  knowledge_items + knowledge_items_fts（P3 知识条目原子化检索索引）
 """
 
 import json
@@ -387,3 +388,70 @@ def search_items(q: str, limit: int = 20, category: str | None = None,
         return hits
     finally:
         conn.close()
+
+
+# ============================================================
+# knowledge_items 读辅助（P4 知识查询用；SQL 保持在本模块）
+# ============================================================
+def count_knowledge_items(conn: sqlite3.Connection | None = None) -> int:
+    """知识条目总数（知识库空判定用：0 = 尚未蒸馏/未建索引）。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM knowledge_items").fetchone()
+        return row[0] or 0
+    finally:
+        if own:
+            conn.close()
+
+
+def knowledge_catalog(conn: sqlite3.Connection | None = None) -> dict:
+    """目录模式数据源：全部知识条目按 (category, topic) 分组统计。
+    category 只存于 FTS 列（overview frontmatter），knowledge_items 表无此列——
+    聚合走 knowledge_items_fts；两表同 id 同插入，计数与 knowledge_items 对齐。
+    返回 {"catalog": [{category, topics: [{topic, count}]}], "total_topics", "total_items"}。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT category, topic, COUNT(*) AS cnt FROM knowledge_items_fts"
+            " GROUP BY category, topic ORDER BY category, topic").fetchall()
+    finally:
+        if own:
+            conn.close()
+    catalog, total_items = [], 0
+    for cat, topic, cnt in rows:
+        total_items += cnt
+        bucket = next((b for b in catalog if b["category"] == cat), None)
+        if bucket is None:
+            bucket = {"category": cat or "ai", "topics": []}
+            catalog.append(bucket)
+        bucket["topics"].append({"topic": topic, "count": cnt})
+    return {"catalog": catalog, "total_topics": len(rows), "total_items": total_items}
+
+
+def item_sources(conn: sqlite3.Connection | None, item_ids: list[str]) -> dict:
+    """按 id 批量取知识条目的 sources（knowledge_items.sources 为 JSON 数组文本）。
+    返回 {id: [source, ...]}；缺失/非法一律空数组。"""
+    if not item_ids:
+        return {}
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        placeholders = ",".join("?" for _ in item_ids)
+        rows = conn.execute(
+            f"SELECT id, sources FROM knowledge_items WHERE id IN ({placeholders})",
+            list(item_ids)).fetchall()
+        out = {}
+        for r in rows:
+            try:
+                out[r["id"]] = json.loads(r["sources"] or "[]")
+            except (ValueError, TypeError):
+                out[r["id"]] = []
+        return out
+    finally:
+        if own:
+            conn.close()

@@ -1,4 +1,5 @@
-"""P2: MCP 写入线工具（submit_report / submit_feedback / register_template / authoring_guide）。
+"""P2: MCP 写入线工具（submit_report / submit_feedback / register_template / authoring_guide）
++ P4 读线工具（knowledge_query）。
 
 经真实 Handler POST /mcp 走 JSON-RPC tools/call；文件/DB 写入一律 tmp_env 隔离。
 
@@ -76,13 +77,14 @@ class TestMcpTools(unittest.TestCase):
         register_default_tools()
 
     # ── 注册表 ──
-    def test_tools_list_has_four(self):
+    def test_tools_list_has_five(self):
         status, body = _post_mcp({"jsonrpc": "2.0", "method": "tools/list",
                                   "params": {}, "id": 2})
         self.assertEqual(status, 200)
         names = [t["name"] for t in json.loads(body)["result"]["tools"]]
-        self.assertEqual(sorted(names), ["authoring_guide", "register_template",
-                                         "submit_feedback", "submit_report"])
+        self.assertEqual(sorted(names), ["authoring_guide", "knowledge_query",
+                                         "register_template", "submit_feedback",
+                                         "submit_report"])
 
     # ── Tool 1: submit_report ──
     def test_submit_report_dry_run(self):

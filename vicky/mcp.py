@@ -140,6 +140,7 @@ from . import config
 from . import l0_ingest
 from . import l1_publish
 from . import l3_feedback
+from . import knowledge_query  # P4 读线：知识 Wiki 查询（三阶段管线）
 
 # domain 路由表：与 AGENT-GUIDE.md「domain 路由」表格一致（key 取自 config.DOMAINS）
 DOMAIN_DESCRIPTIONS = {
@@ -349,6 +350,21 @@ def _authoring_guide(params: dict) -> dict:
 
 
 # ============================================================
+# Tool 5: knowledge_query（P4 读线——知识 Wiki 查询，MCP 服务的 READ line）
+# ============================================================
+def _knowledge_query(params: dict) -> dict:
+    """知识 Wiki 读线：FTS5 召回 → 相关度打分 → token 预算装包，返回带引文的条目片段。
+    q 为空 → 目录模式（按专栏列出主题与计数）。参数由 knowledge_query.query 容错归一
+    （类型非法取默认值），内部错误由 router 兜底 -32603。"""
+    try:
+        return knowledge_query.query(params or {})
+    except RPCError:
+        raise
+    except Exception as e:
+        raise RPCError(INTERNAL_ERROR, f"knowledge_query 内部错误: {e}") from e
+
+
+# ============================================================
 # 注册入口
 # ============================================================
 _default_tools_registered = False
@@ -423,6 +439,24 @@ AUTHORING_GUIDE_SCHEMA = {
     "inputSchema": {"type": "object", "properties": {}},
 }
 
+KNOWLEDGE_QUERY_SCHEMA = {
+    "name": "knowledge_query",
+    "description": "查询知识 Wiki（读线）：FTS5 召回 → 相关度打分（结论×1.5/陷阱×1.2/数据×1.0）→ "
+                   "token 预算装包（默认 2000，硬顶 6000），返回带引文（来源报告 .md 链接）的条目片段。"
+                   "q 为空返回目录：按专栏列出全部主题与条目数。",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "q": {"type": "string", "description": "检索词（≤200 字符，超长截断）"},
+            "budget": {"type": "integer", "default": 2000,
+                        "description": "返回条目的 token 预算（1-6000，默认 2000，绝对上限 6000）"},
+            "category": {"type": "string",
+                          "description": "专栏过滤：ai/infra/eng/ops/design（overview category）"},
+            "tag": {"type": "string", "description": "标签子串过滤（overview frontmatter tags）"},
+        },
+    },
+}
+
 
 # 工具名 → (handler, schema) 注册表
 _DEFAULT_TOOLS = [
@@ -430,11 +464,12 @@ _DEFAULT_TOOLS = [
     ("submit_feedback", _submit_feedback, SUBMIT_FEEDBACK_SCHEMA),
     ("register_template", _register_template, REGISTER_TEMPLATE_SCHEMA),
     ("authoring_guide", _authoring_guide, AUTHORING_GUIDE_SCHEMA),
+    ("knowledge_query", _knowledge_query, KNOWLEDGE_QUERY_SCHEMA),
 ]
 
 
 def register_default_tools() -> None:
-    """注册 P2 写入线 4 工具（幂等）。
+    """注册 P2 写入线 4 工具 + P4 读线 knowledge_query（幂等）。
     由 web.main() 启动时调用（运行中服务对 MCP 客户端可用）；测试按需显式调用。
     不在模块 import 期自动注册——P1 协议测试断言 tools/list 为空，注册表保持惰性填充。"""
     global _default_tools_registered
