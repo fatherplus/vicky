@@ -86,3 +86,20 @@ if __name__ == "__main__":
         if name.startswith("test_") and callable(fn):
             fn()
     print("ALL PASS")
+
+
+def test_arch_flow_mapping():
+    graph = ('{"layers":["接入","服务"],"nodes":['
+             '{"id":"gw","kind":"entry","layer":0,"label":"网关"},'
+             '{"id":"auth","kind":"process","layer":1,"label":"认证模块","href":"reports/x-auth.html"}],'
+             '"edges":[{"from":"gw","to":"auth","label":"请求","type":"main"},'
+             '{"from":"auth","to":"gw","type":"warn"}]}')
+    md = html_to_md(_wrap(
+        '<figure class="figure"><div class="arch-flow">'
+        f'<script type="application/json">{graph}</script></div>'
+        '<figcaption class="fig-cap">图 1 · 全景</figcaption></figure>'))
+    assert "[arch-flow]** 2 层 · 2 节点 · 2 边" in md
+    assert "- L1 [process] 认证模块 → reports/x-auth.html" in md
+    assert "- gw --请求--> auth" in md
+    assert "（拦截）" in md
+    assert "图 1 · 全景" in md

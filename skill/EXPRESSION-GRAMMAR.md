@@ -182,3 +182,50 @@
   </div>
 </div>
 ```
+
+### 节点编排图 arch-flow（新增）
+
+架构总览卷的全局流程图组件。契约：`<figure class="figure">` 装裱一个 `<div class="arch-flow">`，
+内嵌 `<script type="application/json">` 数据；server 检测后按篇注入渲染器（与 mermaid 同待遇）。
+人读 HTML 看图，AI 读 .md 孪生（自动映射，见下）。
+
+**配色封闭为功能三色**（不许加色）：
+
+| 颜色 | 节点 kind | 边 type |
+|------|-----------|---------|
+| 靖蓝 `--accent` | `process` 计算/流转（默认） | `main` 请求/数据/控制（实线） |
+| 朱砂 `--seal` | `judge` 判断器（菱形） | `warn` 安全拦截（虚线） |
+| 灰 `--sub` | `store` 存储 / `entry` 入口 | `async` 异步/记忆/持久化（虚线） |
+
+**节点四类型，各类型必须维护的字段**（输入/输出即模块边界契约，与节点卷三段硬契约同构）：
+
+| kind | 语义 | 必填 | 输入/输出约定 |
+|------|------|------|----------------|
+| `entry` | 入口/出口 | id, layer, label | 无模块详情；sub 说明谁进/谁出 |
+| `process` | 计算/流转 | id, layer, label | 关联 module 必填 `input`/`output`/`logic` |
+| `judge` | 判断器 | id, layer, label, module | module 必填 `decisions`；每条出边的 label 必须对应一个 cond 分支 |
+| `store` | 存储/持久化 | id, layer, label | module 的 `output` 写持久化形态（目录/格式/schema） |
+
+**数据结构**（完整契约，`href` 指向节点卷，多页站靠它串卷）：
+
+```json
+{
+  "layers": ["层名，索引=行号"],
+  "nodes": [{ "id": "core", "kind": "process", "layer": 1, "label": "pi 核心",
+             "sub": "等宽副标题", "module": "模块id", "href": "reports/xx-node.html" }],
+  "edges": [{ "from": "user", "to": "core", "label": "条件/语义", "type": "main",
+             "side": "L|R", "dx": 22 }],
+  "categories": [{ "id": "code", "name": "代码工具" }],
+  "modules": { "模块id": {
+    "cat": "code", "source": "npm",
+    "purpose": "一句话定位",
+    "input": "输入契约", "input_example": "可展开事例",
+    "output": "输出契约", "output_example": "可展开事例",
+    "logic": ["工作逻辑步骤"],
+    "decisions": [{ "cond": "条件", "to": "去向" }]
+  } }
+}
+```
+
+**MD 孪生映射**：arch-flow 自动转为结构化文本（层 → 节点行 → 边列表），
+modules 详情不进总览 MD——它们在各自的节点卷 MD 里，总览 MD 只做地图。

@@ -17,6 +17,7 @@ book 模板的卡片/标签等），门禁强制每篇报告只能用这些组�
 纯 stdlib。用 html.parser 建树再渲染（正则处理嵌套表格会出错）。
 """
 
+import json
 import re
 import html as html_mod
 from html.parser import HTMLParser
@@ -250,7 +251,8 @@ def render_figure(node) -> str:
     cap = find_first(node, lambda n: n.has_class("fig-cap"))
     note = find_first(node, lambda n: n.has_class("fig-note"))
     img = find_first(node, lambda n: n.tag == "img")
-    parts = []
+    tok = find_first(node, lambda n: n.has_class("af-md-token"))
+    parts = [text_of(tok)] if tok else []
     if mermaid:
         parts.append("```mermaid\n" + text_of(mermaid).strip() + "\n```")
     elif img:
@@ -374,14 +376,53 @@ def render_node(node, depth=0) -> str:
 # 顶层入口
 # ============================================================
 
+ARCH_FLOW_RE = re.compile(
+    r'<div\b[^>]*\bclass=["\'][^"\']*\barch-flow\b[^>]*>[\s\S]*?'
+    r'<script type="application/json">([\s\S]*?)</script>[\s\S]*?</div>')
+
+
+def render_arch_flow_md(json_str: str) -> str:
+    """arch-flow 契约 JSON → 结构化文本。总览 MD 只做地图：层/节点/边；
+    模块详情不进总览 MD——在各节点卷里。"""
+    try:
+        data = json.loads(json_str)
+    except (ValueError, TypeError):
+        return ""
+    nodes = data.get("nodes") or []
+    edges = data.get("edges") or []
+    out = [f"**[arch-flow]** {len(data.get('layers') or [])} 层 · {len(nodes)} 节点 · {len(edges)} 边", ""]
+    for n in nodes:
+        kind = n.get("kind", "process")
+        sub = f"（{n['sub']}）" if n.get("sub") else ""
+        href = f" → {n['href']}" if n.get("href") else ""
+        out.append(f"- L{n.get('layer', '?')} [{kind}] {n.get('label', n.get('id', '?'))}{sub}{href}")
+    out.append("")
+    for e in edges:
+        mark = {"async": "（异步）", "warn": "（拦截）"}.get(e.get("type", "main"), "")
+        lab = f" --{e['label']}--" if e.get("label") else " --"
+        out.append(f"- {e['from']}{lab}> {e['to']}{mark}")
+    return "\n".join(out)
+
+
+# ============================================================
+
 def html_to_md(html_str: str) -> str:
     """报告 HTML → 紧凑 Markdown。只转 <main> 内容，跳过页面 chrome。"""
     # 优先取 <main>，没有就转 body，再没有就转全文
     m = re.search(r"<main[\s\S]*?</main>", html_str)
     scope = m.group(0) if m else html_str
 
+    # arch-flow：script 是 SKIP_TAG，先提走换占位符，渲染后回填
+    blocks = []
+    def _af(m2):
+        blocks.append(render_arch_flow_md(m2.group(1)))
+        return f'<p class="af-md-token">@@AF{len(blocks) - 1}@@</p>'
+    scope = ARCH_FLOW_RE.sub(_af, scope)
+
     tree = build_tree(scope)
     md = render_node(tree)
+    for i, b in enumerate(blocks):
+        md = md.replace(f"@@AF{i}@@", b)
 
     # 清理：多余空行折叠为最多两个
     md = re.sub(r"\n{3,}", "\n\n", md).strip()

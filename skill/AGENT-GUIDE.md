@@ -140,9 +140,28 @@ AI 调研自媒体/开源资料后，把成品按本指南规范直接提交。�
 </div></section>
 ```
 
-#### 总览卷 mermaid click
+#### 总览卷流程图（arch-flow 首选 · mermaid 兜底）
 
-全局流程图用 mermaid `click` 语法把节点链到各节点卷文件（链接用 canonical 相对路径 `reports/{file}`）：
+全局流程图首选 `arch-flow` 组件（分层布局 + 判断器菱形 + 功能三色；契约与节点四类型 schema 见 `skill/EXPRESSION-GRAMMAR.md`「节点编排图 arch-flow」）。图形状简单时可继续用 mermaid `click`。无论哪种，**节点必须链到各节点卷**（canonical 相对路径 `reports/{file}`）：
+
+```html
+<figure class="figure">
+  <div class="arch-flow">
+    <script type="application/json">
+    { "layers": ["接入", "服务"],
+      "nodes": [ { "id": "gw", "kind": "entry", "layer": 0, "label": "网关" },
+                 { "id": "auth", "kind": "process", "layer": 1, "label": "认证模块",
+                   "href": "reports/{project}-arch-auth.html" } ],
+      "edges": [ { "from": "gw", "to": "auth", "label": "请求", "type": "main" } ],
+      "modules": { "auth": { "purpose": "…", "input": "…", "output": "…", "logic": ["…"] } } }
+    </script>
+  </div>
+  <figcaption class="fig-cap">图 1 · {project} 模块全景</figcaption>
+  <p class="fig-note">点节点直接跳到对应节点卷；总览 md 即地图，AI 先读地图再钻节点。</p>
+</figure>
+```
+
+`modules` 字段与节点卷三段硬契约同构（input/output ↔ 01 段，logic/decisions ↔ 02 段）——同一事实两处表述，提交时保持一致。mermaid 写法见下：
 
 ```html
 <figure class="figure">

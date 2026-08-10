@@ -23,7 +23,7 @@ echo "Deploying to $HOST:$DST ..."
 #     （python3 server.py）经 shim 委托 ai_report 包，两条入口都能跑，切换平滑；
 #     P4 收尾删除 shim 后，从清单去掉这三项即可。
 #   - views/ 属 P3 产物可能暂不存在——先过滤已存在的项，容忍缺目录（rsync 遇缺失源会报错）。
-MANIFEST="ai_report views templates public/assets skill server.py distill.py html_to_md.py"
+MANIFEST="ai_report views templates public/assets public/prototype skill server.py distill.py html_to_md.py"
 SRCS=""
 for s in $MANIFEST; do
     [ -e "$s" ] && SRCS="$SRCS $s"
