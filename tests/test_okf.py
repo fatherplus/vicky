@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
-"""OKF frontmatter + 概念持久化（B 档）验收。不依赖网关（不测 llm_cluster/llm_chat）。P0 包化：import 更新。"""
+"""OKF frontmatter + 概念持久化（B 档）验收。不依赖网关（不测 llm_cluster/llm_chat）。P0 包化：import 更新。
+P5 修复：write_knowledge_compiled 写入走 tempfile 临时目录——安全红线：禁止写真实 knowledge/。"""
 import os
 import shutil
+import tempfile
+from unittest.mock import patch
 
 from ai_report.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
                      write_knowledge_compiled, _norm_clusters, _safe_slug,
-                     _load_existing_concepts, KNOWLEDGE_DIR)
+                     _load_existing_concepts)
+
+
+def _tmp_knowledge_dir():
+    """为 write_knowledge_compiled 创建临时 knowledge 目录（P5 安全修复：不碰真实 knowledge/）。"""
+    from pathlib import Path
+    tmp = Path(tempfile.mkdtemp(prefix="test_okf_"))
+    (tmp / "tech").mkdir(parents=True, exist_ok=True)
+    return tmp
 
 
 def test_frontmatter_roundtrip():
@@ -43,19 +54,23 @@ def test_write_compiled_frontmatter_and_id():
     md = {"a": {"title": "A", "domain": "tech", "items": []},
           "b": {"title": "B", "domain": "tech", "items": []}}
     comp = {"summary": "综合。", "points": ["p [a]"], "data": [], "traps": [], "contradictions": []}
-    p = write_knowledge_compiled({"topic": "T", "domain": "tech", "members": ["a", "b"]}, md, comp)
-    ov = parse_overview(p.read_text(encoding="utf-8"))
-    assert ov["id"] == p.parent.name  # id 与目录名恒等
-    assert ov["verified"] == "machine-confirmed" and ov["sources"] == 2
-    assert ov["generated"]["by"].startswith("agent:") and ov["stale_after"]
-    # 单源 unverified
-    p1 = write_knowledge_compiled({"topic": "S", "domain": "tech", "members": ["a"]}, md, comp)
-    assert parse_overview(p1.read_text(encoding="utf-8"))["verified"] == "unverified"
-    # existing_id 复用
-    p2 = write_knowledge_compiled({"topic": "任意", "domain": "tech", "members": ["a", "b"],
-                                   "id": "preset--z"}, md, comp)
-    assert p2.parent.name == "preset--z"
-    shutil.rmtree(p.parent.parent, ignore_errors=True)  # 清 knowledge/tech
+    tmp = _tmp_knowledge_dir()
+    try:
+        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+            p = write_knowledge_compiled({"topic": "T", "domain": "tech", "members": ["a", "b"]}, md, comp)
+            ov = parse_overview(p.read_text(encoding="utf-8"))
+            assert ov["id"] == p.parent.name  # id 与目录名恒等
+            assert ov["verified"] == "machine-confirmed" and ov["sources"] == 2
+            assert ov["generated"]["by"].startswith("agent:") and ov["stale_after"]
+            # 单源 unverified
+            p1 = write_knowledge_compiled({"topic": "S", "domain": "tech", "members": ["a"]}, md, comp)
+            assert parse_overview(p1.read_text(encoding="utf-8"))["verified"] == "unverified"
+            # existing_id 复用
+            p2 = write_knowledge_compiled({"topic": "任意", "domain": "tech", "members": ["a", "b"],
+                                           "id": "preset--z"}, md, comp)
+            assert p2.parent.name == "preset--z"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 def test_safe_slug_stability():
@@ -82,25 +97,27 @@ def test_norm_clusters_id_resolution():
 
 
 def test_load_existing_concepts_compat():
-    d1 = KNOWLEDGE_DIR / "tech" / "vec--1"
-    d2 = KNOWLEDGE_DIR / "tech" / "oldone"
+    tmp = _tmp_knowledge_dir()
+    d1 = os.path.join(tmp, "tech", "vec--1")
+    d2 = os.path.join(tmp, "tech", "oldone")
     try:
-        d1.mkdir(parents=True, exist_ok=True)
-        (d1 / "overview.md").write_text(dump_frontmatter(
-            {"id": "vec--1", "title": "向量", "domain": "tech", "status": "stable",
-             "generated": {"by": "agent:glm", "at": "2026-08-01"}, "verified": "machine-confirmed",
-             "sources_count": 2, "stale_after": "2026-11-01", "confidence": "medium",
-             "source_reports": ["a", "b"]}) + "\n## 概述\n\nx\n", encoding="utf-8")
-        d2.mkdir(parents=True, exist_ok=True)
-        (d2 / "overview.md").write_text(
-            "# 旧\n> Updated: 2026-07-31 | Sources: 1 | Confidence: low\n\n## 来源\n\n- A [slug-a]\n",
-            encoding="utf-8")
-        anchors = {a["id"]: a for a in _load_existing_concepts()}
+        os.makedirs(d1, exist_ok=True)
+        with open(os.path.join(d1, "overview.md"), "w", encoding="utf-8") as f:
+            f.write(dump_frontmatter(
+                {"id": "vec--1", "title": "向量", "domain": "tech", "status": "stable",
+                 "generated": {"by": "agent:glm", "at": "2026-08-01"}, "verified": "machine-confirmed",
+                 "sources_count": 2, "stale_after": "2026-11-01", "confidence": "medium",
+                 "source_reports": ["a", "b"]}) + "\n## 概述\n\nx\n")
+        os.makedirs(d2, exist_ok=True)
+        with open(os.path.join(d2, "overview.md"), "w", encoding="utf-8") as f:
+            f.write(
+                "# 旧\n> Updated: 2026-07-31 | Sources: 1 | Confidence: low\n\n## 来源\n\n- A [slug-a]\n")
+        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+            anchors = {a["id"]: a for a in _load_existing_concepts()}
         assert anchors["vec--1"]["members"] == ["a", "b"]
         assert anchors["oldone"]["members"] == ["slug-a"]  # 旧格式回退抠 members
     finally:
-        shutil.rmtree(d1, ignore_errors=True)
-        shutil.rmtree(d2, ignore_errors=True)
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":
