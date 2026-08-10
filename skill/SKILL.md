@@ -3,9 +3,12 @@ name: research-report
 description: >-
   Create research reports on open-source projects, technologies, or industry trends.
   Use when the user asks to research a GitHub project, technology, or topic and produce
-  a structured report. All reports use the unified book-style template from the
-  ai-report platform (https://github.com/fatherplus/vicky). Visual
-  style is governed by skill/BOOK-STYLE.md (the "book" design spec).
+  a structured report. Content is submitted to the ai-report platform
+  (https://github.com/fatherplus/vicky) via POST /api/reports, choosing a
+  template (book / brief / arch-overview / arch-node / card) and a domain
+  (tech / ephemeral / design / arch) by content type. Visual style is governed by the
+  platform's book-style design system (skill/BOOK-STYLE.md); the submission contract
+  lives in skill/AGENT-GUIDE.md.
 ---
 
 # Research Report — 统一研究平台
@@ -13,7 +16,9 @@ description: >-
 ## 平台定位
 
 `ai-report` 是一个**集中式研究报告管理平台**，包含：
-- **统一模板**：`templates/` 注册制模板 — 默认 `book`（“书”页设计：宋体标题 + 书眉 + 藏书章 + 书签丝带），另有 `brief`（结论先行的决策简报）；所有报告共享同一份 CSS
+- **五个模板**：`templates/` 注册制 — `book`（默认，“书”页长读：宋体标题 + 书眉 + 藏书章 + 书签丝带）、`brief`（结论先行决策简报）、`arch-overview` / `arch-node`（项目架构多页站，骑丛书机制）、`card`（产品风格卡片，聚合成卡片墙）；所有报告共享同一份 CSS
+- **四类内容域**（`domain` 字段路由）：`tech` 技术文章（唯一进知识蒸馏）/ `ephemeral` 临时报告 / `design` 前端卡片（不蒸馏；卡片墙 `/research/design.html`，token 总纲 `GET /api/design`，CSS 资源包 `GET /api/design.css`）/ `arch` 架构站（不蒸馏）
+- **提交契约**：`skill/AGENT-GUIDE.md`（即 `GET /api/guide`）— domain 路由表、四类工作流、截图规范、arch 丛书约定
 - **风格规范**：`skill/BOOK-STYLE.md` — 书风格的硬约束（字体/配色/版式/动效/绝对禁止清单）
 - **GitLab Pages**：`public/` 目录自动发布为静态站点
 - **Skill**：本文件 — 定义报告生成的标准工作流
@@ -91,25 +96,24 @@ Avoid duplicating work:
 - `search_files` in `ai-report/public/reports/` for `*.html`
 - If a report on the same topic exists, cross-reference. Link to it from the new report.
 
-### 3. Load Template
+### 3. Choose Template & Domain
 
-Read the canonical template:
-```bash
-# Template is in the ai-report repo
-read_file templates/book/template.html
-```
+不手写整页 HTML——只写正文内容，`POST /api/reports` 时平台套模板、生成 .md 孪生、L0 存档。模板目录：`GET /api/templates`（或读 `templates/{name}/manifest.json`）。
 
-The template uses `{{PLACEHOLDER}}` markers:
-- `{{TITLE}}` — report title
-- `{{SUBTITLE}}` — one-line subtitle
-- `{{HERO_TAG}}` — small tag above title (e.g. "向量检索", "开源研究")
-- `{{DATE}}` — YYYY-MM-DD
-- `{{AUTHOR}}` — "Hermes Agent"
-- `{{CONTENT}}` — the body: `<section>...</section>` blocks
+| 内容 | domain | template | slug 约定 |
+|---|---|---|---|
+| 技术文章（默认） | `tech` | `book` | 主题 slug |
+| 决策简报 | `tech` / `ephemeral` | `brief` | 主题 slug |
+| 临时报告（给人/领导看，不蒸馏） | `ephemeral` | `book` / `brief` | 主题 slug |
+| 产品风格卡片 | `design` | `card` | `card-{product}` |
+| 架构总览卷 | `arch` | `arch-overview` | `{project}-arch-overview`（series `{project}-arch`，order=1） |
+| 架构节点卷 | `arch` | `arch-node` | `{project}-arch-{module}`（同 series，order=2..n，三段 h2 硬契约） |
+
+模板框架由平台用占位符填充（`{{TITLE}}` `{{SUBTITLE}}` `{{HERO_TAG}}` `{{DATE}}` `{{META}}` `{{CONTENT}}` `{{COMPONENT_HEAD}}` `{{SERIES_BADGE}}` `{{VOLUME_NAV}}`），agent 不碰。四类工作流、截图规范（视口 1440×900 / 默认抓主页 / PNG / 走 `images` 字段）、arch 节点卷「输入与输出 → 内部工作流 → 架构方案」三段契约与 mermaid click 跳转写法，全部见 `skill/AGENT-GUIDE.md`。
 
 ### 4. Write the Report
 
-**File naming**: `public/reports/YYYY-MM-DD-slug.html`
+**命名**：只给 `slug`（英文小写连字符），平台自动加日期前缀生成 `public/reports/YYYY-MM-DD-slug.html` + `.md` 孪生
 
 **Design conventions** (book style — full spec in `skill/BOOK-STYLE.md`):
 - 模板是一页“书”：书眉（running head）+ 书签丝带（滚动进度）+ 章节开头（带藏书章）+ 720px 正文栏 + 页脚
@@ -166,7 +170,7 @@ Give the user:
 - **Don't skip the critique section**: every project has limitations.
 - **Don't fabricate data**: if a benchmark can't be found, say so.
 - **Include concrete examples**: for technical topics, always include a hands-on scenario with concrete data, step-by-step walkthrough, and analogy. User said "没有一个具体的例子和场景，我还是无法理解他的方式".
-- **Template is canonical**: always use `templates/book/template.html` (or another registered template under `templates/`) from the repo as the starting point. Do not copy-paste CSS from old reports.
+- **Template is canonical**: pick a registered template under `templates/` via `GET /api/templates` (default `book`; arch/card content uses its own registered template). Do not copy-paste CSS from old reports.
 - **Chinese content**: use Chinese for all body text; keep code/commands/technical terms in English.
 - **Nginx permissions**: `sudo cp` + `sudo chmod 644` required.
 - **GitLab Pages**: `public/` is the Pages root. Reports go in `public/reports/`. Index is `public/index.html`.

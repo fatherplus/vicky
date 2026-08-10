@@ -36,10 +36,10 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 | 文件 | 角色 | 层 |
 |------|------|----|
-| `ai_report/config.py` | 路径、常量、端口、DOMAINS | — |
+| `ai_report/config.py` | 路径、常量、端口、DOMAINS、DESIGN_DOC_SLUG | — |
 | `ai_report/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
 | `ai_report/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
-| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 丛书 | L1 |
+| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 卡片墙 + 丛书 | L1 |
 | `ai_report/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
 | `ai_report/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
 | `ai_report/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
@@ -63,8 +63,9 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html` + `.md` 孪生），只增不改 |
 | `public/assets/` | 设计系统：`book-style.css`（唯一 CSS 来源）、`index.css`、`knowledge.css`、`components/`（mermaid 等按需 JS） |
 | `public/index.html` | 索引页（server 自动生成，不要手改） |
-| `templates/{book,brief}/` | 注册制报告模板（template.html + manifest.json） |
-| `views/` | 平台整页模板（`index.html`、`knowledge.html`），纯 HTML + `__占位符__` |
+| `public/design.html` | 前端卡片墙页（server 自动生成，domain=design 卡片聚合，不要手改） |
+| `templates/{book,brief,arch-overview,arch-node,card}/` | 注册制报告模板（template.html + manifest.json） |
+| `views/` | 平台整页模板（`index.html`、`knowledge.html`、`design.html`），纯 HTML + `__占位符__` |
 
 ### 数据
 
@@ -72,7 +73,7 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 |------|------|
 | `data/ai-report.db` | sqlite 数据库（submissions / reports / feedbacks 三表），WAL 模式 |
 | `data/l0/{slug}/{rev:04d}/` | 不可变快照档案（submission.json + img/） |
-| `knowledge/{tech,design}/{topic}/` | 蒸馏产出的知识 Wiki（overview.md） |
+| `knowledge/tech/{topic}/` | 蒸馏产出的知识 Wiki（overview.md；现只蒸 tech） |
 
 ### 规范与部署
 
@@ -106,6 +107,8 @@ GET  /api/guide                      写作指南（markdown）
 GET  /api/skill                      下载写作指南（.md 附件）
 GET  /api/template                   查看 HTML 模板（?name=，默认 book）
 GET  /api/templates                  模板目录
+GET  /api/design                     设计 token 总纲（design.md 的 .md 孪生，稳定别名）
+GET  /api/design.css                 设计 CSS 资源包（下载 book-style.css）
 GET  /api/principles                 叙事宪法（markdown）
 GET  /api/health                     健康检查
 GET  /research/*                     静态自伺服（reports / assets / knowledge / index）
@@ -113,7 +116,7 @@ GET  /research/*                     静态自伺服（reports / assets / knowle
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
 
-**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`，决定蒸馏路由——`ephemeral` 不进知识库。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
+**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`/`arch`，决定蒸馏路由——只有 `tech` 进知识库蒸馏，`design`（前端卡片素材）/`ephemeral`（临时报告）/`arch`（架构站）均跳过。`design` 报告聚合成卡片墙 `public/design.html`；`arch` 报告为丛书机制多页站（`{project}-arch` 丛书：总览卷 + 节点卷）。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
 
 **L3 仲裁流**：反馈是带证据的陈述，不是分数；采纳是裁决，不是算术。状态机 pending → adopted | rejected，可翻案。裁决权始终可人工接管（judged_by 记 `human:{ip}`）。采纳后 feedback 作为 type=feedback 来源与报告平级进 L2 编译。证据为空直接拒收。
 
@@ -135,6 +138,7 @@ GET  /research/*                     静态自伺服（reports / assets / knowle
 - `cmp-table` 无 `cmp-verdict`——对比必须有结论
 - 弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`）——模板已删除其样式
 - 丛书卷号重复——同 `series` 同 `order` 已被其他文件占用（upsert 本卷除外）
+- `arch-node` 节点卷缺三段——h2 必须依序含「输入与输出 / 内部工作流 / 架构方案」
 
 **提醒约束（server 校验，随响应返回 warnings，不拒收）**：
 - figure 缺 fig-cap / fig-note
