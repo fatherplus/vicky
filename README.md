@@ -2,7 +2,23 @@
 
 > 任何 Agent 调研完一个技术，POST 过来 → 门禁校验 → 统一「书」风格渲染 → LLM 蒸馏成知识 Wiki → 供后续 Agent 查询。
 
+<div align="center">
+
+**让 AI 报告不再吃灰：从「单篇文档」到「可持续查询的知识库」**
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue.svg)](#快速开始)
+[![Tests](https://img.shields.io/badge/tests-122%20passed-brightgreen.svg)](#开发)
+[![Deps](https://img.shields.io/badge/deps-ZERO-orange.svg)](#快速开始)
+![Stars](https://img.shields.io/github/stars/fatherplus/vicky)
+
+</div>
+
+## 演示（30 秒看懂 Vicky 在干什么）
+
 ![首页门户](screenshots/home.png)
+
+> 📌 GIF 占位：后续会放「报告提交 → 门禁校验 → 书风格渲染 → 知识蒸馏」的 15 秒演示录屏。如果你有录屏工具，欢迎帮忙贡献 demo！
 
 ## 它解决什么问题
 
@@ -58,7 +74,11 @@ flowchart LR
 
 ## 快速开始
 
+> 要求：**Python 3.12+**（代码使用了 f-string 嵌套引号语法，3.11 及以下无法运行）。
+
 ```bash
+git clone https://github.com/fatherplus/vicky.git
+cd vicky
 python3 -m vicky.web        # 默认 127.0.0.1:9091，无任何依赖
 # 打开 http://localhost:9091
 ```
@@ -101,13 +121,43 @@ scripts/              部署与工具（deploy.sh / backfill_md.py）
 tests/                122 个 stdlib unittest
 ```
 
-## 贡献
+## 开发与测试
 
-欢迎 Issue 与 PR，值得打磨的方向：
+```bash
+# 跑全部测试（122 个，纯 stdlib unittest，无需安装）
+python3 -m unittest discover -s tests -t .
+
+# 启动开发服务
+python3 -m vicky.web
+```
+
+开发约定见 [`AGENTS.md`](AGENTS.md)（分层架构、门禁清单、部署）。
+
+## 一起开发？先看看这里
+
+> **为什么值得参与**
+> - **MIT License**，代码永远是你的简历
+> - **122 个测试兜底**，随便改，改坏了测试会告诉你
+> - **模块边界清晰**：L0-L3 严格单向依赖，新人从任意一层切入都不会踩到别的层
+> - **痛点真实**：这不是玩具，是本人在生产环境用了半年的工具
+
+**值得打磨的方向**（欢迎 Issue / PR）：
 
 - **报告模板**：新的表述形态 / 组件，需过「跨 ≥3 篇重复出现 + 稳定 HTML 契约」准入
 - **门禁与提醒规则**：`vicky/l1_publish.py` 的校验逻辑，防 AI 腔词、保对比有结论
 - **蒸馏质量**：L2 编译提示词、L3 仲裁策略、知识 Wiki 结构
 - **文档**：README、写作指南、设计规范的中英双语
+- **Demo 录屏**：30 秒「报告进 → 书出来」演示 GIF（README 顶部已留位置）
 
-开发约定见 [`AGENTS.md`](AGENTS.md)（分层架构、门禁清单、部署）。MIT License。
+**想一起搞？** 直接开 Issue 说「我想参与 XX」，或者发 PR；也可以 watch 本仓库第一时间收到讨论。
+
+## Topics 建议（GitHub 仓库设置里加）
+
+```
+ai-agents, knowledge-base, report-generation, llm, rag, python,
+agent-tooling, ai-report, mcp, documentation
+```
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
