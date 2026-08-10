@@ -201,6 +201,9 @@ def validate_content(content: str, title: str = "", template: str = "") -> tuple
         warnings.append(f"标题/正文含 emoji ×{len(emoji)}")
     if COMPONENTS["mermaid"]["detect"](content) and 'class="figure"' not in content:
         warnings.append("检测到 mermaid 但无任何 figure 装裱")
+    bare = [m for m in SECTION_RE.findall(content) if _section_lacks_wrap(m[1])]
+    if bare:
+        warnings.append(f"{len(bare)} 个 section 缺 .wrap 版心（server 已自动补；提交时请包 <div class=\"wrap\">）")
     return errors, warnings
 
 
@@ -209,6 +212,23 @@ def validate_content(content: str, title: str = "", template: str = "") -> tuple
 # ============================================================
 def normalize_series(name: str) -> str:
     return re.sub(r"\s+", " ", (name or "").strip())
+
+
+SECTION_RE = re.compile(r"(<section\b[^>]*>)([\s\S]*?)</section>", re.I)
+
+
+def _section_lacks_wrap(inner: str) -> bool:
+    return not re.search(r'class\s*=\s*["\'][^"\']*\bwrap\b', inner)
+
+
+def normalize_wrap(content: str) -> str:
+    """section 缺 .wrap 版心时 server 自动补——版心宽/内边距全挂 .wrap，缺了整页裸奔。"""
+    def fix(m):
+        head, inner = m.group(1), m.group(2)
+        if not _section_lacks_wrap(inner):
+            return m.group(0)
+        return f'{head}<div class="wrap">{inner}</div></section>'
+    return SECTION_RE.sub(fix, content)
 
 
 def check_series_conflict(series: str, order: int, exclude_file, reports: list) -> str | None:
@@ -321,6 +341,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
                     if series else "")
     volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(series)}"></nav>' if series else ""
 
+    content = normalize_wrap(content)
     comp_head, comp_hits = component_head(content)
     html_out = render(tpl,
         TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=today,
@@ -425,6 +446,7 @@ def render_from_l0(slug: str) -> dict:
                     if s else "")
     volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(s)}"></nav>' if s else ""
 
+    content = normalize_wrap(content)
     comp_head, comp_hits = component_head(content)
     html_out = render(tpl,
         TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=date_str,

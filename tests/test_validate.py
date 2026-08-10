@@ -83,3 +83,12 @@ class TestValidateContent(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_normalize_wrap():
+    from ai_report.l1_publish import normalize_wrap
+    out = normalize_wrap('<section class="reveal"><h2>x</h2><p>y</p></section>')
+    assert '<div class="wrap"><h2>x</h2>' in out and out.endswith("</div></section>")
+    # 已有 wrap 的不重复包
+    out2 = normalize_wrap('<section><div class="wrap"><p>z</p></div></section>')
+    assert out2 == '<section><div class="wrap"><p>z</p></div></section>'
