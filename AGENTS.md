@@ -24,11 +24,11 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | 层 | 职责 | 存储 |
 |----|------|------|
 | L0 原始数据层 | 提交快照（不可变档案） | `data/l0/{slug}/{rev}/submission.json` + sqlite submissions 表 |
-| L1 表述层 | 门禁→模板→HTML+MD 孪生报告 + 索引页 | `public/reports/` + sqlite reports 表 |
+| L1 表述层 | 门禁→模板→HTML+MD 孪生报告 + 索引页 + 首页门户 + 卡片墙 | `public/reports/` + sqlite reports 表 |
 | L2 知识层 | knowledge Wiki（LLM 编译，输入 .md + adopted 反馈） | `knowledge/{domain}/{topic}/overview.md` |
 | L3 回写层 | 使用账本 + 仲裁 → 采纳反馈回灌 L2 | sqlite feedbacks 表 |
 
-**职责分离**：app（`ai_report/web.py`）自伺服全部 `/research/*` 静态文件 + `/api/*` 业务端点；Nginx 退化为可选纯反向代理。
+**职责分离**：app（`ai_report/web.py`）自伺服全部静态文件（public/ 根级直出，`/research/*` 旧前缀兼容保留）+ `/api/*` 业务端点；Nginx 退化为可选纯反向代理。
 
 ## 文件地图
 
@@ -36,14 +36,14 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 | 文件 | 角色 | 层 |
 |------|------|----|
-| `ai_report/config.py` | 路径、常量、端口、DOMAINS、DESIGN_DOC_SLUG | — |
+| `ai_report/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、DOMAINS、DESIGN_DOC_SLUG | — |
 | `ai_report/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
 | `ai_report/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
-| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 卡片墙 + 丛书 | L1 |
+| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 卡片墙 + 丛书 | L1 |
 | `ai_report/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
 | `ai_report/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
 | `ai_report/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
-| `ai_report/web.py` | 薄路由层：每端点小函数 + 静态自伺服（`/research/*`） | — |
+| `ai_report/web.py` | 薄路由层：每端点小函数 + 静态自伺服（根级直出 + `/research/*` 兼容） | — |
 | `ai_report/cli.py` | backfill / render / distill / judge 命令入口 | — |
 
 依赖方向严格单向：`web → l3 → l2 → l1 → l0 → store`，禁止反向。L2 编译时直查 feedbacks 表取 adopted 条目（不 import l3_feedback），防环依赖。
@@ -61,11 +61,12 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | 路径 | 角色 |
 |------|------|
 | `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html` + `.md` 孪生），只增不改 |
-| `public/assets/` | 设计系统：`book-style.css`（唯一 CSS 来源）、`index.css`、`knowledge.css`、`components/`（mermaid 等按需 JS） |
+| `public/assets/` | 设计系统：`book-style.css`（唯一 CSS 来源）、`index.css`、`knowledge.css`、`components/`（mermaid / arch-flow 等按需注入） |
+| `public/home.html` | 首页门户（server 自动生成：人读五入口 + Agent 提交区 + 计数，不要手改） |
 | `public/index.html` | 索引页（server 自动生成，不要手改） |
 | `public/design.html` | 前端卡片墙页（server 自动生成，domain=design 卡片聚合，不要手改） |
 | `templates/{book,brief,arch-overview,arch-node,card}/` | 注册制报告模板（template.html + manifest.json） |
-| `views/` | 平台整页模板（`index.html`、`knowledge.html`、`design.html`），纯 HTML + `__占位符__` |
+| `views/` | 平台整页模板（`home.html`、`index.html`、`knowledge.html`、`design.html`），纯 HTML + `__占位符__` |
 
 ### 数据
 
@@ -86,10 +87,11 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量（`GET /api/principles`） |
 | `scripts/nginx-research.conf` | 个人环境 Nginx 配置（纯反代） |
 | `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（纯反代） |
-| `scripts/deploy.sh` | 个人环境部署（rsync 同步 + Nginx 重载） |
+| `scripts/deploy.sh` | 个人环境部署（逐项内容级 rsync + backfill + Nginx 重载；macOS openrsync 目录级传输会静默跳过，勿改回批量） |
 | `scripts/deploy-xlab.sh` | xlab-test 部署 |
 | `scripts/backfill_md.py` | 存量报告补生成 .md（`--force` 重生成） |
 | `tests/` | stdlib unittest |
+| `docs/superpowers/specs/` | 历次已批准设计规格（内容分类 / 首页根级化 / L0-L3 等），改动前先读相关 spec |
 | `convert_to_book.py` | 一次性脚本：旧格式报告 → 书风格 |
 
 ## API
@@ -111,7 +113,7 @@ GET  /api/design                     设计 token 总纲（design.md 的 .md 孪
 GET  /api/design.css                 设计 CSS 资源包（下载 book-style.css）
 GET  /api/principles                 叙事宪法（markdown）
 GET  /api/health                     健康检查
-GET  /research/*                     静态自伺服（reports / assets / knowledge / index）
+GET  /research/*                     静态自伺服兼容入口（根级 `/*` 直出同内容）
 ```
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
@@ -145,7 +147,7 @@ GET  /research/*                     静态自伺服（reports / assets / knowle
 - AI 腔词（赋能/闭环/打通/一站式/全方位/引领）、标题正文 emoji
 - mermaid 未装裱进 figure
 
-重量级渲染资源（mermaid）由 server 检测 HTML 契约后按篇注入 `<head>`（`COMPONENTS` 注册表），模板不无条件加载。
+重量级渲染资源（mermaid / arch-flow）由 server 检测 HTML 契约后按篇注入 `<head>`（`COMPONENTS` 注册表），模板不无条件加载。
 
 **软约束（`/api/guide` 指导，agent 自觉遵循）**：
 - 先讲「为什么」再讲「是什么」（黄金结构：定位→痛点→为什么→方案→验证）
