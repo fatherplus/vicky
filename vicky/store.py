@@ -16,7 +16,7 @@ from . import config as _config
 
 def _db_path() -> Path:
     """每次调用从 _config.DATA_DIR 派生，方便测试 monkey-patch。"""
-    return _config.DATA_DIR / "ai-report.db"
+    return _config.DATA_DIR / "vicky.db"
 
 # ============================================================
 # DDL

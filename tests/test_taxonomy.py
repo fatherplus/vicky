@@ -9,10 +9,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.util import REPO
-from ai_report.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
+from vicky.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
                                   llm_compile_topic, write_knowledge_compiled,
                                   build_knowledge_page)
-from ai_report import config, cli
+from vicky import config, cli
 
 
 def _tmp_knowledge(tmp: Path, n: int = 2) -> None:
@@ -56,19 +56,19 @@ def test_category_enum():
 def test_compile_category_validation_and_fallback():
     member = [{"slug": "a", "title": "A", "conclusions": ["c"], "traps": [], "data": []}]
     # LLM 返回非法 category + 空 tags → 兜底 ai / 无标签
-    with patch("ai_report.l2_distill.llm_chat",
+    with patch("vicky.l2_distill.llm_chat",
                return_value='{"summary": "s", "points": ["p [a]"], "category": "wrong!", "tags": []}'):
         out = llm_compile_topic("T", member)
     assert out["category"] == "ai"
     assert out["tags"] == []
     # 合法值透传
-    with patch("ai_report.l2_distill.llm_chat",
+    with patch("vicky.l2_distill.llm_chat",
                return_value='{"summary": "s", "points": ["p [a]"], "category": "ops", "tags": ["用量分析", "监控"]}'):
         out = llm_compile_topic("T", member)
     assert out["category"] == "ops"
     assert out["tags"] == ["用量分析", "监控"]
     # 超 5 个截断；非字符串过滤
-    with patch("ai_report.l2_distill.llm_chat",
+    with patch("vicky.l2_distill.llm_chat",
                return_value='{"summary": "s", "points": [], "category": "infra", "tags": ["a", "b", "c", "d", "e", "f", 7]}'):
         out = llm_compile_topic("T", member)
     assert out["tags"] == ["a", "b", "c", "d", "e"]
@@ -82,8 +82,8 @@ def test_compile_prompt_injects_tags_and_categories():
         return '{"summary": "s", "points": [], "category": "ai", "tags": ["RAG"]}'
 
     member = [{"slug": "a", "title": "A", "conclusions": ["c"], "traps": [], "data": []}]
-    with patch("ai_report.l2_distill.llm_chat", side_effect=fake_chat), \
-         patch("ai_report.l2_distill.existing_tags", return_value=["RAG", "检索"]):
+    with patch("vicky.l2_distill.llm_chat", side_effect=fake_chat), \
+         patch("vicky.l2_distill.existing_tags", return_value=["RAG", "检索"]):
         llm_compile_topic("T", member)
     p = captured["prompt"]
     assert "RAG" in p and "检索" in p                      # 已有标签清单注入
@@ -127,7 +127,7 @@ def test_write_compiled_persists_category_tags():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "tech").mkdir(parents=True)
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp):
             p = write_knowledge_compiled({"topic": "T", "domain": "tech", "members": ["a"]}, md, comp)
             ov = parse_overview(p.read_text(encoding="utf-8"))
             assert ov["category"] == "eng" and ov["tags"] == ["CLI", "工作流"]
@@ -136,7 +136,7 @@ def test_write_compiled_persists_category_tags():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "tech").mkdir(parents=True)
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp):
             p = write_knowledge_compiled({"topic": "T", "domain": "tech", "members": ["a"]}, md, comp2)
             meta, _ = parse_frontmatter(p.read_text(encoding="utf-8"))
             assert meta["category"] == "ops" and "tags" not in meta
@@ -155,9 +155,9 @@ def test_classify_idempotent_mock_llm():
             calls.append(messages)
             return '{"category": "eng", "tags": ["CLI", "工作流"]}'
 
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp), \
-             patch("ai_report.l2_distill.LLM_ON", True), \
-             patch("ai_report.l2_distill.llm_chat", side_effect=fake_chat):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp), \
+             patch("vicky.l2_distill.LLM_ON", True), \
+             patch("vicky.l2_distill.llm_chat", side_effect=fake_chat):
             cli.classify()
             cli.classify()  # 二跑：全部已有 category，零调用
 
@@ -173,8 +173,8 @@ def test_classify_llm_unavailable_skips():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         _tmp_knowledge(tmp, n=1)
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp), \
-             patch("ai_report.l2_distill.LLM_ON", False):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp), \
+             patch("vicky.l2_distill.LLM_ON", False):
             cli.classify()
         ovf = tmp / "tech" / "topic-0" / "overview.md"
         meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
@@ -186,9 +186,9 @@ def test_classify_llm_failure_keeps_blank():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         _tmp_knowledge(tmp, n=1)
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp), \
-             patch("ai_report.l2_distill.LLM_ON", True), \
-             patch("ai_report.l2_distill.llm_chat", return_value=None):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp), \
+             patch("vicky.l2_distill.LLM_ON", True), \
+             patch("vicky.l2_distill.llm_chat", return_value=None):
             cli.classify()
         ovf = tmp / "tech" / "topic-0" / "overview.md"
         meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
@@ -216,10 +216,10 @@ def test_build_page_contract():
         p1.write_text(dump_frontmatter(m1) + b1, encoding="utf-8")
         _tpl_with_chips(tmp)
 
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp), \
-             patch("ai_report.l2_distill.PUBLIC_DIR", tmp), \
-             patch("ai_report.config.DATA_DIR", tmp), \
-             patch("ai_report.config.VIEWS_DIR", tmp / "views"):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp), \
+             patch("vicky.l2_distill.PUBLIC_DIR", tmp), \
+             patch("vicky.config.DATA_DIR", tmp), \
+             patch("vicky.config.VIEWS_DIR", tmp / "views"):
             out = build_knowledge_page()
 
         html = out.read_text(encoding="utf-8")
@@ -246,7 +246,7 @@ def test_build_page_contract():
 
 def test_kcard_search_blob_lowercase():
     """data-search 全文小写：标题 + 主题名 + 各节文本。"""
-    from ai_report.ui import render_knowledge_card
+    from vicky.ui import render_knowledge_card
     ov = parse_overview(dump_frontmatter(
         {"id": "x", "title": "RAG 检索", "domain": "tech", "category": "ai",
          "status": "stable", "generated": {"by": "agent:glm", "at": "2026-08-01"},

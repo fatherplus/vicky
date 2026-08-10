@@ -3,7 +3,7 @@
 蒸馏器 — 从 HTML 报告中提取结构化知识，维护 knowledge/ Wiki。
 L2 知识层（P0 包化：从 distill.py 搬迁，行为零变化）。
 
-用法: python3 -m ai_report.cli distill [--dry-run]
+用法: python3 -m vicky.cli distill [--dry-run]
 
 流程（对应治理链路 关2-3）：
   1. 扫描 public/reports/*.html，对比 log.md 已处理列表

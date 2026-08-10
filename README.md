@@ -1,11 +1,11 @@
-# AI Report — 统一研究报告平台
+# Vicky — 个人知识平台
 
-集中式 AI 研究报告管理平台。统一模板、统一风格、自动发布。
+个人知识平台：Agent 研究报告入库 → 知识蒸馏 → Agent 知识服务。统一模板、统一风格、自动发布。
 
 ## 架构
 
 ```
-ai-report/
+vicky/
 ├── templates/                ← 注册制模板（各含 template.html + manifest.json）
 │   ├── book/                 ← 默认：技术深度研究的逐章长读
 │   └── brief/                ← 结论先行的决策简报
@@ -60,7 +60,7 @@ GET  /api/principles 叙事宪法（markdown）
 - **upsert**：同 `slug` 再次 POST 覆盖原文件（保留原日期，索引显示「订」徽章），不产生新报告。
 - **丛书**：同时给 `series` + `order`（≥1 整数，同丛书内唯一）即成为丛书的一卷，报告页自动生成上下卷导航。
 - **模板**：注册制（`templates/`），`POST /api/reports` 以 `template` 参数按名选择（默认 book）。模板拥有结构不拥有视觉——调色板/字体由平台 `book-style.css` 拥有，叙事不变量由 `skill/NARRATIVE-PRINCIPLES.md` 约束。
-- 默认端口 9091：`python3 server.py`。
+- 默认端口 9091：`python3 -m vicky.web`。
 
 ## 在线访问
 

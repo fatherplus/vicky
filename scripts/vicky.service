@@ -1,0 +1,20 @@
+[Unit]
+Description=Vicky 个人知识平台
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hgf
+Group=hgf
+# 包入口 python3 -m vicky.web（argv[1]=9093 端口、argv[2]=0.0.0.0 绑定，正门直连；
+# WorkingDirectory=/home/deploy/vicky 保证 -m vicky 可解析，其余项不动）
+ExecStart=/usr/bin/python3 -m vicky.web 9093 0.0.0.0
+WorkingDirectory=/home/deploy/vicky
+Restart=on-failure
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

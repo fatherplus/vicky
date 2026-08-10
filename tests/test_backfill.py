@@ -3,8 +3,8 @@ import json
 import tempfile
 from pathlib import Path
 
-from ai_report import config
-from ai_report.cli import _extract_main_content, _extract_meta
+from vicky import config
+from vicky.cli import _extract_main_content, _extract_meta
 
 REPO_DIR = Path(__file__).resolve().parent.parent
 

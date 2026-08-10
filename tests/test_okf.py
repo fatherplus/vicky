@@ -6,7 +6,7 @@ import shutil
 import tempfile
 from unittest.mock import patch
 
-from ai_report.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
+from vicky.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
                      write_knowledge_compiled, _norm_clusters, _safe_slug,
                      _load_existing_concepts)
 
@@ -56,7 +56,7 @@ def test_write_compiled_frontmatter_and_id():
     comp = {"summary": "综合。", "points": ["p [a]"], "data": [], "traps": [], "contradictions": []}
     tmp = _tmp_knowledge_dir()
     try:
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp):
             p = write_knowledge_compiled({"topic": "T", "domain": "tech", "members": ["a", "b"]}, md, comp)
             ov = parse_overview(p.read_text(encoding="utf-8"))
             assert ov["id"] == p.parent.name  # id 与目录名恒等
@@ -112,7 +112,7 @@ def test_load_existing_concepts_compat():
         with open(os.path.join(d2, "overview.md"), "w", encoding="utf-8") as f:
             f.write(
                 "# 旧\n> Updated: 2026-07-31 | Sources: 1 | Confidence: low\n\n## 来源\n\n- A [slug-a]\n")
-        with patch("ai_report.l2_distill.KNOWLEDGE_DIR", tmp):
+        with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp):
             anchors = {a["id"]: a for a in _load_existing_concepts()}
         assert anchors["vec--1"]["members"] == ["a", "b"]
         assert anchors["oldone"]["members"] == ["slug-a"]  # 旧格式回退抠 members

@@ -10,7 +10,7 @@ server = load_server()
 class TestCardWall(unittest.TestCase):
     def test_wall_generated_with_cover(self):
         with tmp_env(server) as tmp:
-            import ai_report.config as cfg
+            import vicky.config as cfg
             old = cfg.IMG_DIR
             cfg.IMG_DIR = tmp / "assets" / "img"
             try:

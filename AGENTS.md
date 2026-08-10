@@ -1,11 +1,11 @@
-# AGENTS.md — ai-report 项目上下文
+# AGENTS.md — Vicky 项目上下文
 
 ## 这是什么
 
-集中式技术研究报告平台。任何 AI Agent 研究完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档。
+个人知识平台：任何 AI Agent 调研完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档，并经 L0-L3 蒸馏成可持续演化的知识 Wiki——正在按 `docs/plans/2026-08-knowledge-mcp-dev-plan.md` 演进为 MCP 知识服务。
 
-**核心问题**：不同 agent、不同时间写的报告，风格五花八门。
-**解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS）；内容 taste 分三层——表述形态由 server 门禁强制（裸表格/无结论对比直接拒收），语义词汇由表述规范约束，框内的画完全放开。`/api/guide` 暴露写作规范。
+**核心问题**：不同 agent、不同时间写的报告，风格五花八门；研究结论散落在单篇报告里，难以被后续 Agent 直接复用。
+**解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS）；内容 taste 分三层——表述形态由 server 门禁强制（裸表格/无结论对比直接拒收），语义词汇由表述规范约束，框内的画完全放开。`/api/guide` 暴露写作规范。知识层由 L2 蒸馏沉淀、L3 反馈回灌，逐步长成可供 Agent 查询的知识服务。
 
 ## 架构
 
@@ -28,23 +28,23 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | L2 知识层 | knowledge Wiki（LLM 编译，输入 .md + adopted 反馈） | `knowledge/{domain}/{topic}/overview.md` |
 | L3 回写层 | 使用账本 + 仲裁 → 采纳反馈回灌 L2 | sqlite feedbacks 表 |
 
-**职责分离**：app（`ai_report/web.py`）自伺服全部静态文件（public/ 根级直出，`/research/*` 旧前缀兼容保留）+ `/api/*` 业务端点；Nginx 退化为可选纯反向代理。
+**职责分离**：app（`vicky/web.py`）自伺服全部静态文件（public/ 根级直出，`/research/*` 旧前缀兼容保留）+ `/api/*` 业务端点；Nginx 退化为可选纯反向代理。
 
 ## 文件地图
 
-### 后端包 `ai_report/`
+### 后端包 `vicky/`
 
 | 文件 | 角色 | 层 |
 |------|------|----|
-| `ai_report/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、DOMAINS、DESIGN_DOC_SLUG | — |
-| `ai_report/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
-| `ai_report/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
-| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 卡片墙 + 丛书 | L1 |
-| `ai_report/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
-| `ai_report/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
-| `ai_report/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
-| `ai_report/web.py` | 薄路由层：每端点小函数 + 静态自伺服（根级直出 + `/research/*` 兼容） | — |
-| `ai_report/cli.py` | backfill / render / distill / judge 命令入口 | — |
+| `vicky/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、DOMAINS、DESIGN_DOC_SLUG | — |
+| `vicky/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
+| `vicky/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
+| `vicky/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 卡片墙 + 丛书 | L1 |
+| `vicky/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
+| `vicky/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
+| `vicky/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
+| `vicky/web.py` | 薄路由层：每端点小函数 + 静态自伺服（根级直出 + `/research/*` 兼容） | — |
+| `vicky/cli.py` | backfill / render / distill / judge 命令入口 | — |
 
 依赖方向严格单向：`web → l3 → l2 → l1 → l0 → store`，禁止反向。L2 编译时直查 feedbacks 表取 adopted 条目（不 import l3_feedback），防环依赖。
 
@@ -52,9 +52,9 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 | 文件 | 角色 |
 |------|------|
-| `server.py` | shim → `ai_report.web` |
-| `html_to_md.py` | shim → `ai_report.html_to_md` |
-| `distill.py` | shim → `ai_report.l2_distill` |
+| `server.py` | shim → `vicky.web` |
+| `html_to_md.py` | shim → `vicky.html_to_md` |
+| `distill.py` | shim → `vicky.l2_distill` |
 
 ### 前端
 
@@ -72,7 +72,7 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 | 路径 | 角色 |
 |------|------|
-| `data/ai-report.db` | sqlite 数据库（submissions / reports / feedbacks 三表），WAL 模式 |
+| `data/vicky.db` | sqlite 数据库（submissions / reports / feedbacks 三表），WAL 模式 |
 | `data/l0/{slug}/{rev:04d}/` | 不可变快照档案（submission.json + img/） |
 | `knowledge/tech/{topic}/` | 蒸馏产出的知识 Wiki（overview.md；现只蒸 tech） |
 
@@ -173,14 +173,14 @@ GET  /research/*                     静态自伺服兼容入口（根级 `/*` �
 
 ```bash
 # 启动服务（自伺服静态文件 + API）
-python3 -m ai_report.web [port] [host]  # 默认 9091 / 127.0.0.1，位置参数
+python3 -m vicky.web [port] [host]  # 默认 9091 / 127.0.0.1，位置参数
 
 # CLI 离线操作
-python3 -m ai_report.cli backfill [--force]    # 存量报告 → L0 快照（一次性）
-python3 -m ai_report.cli render --all          # L0 → L1 全量重渲染
-python3 -m ai_report.cli render --slug <slug>  # 单篇重渲染
-python3 -m ai_report.cli distill [--clean] [--dry-run]  # L2 蒸馏
-python3 -m ai_report.cli judge                  # LLM 批量初裁 pending 反馈
+python3 -m vicky.cli backfill [--force]    # 存量报告 → L0 快照（一次性）
+python3 -m vicky.cli render --all          # L0 → L1 全量重渲染
+python3 -m vicky.cli render --slug <slug>  # 单篇重渲染
+python3 -m vicky.cli distill [--clean] [--dry-run]  # L2 蒸馏
+python3 -m vicky.cli judge                  # LLM 批量初裁 pending 反馈
 
 # 测试
 python3 -m pytest tests/ -q
@@ -193,13 +193,13 @@ curl http://localhost:9091/api/health
 
 ### 本地开发
 
-- `python3 -m ai_report.web` 启动，自伺服全部内容
+- `python3 -m vicky.web` 启动，自伺服全部内容
 - 直连 `http://localhost:9091/` 即可浏览（首页门户；`/reports/*`、`/assets/*`、`/design.html`、`/knowledge` 根级直出，`/research/*` 旧前缀兼容保留）
 - Nginx 不需要——app 内置静态文件伺服
 
 ### 个人环境（192.168.1.100）
 
-- systemd 服务 `ai-report.service`，`ExecStart=python3 -m ai_report.web 9093 0.0.0.0`，绑定 0.0.0.0:9093（直连正门）
+- systemd 服务 `vicky.service`，`ExecStart=python3 -m vicky.web 9093 0.0.0.0`，绑定 0.0.0.0:9093（直连正门）
 - Nginx 9090 纯反代：`/research/` 与 `/api/` 全部 `proxy_pass http://127.0.0.1:9093`（`/research/` 为兼容入口；9090 上其他目录不动）
 - 内部访问正门：`http://192.168.1.100:9093/`（含首页门户，Nginx 不经手）
 - 兼容入口：`http://192.168.1.100:9090/research/`（Nginx → app 9093）
@@ -209,11 +209,11 @@ curl http://localhost:9091/api/health
 
 ### 公用测试环境（xlab-test / 192.168.1.200）
 
-- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091
+- systemd 服务 `vicky.service`，绑定 127.0.0.1:9091
 - Nginx 纯反向代理：端口 9092 → `proxy_pass http://127.0.0.1:9091`
 - 内网访问：`http://192.168.1.200:9092/research/`
 - 外网访问：`http://47.97.51.69:9092/research/`
-- 路径：`/opt/ai-report`
+- 路径：`/opt/vicky`
 - 部署脚本：`scripts/deploy-xlab.sh`（同步代码 + Nginx 配置，排除 `data/` 保留远端数据）
 - 用途：公用实例，供团队 agent 提交报告；数据独立，不与个人环境混用
 

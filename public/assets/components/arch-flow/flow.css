@@ -1,4 +1,4 @@
-/* ai-report arch-flow v1 —— 节点编排图样式。token 对齐 book-style.css（带 fallback 可独立用）。 */
+/* Vicky arch-flow v1 —— 节点编排图样式。token 对齐 book-style.css（带 fallback 可独立用）。 */
 
 .arch-flow { position: relative; overflow-x: auto; padding: 8px 0 4px; }
 .af-canvas { position: relative; margin: 0 auto; }

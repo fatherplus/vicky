@@ -3,7 +3,7 @@ Web 路由层——薄路由 + 静态自伺服（/research/*）。
 P0 包化：从 server.py 搬迁 Handler + 启动逻辑。
 行为零变化——API 契约不变；补全 /research/ 前缀处理（P4 部署切换前置能力）。
 
-启动: python3 -m ai_report.web [port] [host]
+启动: python3 -m vicky.web [port] [host]
 """
 
 import json
@@ -97,13 +97,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/health":
-            self._json({"ok": True, "service": "ai-report"})
+            self._json({"ok": True, "service": "vicky"})
         elif self.path == "/api/reports":
             self._json({"ok": True, "reports": l1_publish.list_reports()})
         elif self.path == "/api/guide":
             self._serve_file(config.GUIDE_PATH, "text/markdown; charset=utf-8")
         elif self.path == "/api/skill":
-            self._serve_file(config.GUIDE_PATH, "text/markdown; charset=utf-8", "ai-report-skill.md")
+            self._serve_file(config.GUIDE_PATH, "text/markdown; charset=utf-8", "vicky-skill.md")
         elif self.path.split("?")[0] == "/api/template":
             name = parse_qs(urlparse(self.path).query).get("name", [config.DEFAULT_TEMPLATE])[0]
             try:
@@ -372,7 +372,7 @@ def main():
     reports = l1_publish.list_reports()
     config.INDEX_PATH.write_text(l1_publish.build_index(reports), encoding="utf-8")
     l1_publish.refresh_home()
-    print(f"📄 ai-report service starting on {config.HOST}:{config.PORT}")
+    print(f"📄 Vicky service starting on {config.HOST}:{config.PORT}")
     print(f"   Templates: {config.TEMPLATES_DIR} (default: {config.DEFAULT_TEMPLATE})")
     print(f"   Reports:  {config.REPORTS_DIR} ({len(reports)} reports)")
     print(f"   Index:    {config.INDEX_PATH}")

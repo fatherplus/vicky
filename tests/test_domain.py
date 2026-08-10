@@ -2,8 +2,8 @@
 """阶段1 验收：domain 字段 + ephemeral 隔离。
 P0 包化：import 更新。P1：隔离 DATA_DIR 避免污染真实 DB。"""
 from tests.util import load_server, tmp_env
-from ai_report.config import DOMAINS
-from ai_report.l2_distill import EXTRACTORS
+from vicky.config import DOMAINS
+from vicky.l2_distill import EXTRACTORS
 
 server = load_server()
 

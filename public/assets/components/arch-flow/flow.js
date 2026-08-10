@@ -1,4 +1,4 @@
-// ai-report arch-flow v1 —— 只读节点编排图（分层流程 + 判断器 + 抽屉详情）。
+// Vicky arch-flow v1 —— 只读节点编排图（分层流程 + 判断器 + 抽屉详情）。
 // 契约：<div class="arch-flow"> 内含 <script type="application/json"> 数据，或 data-graph 属性。
 // 布局：节点带 layer → 行布局（层即行）；无 layer 时留待接 dagre 自动布局（ponytail: 暂无此场景，不引依赖）。
 // 渲染：SVG 画边，HTML 画节点；视觉 token 对齐 book-style.css。

@@ -3,7 +3,7 @@ name: research-report
 description: >-
   Create research reports on open-source projects, technologies, or industry trends.
   Use when the user asks to research a GitHub project, technology, or topic and produce
-  a structured report. Content is submitted to the ai-report platform
+  a structured report. Content is submitted to the Vicky platform
   (https://github.com/fatherplus/vicky) via POST /api/reports, choosing a
   template (book / brief / arch-overview / arch-node / card) and a domain
   (tech / ephemeral / design / arch) by content type. Visual style is governed by the
@@ -15,7 +15,7 @@ description: >-
 
 ## 平台定位
 
-`ai-report` 是一个**集中式研究报告管理平台**，包含：
+`Vicky` 是一个**个人知识平台**（报告入库 → 知识蒸馏 → Agent 知识服务），包含：
 - **五个模板**：`templates/` 注册制 — `book`（默认，“书”页长读：宋体标题 + 书眉 + 藏书章 + 书签丝带）、`brief`（结论先行决策简报）、`arch-overview` / `arch-node`（项目架构多页站，骑丛书机制）、`card`（产品风格卡片，聚合成卡片墙）；所有报告共享同一份 CSS
 - **四类内容域**（`domain` 字段路由）：`tech` 技术文章（唯一进知识蒸馏）/ `ephemeral` 临时报告 / `design` 前端卡片（不蒸馏；卡片墙 `/design.html`，token 总纲 `GET /api/design`，CSS 资源包 `GET /api/design.css`）/ `arch` 架构站（不蒸馏）
 - **提交契约**：`skill/AGENT-GUIDE.md`（即 `GET /api/guide`）— domain 路由表、四类工作流、截图规范、arch 丛书约定
@@ -93,7 +93,7 @@ User asks to research a GitHub project, open-source tool, technology, or industr
 ### 2. Check Existing Reports
 
 Avoid duplicating work:
-- `search_files` in `ai-report/public/reports/` for `*.html`
+- `search_files` in `vicky/public/reports/` for `*.html`
 - If a report on the same topic exists, cross-reference. Link to it from the new report.
 
 ### 3. Choose Template & Domain
@@ -148,11 +148,11 @@ bash scripts/deploy.sh       # 个人环境 (192.168.1.100)
 bash scripts/deploy-xlab.sh  # xlab-test 公用环境
 ```
 
-部署脚本通过 rsync 同步代码到远端，排除 `data/`（保留远端快照与 DB）。远端 systemd 服务以 `python3 -m ai_report.web` 启动，Nginx 纯反向代理到 app 端口。
+部署脚本通过 rsync 同步代码到远端，排除 `data/`（保留远端快照与 DB）。远端 systemd 服务以 `python3 -m vicky.web` 启动，Nginx 纯反向代理到 app 端口。
 
 **Step B — Git commit and push** (triggers GitLab Pages):
 ```bash
-cd /home/deploy/ai-report
+cd /home/deploy/vicky
 git add public/
 git commit -m "docs: add report YYYY-MM-DD-slug"
 git push origin main

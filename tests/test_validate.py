@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
 
 def test_normalize_wrap():
-    from ai_report.l1_publish import normalize_wrap
+    from vicky.l1_publish import normalize_wrap
     out = normalize_wrap('<section class="reveal"><h2>x</h2><p>y</p></section>')
     assert '<div class="wrap"><h2>x</h2>' in out and out.endswith("</div></section>")
     # 已有 wrap 的不重复包

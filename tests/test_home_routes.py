@@ -76,7 +76,7 @@ def _mk_report(domain="tech", slug=None):
 class TestHomeRoutes(unittest.TestCase):
     def test_root_serves_home_with_entries(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             orig_public, orig_knowledge = cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR
             cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR = tmp, tmp / "knowledge"
             try:
@@ -97,7 +97,7 @@ class TestHomeRoutes(unittest.TestCase):
 
     def test_root_is_home_not_index(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             orig_public = cfg.PUBLIC_DIR
             cfg.PUBLIC_DIR = tmp
             try:
@@ -113,7 +113,7 @@ class TestHomeRoutes(unittest.TestCase):
 
     def test_reports_root_and_research_same_content(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             orig_public = cfg.PUBLIC_DIR
             cfg.PUBLIC_DIR = tmp
             try:
@@ -130,7 +130,7 @@ class TestHomeRoutes(unittest.TestCase):
 
     def test_rebuild_generates_home_with_counts(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             orig_public, orig_knowledge = cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR
             cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR = tmp, tmp / "knowledge"
             try:
@@ -162,7 +162,7 @@ class TestHomeRoutes(unittest.TestCase):
 
     def test_traversal_still_rejected(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             orig_public = cfg.PUBLIC_DIR
             cfg.PUBLIC_DIR = tmp
             try:

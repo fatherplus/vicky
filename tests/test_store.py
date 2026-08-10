@@ -3,7 +3,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from ai_report import store, config
+from vicky import store, config
 
 
 def test_tables_created():

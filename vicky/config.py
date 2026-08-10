@@ -1,5 +1,5 @@
 """
-ai_report 全局配置——路径、常量、端口、组件注册表。
+vicky 全局配置——路径、常量、端口、组件注册表。
 P0 包化：从 server.py / distill.py 提取所有配置常量。
 """
 
@@ -23,7 +23,7 @@ IMG_DIR = PUBLIC_DIR / "assets" / "img"
 KNOWLEDGE_DIR = REPO_DIR / "knowledge"
 
 # ============================================================
-# 端口 / 绑定地址（server.py 位置参数；-m ai_report.web 同款）
+# 端口 / 绑定地址（server.py 位置参数；-m vicky.web 同款）
 # ============================================================
 def _parse_port() -> int:
     try:

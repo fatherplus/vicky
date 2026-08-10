@@ -1,4 +1,4 @@
-"""测试公共：从 ai_report 包加载模块 + 临时目录环境。"""
+"""测试公共：从 vicky 包加载模块 + 临时目录环境。"""
 import contextlib
 import shutil
 import tempfile
@@ -8,11 +8,11 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def load_server():
-    """返回 ai_report.l1_publish 模块（兼容旧测试的 server.* 调用）。
+    """返回 vicky.l1_publish 模块（兼容旧测试的 server.* 调用）。
     P0 包化：原 server.py 函数已在 l1_publish.py。同时注入 Handler 供 test_templates 用。"""
-    import ai_report.l1_publish as mod
+    import vicky.l1_publish as mod
     # 注入 Handler（test_templates 通过 server.Handler 引用）
-    from ai_report.web import Handler
+    from vicky.web import Handler
     mod.Handler = Handler
     # P3 前端抢救：_INDEX_TPL 已迁出，不在模块级保存
     return mod
@@ -23,7 +23,7 @@ def tmp_env(server):
     """把 REPORTS_DIR/INDEX_PATH/TEMPLATES_DIR/DATA_DIR/VIEWS_DIR 指到临时目录。
     P0 包化 + P1 DB + P3 前端抢救：patch config 全局路径；server 模块的本地别名同步更新。
     store._db_path() 延迟求值，patch config.DATA_DIR 后自动生效。"""
-    import ai_report.config as cfg
+    import vicky.config as cfg
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "reports").mkdir()

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 研究报告集 · 目录</title>
+<title>Vicky · 报告目录</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -12,15 +12,15 @@
 <body>
 <div id="ribbon"></div>
 <header class="runninghead">
-  <div class="inner"><span class="book">《AI 研究报告集》</span><span class="chapter">目录 · CONTENTS</span></div>
+  <div class="inner"><span class="book">《Vicky》</span><span class="chapter">目录 · CONTENTS</span></div>
 </header>
 
 <main class="page">
   <div class="frontispiece">
-    <div class="kicker">AI-REPORT · 研究文库</div>
+    <div class="kicker">VICKY · 个人知识平台</div>
     <div class="titleblock">
       <div class="seal" aria-hidden="true">藏</div>
-      <h1>AI <span class="mark">研究</span>报告集</h1>
+      <h1>Vicky <span class="mark">知识</span>文库</h1>
       <p class="subtitle">技术研究与方案归档 —— 开源项目、算法机制与工程实践的深度研究。</p>
     </div>
     <div class="volume">
@@ -62,14 +62,14 @@
       </div>
       <div class="abtns">
         <button class="abtn primary" onclick="copyPrompt()">复制提示词</button>
-        <a class="abtn ghost" id="skillLink" href="/api/skill" download="ai-report-skill.md">下载 Skill</a>
+        <a class="abtn ghost" id="skillLink" href="/api/skill" download="vicky-skill.md">下载 Skill</a>
       </div>
     </div>
   </div>
 
   <footer class="colophon">
-    <div class="book">《AI 研究报告集》· 第一卷</div>
-    <div class="pg">ai-report · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
+    <div class="book">《Vicky》· 第一卷</div>
+    <div class="pg">Vicky · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
   </footer>
 </main>
 
@@ -139,7 +139,7 @@ function toast(msg){
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
 }
 function copyPrompt(){
-  var p=`当你需要写技术研究报告时，使用 ai-report 平台。
+  var p=`当你需要写技术研究报告时，使用 Vicky 平台。
 1. 读取写作规范：GET ${API}/api/guide
 2. 查看 HTML 模板结构：GET ${API}/api/template
 3. 按规范写内容，提交：POST ${API}/api/reports

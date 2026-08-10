@@ -50,8 +50,8 @@ def _write_topic(tmp: Path, topic: str, category: str = "", tags=None):
 class TestKnowledgeApi(unittest.TestCase):
     def _tmp_repo(self):
         """tmp_env + REPO_DIR 指向 tmp，使 web 的 knowledge 扫描落在隔离目录。"""
-        from ai_report import config as cfg
-        from ai_report import l2_distill
+        from vicky import config as cfg
+        from vicky import l2_distill
         import contextlib
         cm = tmp_env(server)
         tmp = cm.__enter__()

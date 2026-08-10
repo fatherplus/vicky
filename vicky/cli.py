@@ -10,7 +10,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# 项目根（cli.py 在 ai_report/ 内，REPO_DIR 是父目录）
+# 项目根（cli.py 在 vicky/ 内，REPO_DIR 是父目录）
 REPO_DIR = Path(__file__).resolve().parent.parent
 
 from . import store
@@ -238,7 +238,7 @@ def classify():
 # ============================================================
 def main():
     if len(sys.argv) < 2:
-        print("用法: python3 -m ai_report.cli <命令>")
+        print("用法: python3 -m vicky.cli <命令>")
         print("命令: backfill [--force] | render | distill | classify | judge")
         sys.exit(1)
 
@@ -252,7 +252,7 @@ def main():
         if "--slug" in sys.argv:
             idx = sys.argv.index("--slug")
             if idx + 1 >= len(sys.argv):
-                print("用法: python3 -m ai_report.cli render --slug <slug>")
+                print("用法: python3 -m vicky.cli render --slug <slug>")
                 sys.exit(1)
             result = l1_publish.render_from_l0(sys.argv[idx + 1])
             if result["ok"]:
@@ -278,7 +278,7 @@ def main():
             l1_publish.rebuild_index()
             print(f"render --all: {ok}/{len(slugs)} 完成，索引已重建")
         else:
-            print("用法: python3 -m ai_report.cli render --all | --slug <slug>")
+            print("用法: python3 -m vicky.cli render --all | --slug <slug>")
             sys.exit(1)
     elif cmd == "distill":
         # P2：L2 蒸馏（输入 .md + adopted 反馈）。模块级开关在 import 时读 sys.argv，

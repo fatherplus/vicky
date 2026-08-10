@@ -35,7 +35,7 @@ def _get(server, path):
 class TestDesignApi(unittest.TestCase):
     def test_design_returns_md_twin(self):
         with tmp_env(server) as tmp:
-            from ai_report import config as cfg
+            from vicky import config as cfg
             r = server.create_report(
                 "为什么是这本书", cfg.DESIGN_DOC_SLUG, "META 关于本书",
                 '<section><div class="wrap"><p>design token 总纲：一页讲清各项目 CSS 怎么存怎么维护。</p></div></section>')
