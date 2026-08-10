@@ -340,3 +340,86 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     if not created:
         result["updated"] = today
     return result
+
+
+# ============================================================
+# 从 L0 快照重渲染（render --all / --slug，P5 实现）
+# 不创建新快照——仅从已有 L0 数据再生 L1 产物。
+# ============================================================
+def render_from_l0(slug: str) -> dict:
+    """从 L0 快照再生单份报告的 HTML + MD，不创建新快照。
+    返回 {"ok": bool, "file": str, "error": str | None}。"""
+    conn = store.get_db()
+    try:
+        # 查 reports 表获取当前文件名与 current_rev
+        rep = conn.execute(
+            "SELECT file, title, tag, subtitle, domain, template, series, series_order, "
+            "current_rev FROM reports WHERE slug=?", (slug,)).fetchone()
+        if not rep:
+            return {"ok": False, "error": f"slug '{slug}' 不在 reports 表中——先 backfill"}
+
+        filename, title, tag, subtitle, domain, template, series, order, cur_rev = rep
+
+        # 从 submissions 表取快照路径
+        sub = conn.execute(
+            "SELECT payload_path FROM submissions WHERE id=?", (cur_rev,)).fetchone()
+        if not sub:
+            return {"ok": False, "error": f"submission id={cur_rev} 不存在"}
+
+        payload_path = Path(sub[0])
+        if not payload_path.exists():
+            return {"ok": False, "error": f"快照文件不存在: {payload_path}"}
+    finally:
+        conn.close()
+
+    snap = json.loads(payload_path.read_text(encoding="utf-8"))
+    data = snap["payload"]
+    content = data["content"]
+    date_str = filename[:10]  # 从文件名取原始日期，不再用今天
+
+    # ── 渲染模板（复用 create_report 的渲染逻辑，但不写 L0 快照）──
+    tpl_path = template_path(template)
+    tpl = tpl_path.read_text(encoding="utf-8")
+
+    meta_tags = [
+        f'<meta name="template" content="{template}">',
+        f'<meta name="domain" content="{domain}">',
+    ]
+    s = normalize_series(series)
+    if s:
+        meta_tags.append(f'<meta name="series" content="{html_mod.escape(s)}">')
+        meta_tags.append(f'<meta name="series-order" content="{order}">')
+        meta_tags.append(f'<meta name="series-total" content="1">')
+    meta_html = "\n".join(meta_tags)
+
+    series_badge = (f'<span class="series-badge">《{html_mod.escape(s)}》第 {order} 卷 · 共 1 卷</span>'
+                    if s else "")
+    volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(s)}"></nav>' if s else ""
+
+    comp_head, comp_hits = component_head(content)
+    html_out = render(tpl,
+        TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=date_str,
+        CONTENT=content, COMPONENT_HEAD=comp_head, META=meta_html,
+        SERIES_BADGE=series_badge, VOLUME_NAV=volume_nav,
+    )
+
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    report_path = REPORTS_DIR / filename
+    report_path.write_text(html_out, encoding="utf-8")
+    (REPORTS_DIR / (filename[:-5] + ".md")).write_text(html_to_md(html_out), encoding="utf-8")
+
+    return {"ok": True, "file": filename, "components": comp_hits}
+
+
+def rebuild_index():
+    """重建索引页（render --all 后调用）。"""
+    reports = list_reports()
+    INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
+    # 全量丛书维护
+    conn = store.get_db()
+    try:
+        for r in conn.execute("SELECT DISTINCT series FROM reports WHERE series!=''").fetchall():
+            if r[0]:
+                maintain_series_siblings(r[0])
+    finally:
+        conn.close()

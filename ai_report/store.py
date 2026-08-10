@@ -164,3 +164,68 @@ def get_report_by_slug(conn: sqlite3.Connection, slug: str) -> dict | None:
     """按 slug 查单条 report。"""
     row = conn.execute("SELECT * FROM reports WHERE slug=?", (slug,)).fetchone()
     return dict(row) if row else None
+
+
+# ============================================================
+# feedbacks 表操作（L3 账本，P2）
+# 账本 append-only：插入后只有裁决会 UPDATE 状态列（可翻案，最新生效）。
+# ============================================================
+def insert_feedback(conn: sqlite3.Connection, topic: str, domain: str, agent: str,
+                    evidence: str, opinion: str, cited: str = "",
+                    created_at: str = "") -> int:
+    """写回一条反馈（初始 status=pending），返回 feedbacks.id。"""
+    cur = conn.execute(
+        """INSERT INTO feedbacks (topic, domain, agent, cited, evidence, opinion,
+           status, created_at) VALUES (?,?,?,?,?,?, 'pending', ?)""",
+        (topic, domain, agent, cited, evidence, opinion, created_at))
+    return cur.lastrowid
+
+
+def get_feedback(conn: sqlite3.Connection, fid: int) -> dict | None:
+    row = conn.execute("SELECT * FROM feedbacks WHERE id=?", (fid,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_feedbacks(conn: sqlite3.Connection, topic: str = None,
+                   status: str = None, domain: str = None) -> list[dict]:
+    """账本查询：topic/status/domain 均可选过滤，按 id 升序（账本序）。"""
+    sql, args = "SELECT * FROM feedbacks", []
+    conds = []
+    if topic:
+        conds.append("topic=?"); args.append(topic)
+    if status:
+        conds.append("status=?"); args.append(status)
+    if domain:
+        conds.append("domain=?"); args.append(domain)
+    if conds:
+        sql += " WHERE " + " AND ".join(conds)
+    sql += " ORDER BY id"
+    return [dict(r) for r in conn.execute(sql, args).fetchall()]
+
+
+def adopted_feedbacks(conn: sqlite3.Connection, topic: str) -> list[dict]:
+    """某主题已采纳的反馈（L2 编译的来源输入；l2_distill 直查防环，规格 §3）。"""
+    rows = conn.execute(
+        "SELECT * FROM feedbacks WHERE topic=? AND status='adopted' ORDER BY id", (topic,))
+    return [dict(r) for r in rows.fetchall()]
+
+
+def set_feedback_verdict(conn: sqlite3.Connection, fid: int, status: str,
+                         judged_by: str, judged_at: str, note: str):
+    """裁决落盘：状态机 pending→adopted|rejected，可再裁决，最新一次生效（直接覆盖）。"""
+    conn.execute(
+        "UPDATE feedbacks SET status=?, judged_by=?, judged_at=?, note=? WHERE id=?",
+        (status, judged_by, judged_at, note, fid))
+
+
+def feedback_stats(conn: sqlite3.Connection, topic: str) -> dict:
+    """写回次数 + 最近使用时间（GET /api/knowledge?topic=X 与藏书楼卡片用）。"""
+    row = conn.execute(
+        "SELECT COUNT(*), MAX(created_at) FROM feedbacks WHERE topic=?", (topic,)).fetchone()
+    return {"feedback_count": row[0] or 0, "feedback_last_used": row[1] or ""}
+
+
+def feedback_counts(conn: sqlite3.Connection) -> dict:
+    """全部主题的写回次数 {topic: count}（藏书楼卡片批量渲染用，一次查完）。"""
+    rows = conn.execute("SELECT topic, COUNT(*) FROM feedbacks GROUP BY topic").fetchall()
+    return {r[0]: r[1] for r in rows}

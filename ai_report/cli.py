@@ -202,11 +202,50 @@ def main():
         force = "--force" in sys.argv
         backfill(force=force)
     elif cmd == "render":
-        print("render 命令将在 P3 实现")
+        # P5：从 L0 快照再生 L1 产物（HTML + MD + 索引），幂等。
+        from . import l1_publish
+        if "--slug" in sys.argv:
+            idx = sys.argv.index("--slug")
+            if idx + 1 >= len(sys.argv):
+                print("用法: python3 -m ai_report.cli render --slug <slug>")
+                sys.exit(1)
+            result = l1_publish.render_from_l0(sys.argv[idx + 1])
+            if result["ok"]:
+                print(f"✓ {result['file']} 重渲染完成（组件: {result['components']}）")
+                l1_publish.rebuild_index()
+                print("✓ 索引页已重建")
+            else:
+                print(f"✗ {result['error']}")
+                sys.exit(1)
+        elif "--all" in sys.argv:
+            import sqlite3
+            from . import store as _store
+            conn = _store.get_db()
+            slugs = [r[0] for r in conn.execute("SELECT slug FROM reports").fetchall()]
+            conn.close()
+            ok = 0
+            for slug in slugs:
+                result = l1_publish.render_from_l0(slug)
+                if result["ok"]:
+                    ok += 1
+                else:
+                    print(f"✗ {slug}: {result['error']}")
+            l1_publish.rebuild_index()
+            print(f"render --all: {ok}/{len(slugs)} 完成，索引已重建")
+        else:
+            print("用法: python3 -m ai_report.cli render --all | --slug <slug>")
+            sys.exit(1)
     elif cmd == "distill":
-        print("distill 命令将在 P2 实现")
+        # P2：L2 蒸馏（输入 .md + adopted 反馈）。模块级开关在 import 时读 sys.argv，
+        # 从 cli 进来时重新对一次齐，避免调用顺序差异
+        from . import l2_distill
+        l2_distill.DRY_RUN = "--dry-run" in sys.argv
+        l2_distill.CLEAN = "--clean" in sys.argv
+        l2_distill.distill()
     elif cmd == "judge":
-        print("judge 命令将在 P2 实现")
+        # P2：LLM 批量初裁 pending 反馈（无 AIMETER_KEY 优雅跳过）
+        from . import l3_feedback
+        l3_feedback.judge_pending_with_llm()
     else:
         print(f"未知命令: {cmd}")
         sys.exit(1)

@@ -16,6 +16,7 @@ from urllib.parse import urlparse, parse_qs
 
 from . import config
 from . import l1_publish
+from . import l3_feedback
 from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
 
 # P0: 不创建 config 路径的本地别名——tests/tmp_env 通过 monkey-patch config.* 工作，
@@ -111,12 +112,21 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/principles":
             self._serve_file(config.REPO_DIR / "skill" / "NARRATIVE-PRINCIPLES.md",
                              "text/markdown; charset=utf-8")
+        elif self.path.split("?")[0] == "/api/knowledge/feedback":
+            # P2: L3 账本可查（路由必须在 /api/knowledge 前判定）
+            qs = parse_qs(urlparse(self.path).query)
+            rows, err = l3_feedback.list_feedbacks_api(
+                topic=qs.get("topic", [""])[0], status=qs.get("status", [""])[0])
+            if err:
+                self._json({"ok": False, "error": err}, 400)
+            else:
+                self._json({"ok": True, "feedbacks": rows})
         elif self.path.split("?")[0] == "/api/knowledge":
             qs = parse_qs(urlparse(self.path).query)
             domain = qs.get("domain", [""])[0]
             topic = qs.get("topic", [""])[0]
             kdir = config.REPO_DIR / "knowledge"
-            if not domain or not topic:
+            if not domain and not topic:
                 pages = []
                 if kdir.exists():
                     for dd in sorted(kdir.iterdir()):
@@ -129,28 +139,78 @@ class Handler(BaseHTTPRequestHandler):
                                               "content": ov.read_text(encoding="utf-8")})
                 self._json({"ok": True, "pages": pages})
             else:
-                ov = kdir / domain / topic / "overview.md"
-                if ov.exists():
+                # P2: 支持只给 topic（目录名是全库唯一 id）——扫各 domain 定位
+                if domain and topic:
+                    ov = kdir / domain / topic / "overview.md"
+                    ov = ov if ov.exists() else None
+                else:
+                    ov = None
+                    if kdir.exists():
+                        for dd in sorted(kdir.iterdir()):
+                            cand = kdir / dd.name / topic / "overview.md"
+                            if cand.exists():
+                                domain, ov = dd.name, cand
+                                break
+                if ov is not None:
+                    # P2: 响应增加写回次数/最近使用（循环可见，规格 §6④）
+                    stats = l3_feedback.feedback_stats(topic)
                     self._json({"ok": True, "domain": domain, "topic": topic,
-                                "content": ov.read_text(encoding="utf-8")})
+                                "content": ov.read_text(encoding="utf-8"),
+                                "feedback_count": stats["feedback_count"],
+                                "feedback_last_used": stats["feedback_last_used"]})
                 else:
                     self._json({"ok": True, "domain": domain, "topic": topic, "content": None})
         else:
             self._serve_static()
 
+    def _read_json_body(self):
+        """读 POST body 并解析 JSON；失败返回 (None, error)。"""
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8")
+        try:
+            return json.loads(body), None
+        except json.JSONDecodeError:
+            return None, "invalid JSON"
+
     def do_POST(self):
-        if self.path not in ("/api/reports", "/api/validate", "/api/templates"):
+        path = self.path.split("?")[0]
+
+        # P2: L3 写回 / 人工裁决（规格 §6）
+        if path == "/api/knowledge/feedback":
+            data, err = self._read_json_body()
+            if err:
+                self._json({"ok": False, "error": err}, 400)
+                return
+            fb, ferr = l3_feedback.submit_feedback(data)
+            if ferr:
+                self._json({"ok": False, "error": ferr}, 400)
+            else:
+                self._json({"ok": True, "feedback": fb}, 201)
+            return
+        m = re.fullmatch(r"/api/knowledge/feedback/(\d+)/judge", path)
+        if m:
+            data, err = self._read_json_body()
+            if err:
+                self._json({"ok": False, "error": err}, 400)
+                return
+            # 人工裁决标识：body 自报 judge 字段，否则用来源 IP
+            who = str((data.get("judge") or "")).strip() or self.client_address[0]
+            fb, ferr, code = l3_feedback.judge_feedback(
+                int(m.group(1)), data.get("verdict"), note=data.get("note", ""),
+                judged_by=f"human:{who}")
+            if ferr:
+                self._json({"ok": False, "error": ferr}, code)
+            else:
+                self._json({"ok": True, "feedback": fb})
+            return
+
+        if path not in ("/api/reports", "/api/validate", "/api/templates"):
             self._json({"error": "not found"}, 404)
             return
 
-        # 读取 body
-        length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8")
-
-        try:
-            data = json.loads(body)
-        except json.JSONDecodeError:
-            self._json({"ok": False, "error": "invalid JSON"}, 400)
+        data, err = self._read_json_body()
+        if err:
+            self._json({"ok": False, "error": err}, 400)
             return
 
         if self.path == "/api/templates":
