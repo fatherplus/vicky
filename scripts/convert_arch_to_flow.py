@@ -196,37 +196,81 @@ PROJECTS = [
 
 
 def content_html(p):
-    g = json.dumps(p["graph"], ensure_ascii=False)
-    rows = "".join(
-        f"<tr><td><code>{m}</code></td><td>{d['purpose'].split('：')[0].split('；')[0]}</td></tr>"
-        for m, d in p["graph"]["modules"].items())
+    g = p["graph"]
+    gj = json.dumps(g, ensure_ascii=False)
+    deg = {}
+    for e in g["edges"]:
+        deg[e["from"]] = deg.get(e["from"], 0) + 1
+        deg[e["to"]] = deg.get(e["to"], 0) + 1
+    node_mod = {n.get("module"): n for n in g["nodes"] if n.get("module")}
+    rows = ""
+    for mid, d in g["modules"].items():
+        n = node_mod.get(mid)
+        coup = deg.get(n["id"], 0) if n else 0
+        scale = next((s["v"] for s in (d.get("stats") or []) if s["k"] == "规模"), "—")
+        rows += (f'<tr onclick="ArchFlow.openModuleById(\'{mid}\')" style="cursor:pointer">'
+                 f'<td><code>{mid}</code></td><td>{d["purpose"].split("：")[0].split("；")[0]}</td>'
+                 f'<td>{scale}</td><td>{coup} 边</td></tr>')
+    phil = ""
+    if p.get("principles"):
+        phil = """<section class="reveal"><div class="wrap">
+  <p class="section-label">02 · 设计哲学</p>
+  <h2>设计哲学</h2>
+  <table class="data-table">
+    <thead><tr><th>主张</th><th>证据</th></tr></thead>
+    <tbody>""" + "".join(
+            f'<tr><td><strong>{x["tenet"]}</strong></td><td>{x["evidence"]}</td></tr>'
+            for x in p["principles"]) + "</tbody></table></div></section>"
+    route = ""
+    if g.get("route"):
+        route = """<section class="reveal"><div class="wrap">
+  <p class="section-label">03 · 阅读路线</p>
+  <h2>阅读路线</h2>
+  <ol>""" + "".join(
+            f'<li><strong>{i + 1}</strong> · <code>{r["id"]}</code> — {r["note"]}</li>'
+            for i, r in enumerate(g["route"])) + "</ol></div></section>"
+    gloss = ""
+    if p.get("glossary"):
+        gloss = """<section class="reveal"><div class="wrap">
+  <p class="section-label">06 · 术语表</p>
+  <h2>术语表</h2>
+  <details><summary>展开 """ + str(len(p["glossary"])) + """ 条术语</summary>
+  <table class="data-table">
+    <thead><tr><th>术语</th><th>解释</th></tr></thead>
+    <tbody>""" + "".join(
+            f'<tr><td><code>{x["term"]}</code></td><td>{x["def"]}</td></tr>'
+            for x in p["glossary"]) + "</tbody></table></details></div></section>"
     return f"""<section class="reveal"><div class="wrap">
   <p class="section-label">01 · 定位</p>
   <h2>定位</h2>
   <p>{p["pos"]}</p>
 </div></section>
+{phil}
+{route}
 <section class="reveal"><div class="wrap">
-  <p class="section-label">02 · 全局流程图</p>
+  <p class="section-label">04 · 全局流程图</p>
   <h2>全局流程图</h2>
   <figure class="figure">
     <div class="arch-flow">
-      <script type="application/json">{g}</script>
+      <script type="application/json">{gj}</script>
     </div>
     <figcaption class="fig-cap">图 1 · {p["title"]} 架构总览</figcaption>
     <p class="fig-note">{p["note"]}</p>
   </figure>
 </div></section>
 <section class="reveal"><div class="wrap">
-  <p class="section-label">03 · 模块索引</p>
+  <p class="section-label">05 · 模块索引</p>
   <h2>模块索引</h2>
   <table class="data-table">
-    <thead><tr><th>模块</th><th>一句话职责</th></tr></thead>
+    <thead><tr><th>模块</th><th>一句话职责</th><th>规模</th><th>耦合</th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
-</div></section>"""
+</div></section>
+{gloss}"""
 
 
 def main():
+    enrich()
     for p in PROJECTS:
         p["graph"]["edgeTypes"] = EDGE3  # 三型语义边配色，缺了会落灰底默认
         body = json.dumps({
@@ -241,6 +285,117 @@ def main():
             res = json.load(r)
         print(p["slug"], "->", res.get("url"), "| components:", res.get("components"),
               "| warnings:", res.get("warnings"))
+
+
+
+
+# ------------------------------------------------------------ v2 信息密度增强（审核意见落地）
+def enrich():
+    G = {p["slug"]: p for p in PROJECTS}
+
+    g = G["gamekb-architecture"]["graph"]
+    g["route"] = [
+        {"id": "ingest", "note": "先走主链：文档如何变成节点树"},
+        {"id": "j-vocab", "note": "看约束：实体为什么只能从词表选"},
+        {"id": "j-route", "note": "看分叉：相似与关系两条召回路"},
+        {"id": "api", "note": "看消费：API 返回的是结构不是话"}]
+    for n in g["nodes"]:
+        if n["id"] == "store": n["core"] = True
+    M = g["modules"]
+    M["ingest"]["why"] = {"problem": "Markdown 切片边界不可控，语义块被拦腰切断",
+                          "choice": "标题即边界，不引入切片模型",
+                          "otherwise": "跨标题切片导致召回与溯源双双失真"}
+    M["ingest"]["mechanisms"] = [
+        {"name": "title-as-boundary", "how": "标题层级变化即切点，节点永不跨标题，溯源可回指"},
+        {"name": "node-as-unit", "how": "切片即存储单元，五存储共享同一节点 ID"}]
+    M["ingest"]["stats"] = [{"k": "规模", "v": "一条流水线四步"}, {"k": "锚点", "v": "节点 ID"}]
+    M["extract"]["judge_why"] = "放任模型自由抽取会把幻觉实体写进图谱，清洗成本远高于人工确认成本"
+    M["retrieval"]["mechanisms"] = [
+        {"name": "two-channel", "how": "相似度与关系正交，单通道必有盲区"},
+        {"name": "depth-expand", "how": "一个参数控制上下文级数，消费方自调精度/召回"}]
+    M["storage"]["stats"] = [{"k": "规模", "v": "五存储 · 节点贯穿"}, {"k": "溯源", "v": "答案必有出处"}]
+    G["gamekb-architecture"]["principles"] = [
+        {"tenet": "节点是唯一锚点", "evidence": "节点 ID 贯穿五存储，溯源索引保证答案有出处"},
+        {"tenet": "约束换可信", "evidence": "实体只从词表选，词表外转人工，杜绝幻觉实体"},
+        {"tenet": "生产方只管写，消费方只碰 API", "evidence": "中间三层吸收复杂度，消费方拿到结构化知识"}]
+    G["gamekb-architecture"]["glossary"] = [
+        {"term": "depth", "def": "命中节点连带返回的上下文级数，1=只返本节点"},
+        {"term": "词表", "def": "受约束抽取的实体白名单，词表外一律转人工"}]
+
+    g = G["knowledge-base-skeleton-design"]["graph"]
+    g["route"] = [
+        {"id": "types", "note": "先看契约：所有层只依赖 interfaces"},
+        {"id": "pipe", "note": "再看主链：handler→service→pipeline→repository"},
+        {"id": "di", "note": "最后看装配：唯一装配点把实现注入契约"}]
+    for n in g["nodes"]:
+        if n["id"] == "types": n["core"] = True
+    M = g["modules"]
+    M["contracts"]["why"] = {"problem": "层间互依赖实现，换存储即全仓改动",
+                             "choice": "跨层契约集中于 types/interfaces",
+                             "otherwise": "契约散落各层，骨架退化为目录约定"}
+    M["contracts"]["stats"] = [{"k": "规模", "v": "一个 interfaces 包"}]
+    M["pipeline"]["mechanisms"] = [{"name": "plugin-chain", "how": "检索→重排→生成各为插件，可插拔可单测，三档功能按开关"}]
+    M["pipeline"]["stats"] = [{"k": "规模", "v": "插件链 · 每插件独立验收"}]
+    M["di"]["why"] = {"problem": "new 散落业务代码，装配关系不可见",
+                      "choice": "container·dig 唯一装配点",
+                      "otherwise": "依赖关系靠 grep 猜，重构即排雷"}
+    G["knowledge-base-skeleton-design"]["principles"] = [
+        {"tenet": "契约先于实现", "evidence": "删掉任何功能模块，六件骨架仍成立"},
+        {"tenet": "装配点唯一", "evidence": "dig 容器集中 Provide，依赖方向图上可见"},
+        {"tenet": "功能即插件", "evidence": "三档选型按插件开关落地，每步独立验收"}]
+    G["knowledge-base-skeleton-design"]["glossary"] = [
+        {"term": "骨架", "def": "与具体功能无关的六件结构：目录/契约/DI/注册表/流水线/队列"},
+        {"term": "三档", "def": "功能按 MVP/标准/完整三档裁剪，插件开关实现"}]
+
+    g = G["xknow-retrieval-exposure-apikey-design"]["graph"]
+    g["route"] = [
+        {"id": "j-auth", "note": "先看门：双凭据中间件怎么裁"},
+        {"id": "svc", "note": "再看收束：三类消费者一条服务层"},
+        {"id": "j-ent", "note": "最后看召回：实体传不传决定几路"}]
+    for n in g["nodes"]:
+        if n["id"] == "svc": n["core"] = True
+    M = g["modules"]
+    M["keys"]["why"] = {"problem": "bcrypt 抗暴力破解针对低熵口令",
+                        "choice": "Key 是高熵随机值，sha256 快且足够",
+                        "otherwise": "为不存在的威胁付每次请求的算力税"}
+    M["keys"]["judge_why"] = "凭据裁决必须 fail-closed：未命中即 401，宁可拒服务不放水"
+    M["keys"]["stats"] = [{"k": "规模", "v": "一张 api_keys 表 · 两阶段 TDD"}]
+    M["multi"]["why"] = {"problem": "每库一路径，端点随库数爆炸",
+                         "choice": "多库端点 + 调用方传实体",
+                         "otherwise": "服务端 LLM 抽实体，慢且不可控"}
+    G["xknow-retrieval-exposure-apikey-design"]["principles"] = [
+        {"tenet": "交出去，不再造", "evidence": "外曝已有检索能力，服务层一条收束"},
+        {"tenet": "Key 生在可信会话，死在可信会话", "evidence": "创建/吊销都走既有会话凭据，明文只返回一次"},
+        {"tenet": "实体由调用方传入", "evidence": "不做服务端 LLM 抽取，快且可复现"}]
+    G["xknow-retrieval-exposure-apikey-design"]["glossary"] = [
+        {"term": "双凭据", "def": "中间件先 session 后 API Key，二者居一即放行"},
+        {"term": "双段 Key", "def": "id + secret：id 可暴露用于查找，secret 只存 sha256"}]
+
+    g = G["pi-memory-weaver-tdai-architecture-review-v2"]["graph"]
+    g["route"] = [
+        {"id": "queue", "note": "先看写：三个信号源为什么共享一条队列"},
+        {"id": "j-id", "note": "再看隔离：身份模型而非目录隔离"},
+        {"id": "recall", "note": "最后看读：四级召回的顺序为什么不能乱"}]
+    for n in g["nodes"]:
+        if n["id"] == "queue": n["core"] = True
+    M = g["modules"]
+    M["queue"]["why"] = {"problem": "三条提取路径各自写库，状态散落互相覆盖",
+                         "choice": "共享增量队列，状态所有权单一",
+                         "otherwise": "靠更多 try/catch 补可靠性，越补越脆"}
+    M["queue"]["stats"] = [{"k": "规模", "v": "三源一队 · 单一所有者"}]
+    M["recall"]["mechanisms"] = [
+        {"name": "recall-order", "how": "术语→项目→全局→原文：精度递减、广度递增，顺序即成本曲线"}]
+    M["recall"]["entrypoints"] = [
+        {"path": "~/.pi/agent/extensions/memory-weaver/", "note": "策略层源码：提取/压缩/沉淀"},
+        {"path": "~/.pi/agent/extensions/aimeter.ts", "note": "网关模型发现，tier 路由实例"}]
+    M["tdai"]["stats"] = [{"k": "规模", "v": "两库 · 来源字段齐全"}]
+    G["pi-memory-weaver-tdai-architecture-review-v2"]["principles"] = [
+        {"tenet": "MW 做策略，TDAI 做基础设施", "evidence": "策略与存储分离，两套系统不再各存一部分真相"},
+        {"tenet": "可靠性来自状态所有权", "evidence": "增量队列单一所有者，不靠 try/catch 堆"},
+        {"tenet": "召回有顺序", "evidence": "术语→项目→全局→原文，精度优先逐级放宽"}]
+    G["pi-memory-weaver-tdai-architecture-review-v2"]["glossary"] = [
+        {"term": "身份模型", "def": "以项目身份字段做隔离，而非目录物理隔离"},
+        {"term": "压缩前抢救", "def": "上下文压缩触发前把将失信息提为记忆"}]
 
 
 if __name__ == "__main__":
