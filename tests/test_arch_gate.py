@@ -72,21 +72,22 @@ class TestArchGate(unittest.TestCase):
         self.assertEqual(errors, [])
 
     def test_post_missing_section_400(self):
-        status, body = _post(server, "/api/reports", {
-            "title": "坏卷", "slug": "arch-node-bad", "tag": "架构",
-            "template": "arch-node", "domain": "arch",
-            "content": "<h2>内部工作流</h2><h2>架构方案</h2>"})
-        self.assertEqual(status, 400)
-        self.assertTrue(body.get("violations"))
-        self.assertTrue(any("缺段" in v for v in body["violations"]))
+        with tmp_env(server):
+            status, body = _post(server, "/api/reports", {
+                "title": "坏卷", "slug": "arch-node-bad", "tag": "架构",
+                "template": "arch-node", "domain": "arch",
+                "content": "<h2>内部工作流</h2><h2>架构方案</h2>"})
+            self.assertEqual(status, 400)
+            self.assertTrue(body.get("violations"))
+            self.assertTrue(any("缺段" in v for v in body["violations"]))
 
     def test_post_complete_created(self):
-        status, body = _post(server, "/api/reports", {
-            "title": "好卷", "slug": "arch-node-ok", "tag": "架构",
-            "template": "arch-node", "domain": "arch", "content": NODE_OK})
-        self.assertEqual(status, 201)
-        self.assertEqual(body["ok"], True)
-
+        with tmp_env(server):
+            status, body = _post(server, "/api/reports", {
+                "title": "好卷", "slug": "arch-node-ok", "tag": "架构",
+                "template": "arch-node", "domain": "arch", "content": NODE_OK})
+            self.assertEqual(status, 201)
+            self.assertEqual(body["ok"], True)
     def test_validate_endpoint_honors_template(self):
         status, body = _post(server, "/api/validate", {
             "content": "<h2>架构方案</h2>", "template": "arch-node"})
