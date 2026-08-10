@@ -49,24 +49,6 @@
     __TOC__
   </div>
 
-  <div class="agentpage">
-    <div class="acard reveal">
-      <div class="aseal" aria-hidden="true">启</div>
-      <div class="akicker">FOR AGENTS · 写作入口</div>
-      <h2 class="atitle">AI Agent 接入</h2>
-      <p class="adesc">本平台为 AI Agent 提供统一的研究报告发布入口。把提示词交给你的 Agent，或让它下载 Skill——它会先读写作规范，再按统一的"书"风格提交报告，自动套用主题色、版式与导航。</p>
-      <div class="asteps">
-        <div class="astep"><span class="anum">壹</span><div><b>读规范</b><code>GET /api/guide</code></div></div>
-        <div class="astep"><span class="anum">贰</span><div><b>看模板</b><code>GET /api/template</code></div></div>
-        <div class="astep"><span class="anum">叁</span><div><b>交报告</b><code>POST /api/reports</code></div></div>
-      </div>
-      <div class="abtns">
-        <button class="abtn primary" onclick="copyPrompt()">复制提示词</button>
-        <a class="abtn ghost" id="skillLink" href="/api/skill" download="vicky-skill.md">下载 Skill</a>
-      </div>
-    </div>
-  </div>
-
   <footer class="colophon">
     <div class="book">《Vicky》· 第一卷</div>
     <div class="pg">Vicky · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
@@ -121,33 +103,6 @@ Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series,.ro
   for(var i=0;i<chips.length;i++){var c=chips[i];
     if(c.getAttribute('data-type')==='domain'&&c.getAttribute('data-f')===dom){c.click();break;}}
 })();
-/* Agent 接入：API 与页面同源（Nginx 反代 /api/ → server.py）*/
-var API=location.origin;
-document.getElementById('skillLink').href=API+'/api/skill';
-function copyText(s){
-  if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(s);
-  return new Promise(function(res,rej){
-    var ta=document.createElement('textarea');ta.value=s;
-    ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
-    document.body.appendChild(ta);ta.focus();ta.select();
-    var ok=false;try{ok=document.execCommand('copy');}catch(e){}
-    ta.remove();ok?res():rej(new Error('copy failed'));
-  });
-}
-function toast(msg){
-  var t=document.createElement('div');t.className='atoast show';t.textContent=msg;document.body.appendChild(t);
-  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
-}
-function copyPrompt(){
-  var p=`当你需要写技术研究报告时，使用 Vicky 平台。
-1. 读取写作规范：GET ${API}/api/guide
-2. 查看 HTML 模板结构：GET ${API}/api/template
-3. 按规范写内容，提交：POST ${API}/api/reports
-   Body: {"title":"标题", "slug":"slug", "tag":"标签", "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
-4. 查看已发布报告：GET ${API}/api/reports`;
-  copyText(p).then(function(){toast('已复制到剪贴板');})
-    .catch(function(){toast('复制失败，请手动选择文本');});
-}
 </script>
 </body>
 </html>
