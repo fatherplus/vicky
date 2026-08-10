@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""阶段1 验收：domain 字段 + ephemeral 隔离"""
-import json, sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from server import create_report, list_reports, DOMAINS, REPORTS_DIR
+"""阶段1 验收：domain 字段 + ephemeral 隔离。P0 包化：import 更新。"""
+from ai_report.l1_publish import create_report, list_reports, build_index
+from ai_report.config import DOMAINS, REPORTS_DIR
+
 
 def test_domain_constant():
     assert DOMAINS == {"tech", "design", "ephemeral"}
@@ -47,7 +47,6 @@ def cleanup():
     for f in REPORTS_DIR.glob("*test-domain*"):
         f.unlink()
     # 测试会触发 build_index，清场后重建索引避免断链
-    from server import list_reports, build_index
     (REPORTS_DIR.parent / "index.html").write_text(build_index(list_reports()), encoding="utf-8")
 
 

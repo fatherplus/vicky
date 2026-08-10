@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""OKF frontmatter + 概念持久化（B 档）验收。不依赖网关（不测 llm_cluster/llm_chat）。"""
+"""OKF frontmatter + 概念持久化（B 档）验收。不依赖网关（不测 llm_cluster/llm_chat）。P0 包化：import 更新。"""
 import os
 import shutil
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from distill import (dump_frontmatter, parse_frontmatter, parse_overview,
+from ai_report.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overview,
                      write_knowledge_compiled, _norm_clusters, _safe_slug,
                      _load_existing_concepts, KNOWLEDGE_DIR)
 

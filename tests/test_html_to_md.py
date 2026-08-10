@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""html_to_md 转换器验收：封闭组件集 → 确定性 MD。"""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from html_to_md import html_to_md
+"""html_to_md 转换器验收：封闭组件集 → 确定性 MD。P0 包化：import 更新。"""
+from ai_report.html_to_md import html_to_md
 
 
 def _wrap(body):
