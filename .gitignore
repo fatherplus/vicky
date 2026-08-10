@@ -4,8 +4,11 @@ taste-skill/
 .pi/
 .omo/
 .superpowers/
+.pi-subagents/
+ai-report/
 .DS_Store
 .codegraph/
+.pytest_cache/
 knowledge/  # 蒸馏生成，python3 distill.py 重建
 # html_to_md 生成（提交时自动 + scripts/backfill_md.py），构建产物
 public/reports/*.md

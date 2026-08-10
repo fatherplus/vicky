@@ -174,4 +174,4 @@ Give the user:
 - **Chinese content**: use Chinese for all body text; keep code/commands/technical terms in English.
 - **Nginx permissions**: `sudo cp` + `sudo chmod 644` required.
 - **GitLab Pages**: `public/` is the Pages root. Reports go in `public/reports/`. Index is `public/index.html`.
-- **Git clone with PAT**: `https://oauth2:glpat-REVOKED@github.com/fatherplus/vicky.git`
+- **Git clone**: clone the repo and commit report files; see repo README for the canonical clone URL.

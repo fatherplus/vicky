@@ -1,6 +1,13 @@
-# Vicky — 个人知识平台
+# Vicky — AI 研究报告知识平台
 
 个人知识平台：Agent 研究报告入库 → 知识蒸馏 → Agent 知识服务。统一模板、统一风格、自动发布。
+
+## 开源协作
+
+- 仓库：https://github.com/fatherplus/vicky
+- 欢迎提交 Issue / PR：报告模板、蒸馏规则、门禁校验、组件库都值得打磨
+- 本地一键起服务：`python3 -m vicky.web`（默认 9091 端口），浏览器打开 http://localhost:9091
+- 所有报告内容仅作示例展示，欢迎用 `/api/guide` 规范生成你自己的报告
 
 ## 架构
 

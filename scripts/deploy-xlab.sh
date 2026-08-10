@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy Vicky code to xlab-test (192.168.191.121)
+# Deploy Vicky code to xlab-test (192.168.1.200)
 # P4：同步 vicky/ 包 + views/ + templates/ + public/assets/ + skill/（+ 过渡 shim），
 #     安装纯反代 Nginx 配置；保留远端数据（data/、public/reports/、knowledge/ 一律不动）
 set -e
@@ -50,4 +50,4 @@ echo "Installing Nginx config..."
 scp scripts/nginx-xlab.conf "$HOST:/tmp/vicky-nginx.conf"
 ssh "$HOST" "sudo cp /tmp/vicky-nginx.conf /etc/nginx/conf.d/vicky.conf && sudo nginx -t && sudo nginx -s reload"
 
-echo "Done. http://192.168.191.121:9092/research/"
+echo "Done. http://192.168.1.200:9092/research/"
