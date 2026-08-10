@@ -234,12 +234,56 @@ def classify():
 
 
 # ============================================================
+# index-knowledge：知识条目原子化 + FTS5 检索索引重建（P3 VK 原子化）
+# 存量 overview.md → items.json（缺失补全）→ knowledge_items + FTS5 索引。
+# 幂等：可反复跑，先清后插，结果与次数无关。
+# ============================================================
+def index_knowledge(topic: str | None = None):
+    """重建知识条目检索索引。
+    - 建 knowledge_items + FTS5 表（幂等）
+    - 遍历已有 overview.md 的主题：items.json 缺失时从 md 提取补全
+    - store.rebuild_items_index 先清后插重建索引
+    topic 非空时只处理该主题（--topic 过滤）。"""
+    from . import l2_distill
+    store.create_knowledge_items_table()
+    kdir = l2_distill.KNOWLEDGE_DIR
+    if not kdir.exists():
+        print("! knowledge/ 不存在，跳过")
+        return
+    topics_by_domain: dict[str, list[str]] = {}
+    extracted = 0
+    for domain_dir in sorted(p for p in kdir.iterdir()
+                             if p.is_dir() and not p.name.startswith(".")):
+        domain = domain_dir.name
+        for tdir in sorted(domain_dir.iterdir()):
+            if not tdir.is_dir():
+                continue
+            ovf = tdir / "overview.md"
+            if not ovf.exists():
+                continue
+            if topic and tdir.name != topic:
+                continue
+            topics_by_domain.setdefault(domain, []).append(tdir.name)
+            items_json = tdir / "items.json"
+            if not items_json.exists():
+                items = l2_distill._extract_items(
+                    tdir.name, domain, ovf.read_text(encoding="utf-8"))
+                items_json.write_text(
+                    json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+                extracted += len(items)
+                print(f"  ✓ 提取 {domain}/{tdir.name}: {len(items)} 条")
+    count = store.rebuild_items_index(topics_by_domain)
+    print(f"index-knowledge 完成: {count} 条条目入索引"
+          + (f"（本次新提取 {extracted} 条）" if extracted else ""))
+
+
+# ============================================================
 # 入口
 # ============================================================
 def main():
     if len(sys.argv) < 2:
         print("用法: python3 -m vicky.cli <命令>")
-        print("命令: backfill [--force] | render | distill | classify | judge")
+        print("命令: backfill [--force] | render | distill | classify | judge | index-knowledge")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -295,6 +339,16 @@ def main():
         # P2：LLM 批量初裁 pending 反馈（无 AIMETER_KEY 优雅跳过）
         from . import l3_feedback
         l3_feedback.judge_pending_with_llm()
+    elif cmd == "index-knowledge":
+        # P3：知识条目原子化 + FTS5 检索索引重建
+        topic = None
+        if "--topic" in sys.argv:
+            idx = sys.argv.index("--topic")
+            if idx + 1 >= len(sys.argv):
+                print("用法: python3 -m vicky.cli index-knowledge [--topic <topic>]")
+                sys.exit(1)
+            topic = sys.argv[idx + 1]
+        index_knowledge(topic=topic)
     else:
         print(f"未知命令: {cmd}")
         sys.exit(1)

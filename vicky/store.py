@@ -8,7 +8,10 @@ L0 存储层——sqlite3 唯一 DB 出口（P1 完整实现）。
 - 三张表：submissions（L0 不可变快照）、reports（L1 当前态）、feedbacks（L3 账本）
 """
 
+import json
+import re
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from . import config as _config
@@ -229,3 +232,158 @@ def feedback_counts(conn: sqlite3.Connection) -> dict:
     """全部主题的写回次数 {topic: count}（藏书楼卡片批量渲染用，一次查完）。"""
     rows = conn.execute("SELECT topic, COUNT(*) FROM feedbacks GROUP BY topic").fetchall()
     return {r[0]: r[1] for r in rows}
+
+
+# ============================================================
+# knowledge_items 表 + FTS5 检索索引（P3 VK 原子化）
+# 知识条目原子化：overview.md → items.json → 本表 + FTS5（id/topic/text/kind/category/tag 可检索）。
+# FTS 用 trigram 分词：支持中文子串检索（unicode61 会把整段中文当一个 token，搜不到）；
+# 1-2 字中文片段（trigram 盲区）由 search_items 退回 LIKE 兜底。
+# ============================================================
+KNOWLEDGE_ITEMS_DDL = """
+CREATE TABLE IF NOT EXISTS knowledge_items (
+  id TEXT PRIMARY KEY,
+  topic TEXT,
+  domain TEXT,
+  kind TEXT,
+  text TEXT,
+  sources TEXT,
+  created_at TEXT);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_items_fts USING fts5(
+  id, topic, text, kind, category, tag, tokenize = "trigram");
+"""
+
+# overview.md frontmatter 里 category / tags 的轻量提取（FTS 过滤列用；
+# 不引 l2_distill 的 parse_frontmatter——l2_distill import store，反向引用会成环）
+_FM_CATEGORY_RE = re.compile(r"^category:\s*(\S+)", re.MULTILINE)
+_FM_TAGS_RE = re.compile(r"^tags:\s*$([\s\S]*?)(?=^---$|^[a-zA-Z_]+:|\Z)", re.MULTILINE)
+
+
+def _topic_category_tags(overview_path: Path) -> tuple[str, list]:
+    """读 overview.md frontmatter 的 category + tags。缺省兜底 ('ai', []) 与 l2_distill 一致。"""
+    cat, tags = "ai", []
+    if not overview_path.exists():
+        return cat, tags
+    try:
+        text = overview_path.read_text(encoding="utf-8")
+    except OSError:
+        return cat, tags
+    m = _FM_CATEGORY_RE.search(text)
+    if m:
+        cat = m.group(1).strip()
+    tm = _FM_TAGS_RE.search(text)
+    if tm:
+        for ln in tm.group(1).splitlines():
+            lm = re.match(r"^\s*-\s*(.+)$", ln)
+            if lm:
+                tags.append(lm.group(1).strip())
+    return cat, tags
+
+
+def _has_short_cjk(q: str) -> bool:
+    """查询里含 1-2 字中文片段（trigram 匹配不了的盲区，需 LIKE 兜底）。"""
+    return any(len(seg) <= 2 for seg in re.findall(r"[\u4e00-\u9fff]+", q))
+
+
+def create_knowledge_items_table(conn: sqlite3.Connection | None = None) -> None:
+    """建 knowledge_items + knowledge_items_fts（FTS5）两表，幂等。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        conn.executescript(KNOWLEDGE_ITEMS_DDL)
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def rebuild_items_index(topics_by_domain: dict) -> int:
+    """清空两表，按 knowledge/{domain}/{topic}/items.json 重建检索索引。
+    幂等：结果与调用次数无关。返回入库条目数。"""
+    conn = get_db()
+    try:
+        create_knowledge_items_table(conn)
+        conn.execute("DELETE FROM knowledge_items")
+        conn.execute("DELETE FROM knowledge_items_fts")
+        count = 0
+        for domain, topics in topics_by_domain.items():
+            for topic in topics:
+                items_path = _config.KNOWLEDGE_DIR / domain / topic / "items.json"
+                if not items_path.exists():
+                    continue
+                try:
+                    items = json.loads(items_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                cat, tags = _topic_category_tags(
+                    _config.KNOWLEDGE_DIR / domain / topic / "overview.md")
+                tag_str = " ".join(tags)
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                for it in items:
+                    if not isinstance(it, dict) or "id" not in it or "text" not in it:
+                        continue
+                    conn.execute(
+                        "INSERT INTO knowledge_items (id, topic, domain, kind, text, sources, created_at)"
+                        " VALUES (?,?,?,?,?,?,?)",
+                        (it["id"], topic, domain, it.get("kind", ""), it["text"],
+                         json.dumps(it.get("sources") or [], ensure_ascii=False), now))
+                    conn.execute(
+                        "INSERT INTO knowledge_items_fts (id, topic, text, kind, category, tag)"
+                        " VALUES (?,?,?,?,?,?)",
+                        (it["id"], topic, it["text"], it.get("kind", ""), cat, tag_str))
+                    count += 1
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+def search_items(q: str, limit: int = 20, category: str | None = None,
+                 tag: str | None = None):
+    """FTS5 全文检索知识条目。返回 [(id, topic, text, kind, rank), ...]，按相关度升序
+    （bm25 越小越相关）。category 精确过滤、tag 子串过滤（可选）。
+    trigram 盲区（1-2 字中文）或无命中时退回 knowledge_items 表 LIKE 兜底。"""
+    q = (q or "").strip()
+    if not q:
+        return []
+    conn = get_db()
+    try:
+        where, args = "knowledge_items_fts MATCH ?", [q]
+        if category:
+            where += " AND category = ?"
+            args.append(category)
+        if tag:
+            where += " AND tag LIKE ?"
+            args.append(f"%{tag}%")
+        sql = (f"SELECT id, topic, text, kind, bm25(knowledge_items_fts) AS rank "
+               f"FROM knowledge_items_fts WHERE {where} ORDER BY rank LIMIT ?")
+        args.append(limit)
+        try:
+            rows = conn.execute(sql, args).fetchall()
+        except sqlite3.OperationalError:
+            # FTS 语法错误（如查询含 - # 等）：整体当短语再试一次
+            args[0] = '"' + q.replace('"', '""') + '"'
+            rows = conn.execute(sql, args).fetchall()
+        hits = [(r["id"], r["topic"], r["text"], r["kind"], r["rank"]) for r in rows]
+        if not hits and _has_short_cjk(q):
+            # trigram 对 1-2 字中文无效：LIKE 兜底（rank 无意义，统一给 0.0）
+            base = "SELECT id, topic, text, kind FROM knowledge_items WHERE text LIKE ?"
+            bargs = [f"%{q}%"]
+            if category:
+                base += " AND topic IN (SELECT topic FROM knowledge_items_fts" \
+                         " WHERE category = ?)"
+                bargs.append(category)
+            if tag:
+                base += " AND topic IN (SELECT topic FROM knowledge_items_fts" \
+                         " WHERE tag LIKE ?)"
+                bargs.append(f"%{tag}%")
+            base += " ORDER BY id LIMIT ?"
+            bargs.append(limit)
+            hits = [(r["id"], r["topic"], r["text"], r["kind"], 0.0)
+                    for r in conn.execute(base, bargs).fetchall()]
+        return hits
+    finally:
+        conn.close()

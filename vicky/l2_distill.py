@@ -748,6 +748,8 @@ def write_knowledge(domain: str, slug: str, title: str,
         lines.append("")
 
     overview.write_text("\n".join(lines), encoding="utf-8")
+    # P3：知识条目原子化——items.json 孪生（只加新文件，不碰 overview.md）
+    _write_items_json(slug, domain, "\n".join(lines))
     return overview
 
 
@@ -815,7 +817,10 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     tdir = _topic_dir(domain, slug)
     tdir.mkdir(parents=True, exist_ok=True)
     overview = tdir / "overview.md"
-    overview.write_text(dump_frontmatter(meta) + "\n".join(lines), encoding="utf-8")
+    md_text = dump_frontmatter(meta) + "\n".join(lines)
+    overview.write_text(md_text, encoding="utf-8")
+    # P3：知识条目原子化——items.json 孪生（只加新文件，不碰 overview.md）
+    _write_items_json(slug, domain, md_text)
     return overview
 
 
@@ -1100,6 +1105,81 @@ def parse_overview(text: str) -> dict:
         elif cur is not None and line.strip():
             cur["items"].append({"text": _strip_tags(line.strip()), "source": ""})
     return {"title": title, **meta, "sections": sections}
+
+
+# ============================================================
+# P3：知识条目原子化（VK atomization）——overview.md → items.json
+# 只加同目录 items.json 孪生文件，不碰 overview.md 正文。
+# ============================================================
+
+# 小节名 → kind（兼容新旧节名：spec 的「结论/常见陷阱」与现有 overview 实况的「核心要点/陷阱与反模式」）
+_SECTION_KINDS = {
+    "结论": "conclusion",
+    "核心要点": "conclusion",
+    "关键数据": "data",
+    "常见陷阱": "trap",
+    "陷阱与反模式": "trap",
+    "陷阱": "trap",
+}
+_KIND_SHORT = {"conclusion": "c", "data": "d", "trap": "t"}
+
+
+def _item_sources(text: str) -> list[str]:
+    """从条目文本抠来源标记：优先 [来源: xxx]（可顿号/逗号多个），否则行尾 [slug]。"""
+    m = re.search(r"\[来源\s*[:：]\s*([^\]]+)\]", text)
+    if m:
+        return [s.strip() for s in re.split(r"[、,，]", m.group(1)) if s.strip()]
+    m = re.search(r"\[([^\]]+)\]\s*$", text)
+    if m:
+        return [m.group(1).strip()]
+    return []
+
+
+def _extract_items(topic: str, domain: str, md_text: str) -> list[dict]:
+    """overview.md → 知识条目列表 [{id, kind, text, sources, anchors}]。
+
+    - kind: conclusion / data / trap，按节识别（## 结论 / ## 关键数据 / ## 常见陷阱，含旧节名别名）
+    - id: {topic}#{kind_short}{n}，n 按 kind 独立从 1 递增（conclusion→c, data→d, trap→t）
+    - sources: 条目里的 [来源: xxx] 或行尾 [slug] 标记解析出的报告名数组
+    - anchors: 空数组（升级槽位）
+
+    纯解析不写盘；items.json 由调用方落盘。其他节（概述/来源/综合/分歧/使用写回）不产条目。"""
+    _, body = parse_frontmatter(md_text)
+    items: list[dict] = []
+    counters: dict[str, int] = {"conclusion": 0, "data": 0, "trap": 0}
+    current_kind: str | None = None
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        h = re.match(r"^##\s+(.+)$", line)
+        if h:
+            current_kind = _SECTION_KINDS.get(h.group(1).strip())
+            continue
+        if current_kind is None:
+            continue
+        text = line[2:].strip() if line.startswith("- ") else line
+        sources = _item_sources(text)
+        text = re.sub(r"\s*\[[^\]]+\]\s*$", "", text).strip()
+        if not text:
+            continue
+        counters[current_kind] += 1
+        items.append({
+            "id": f"{topic}#{_KIND_SHORT[current_kind]}{counters[current_kind]}",
+            "kind": current_kind,
+            "text": text,
+            "sources": sources,
+            "anchors": [],
+        })
+    return items
+
+
+def _write_items_json(topic: str, domain: str, md_text: str) -> Path:
+    """overview.md 内容 → 同目录 items.json（P3 原子化；只加孪生文件，不碰 overview.md）。"""
+    items = _extract_items(topic, domain, md_text)
+    out = _topic_dir(domain, topic) / "items.json"
+    out.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out
 
 
 # P3 前端抢救：_src_link 与 _render_card 已迁入 ui.py，此处保留别名

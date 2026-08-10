@@ -19,6 +19,7 @@ from . import l1_publish
 from . import l2_distill  # P2 分类规格 §3: /api/knowledge 列表条目读 frontmatter 补 category/tags
 from . import l3_feedback
 from . import store
+from .mcp import router  # P1: MCP 协议层（POST /mcp, JSON-RPC 2.0, stateless）
 from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
 
 # P0: 不创建 config 路径的本地别名——tests/tmp_env 通过 monkey-patch config.* 工作，
@@ -201,8 +202,40 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return None, "invalid JSON"
 
+    def _handle_mcp(self):
+        """P1: MCP 协议端点——JSON-RPC 2.0 over HTTP（stateless）。
+
+        body 非法 JSON → 400 + -32700；非对象 JSON → 400 + -32600；
+        通知（无 id）→ 202 空体（JSON-RPC 对通知永不回响应体）。
+        """
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length).decode("utf-8", errors="replace")
+        try:
+            req = json.loads(body) if body.strip() else None
+        except json.JSONDecodeError:
+            self._json({"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32700, "message": "Parse error"}}, 400)
+            return
+        if not isinstance(req, dict):
+            self._json({"jsonrpc": "2.0", "id": None,
+                        "error": {"code": -32600, "message": "Invalid Request"}}, 400)
+            return
+        resp = router.handle_request(req.get("method"), req.get("params"), req.get("id"))
+        if resp is None:
+            # 通知：不回响应体（MCP streamable HTTP 约定 202 Accepted）
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self._json(resp, 200)
+
     def do_POST(self):
         path = self.path.split("?")[0]
+
+        # P1: MCP 协议端点（JSON-RPC 2.0 over HTTP, stateless）——独立于 /api/*
+        if path == "/mcp":
+            self._handle_mcp()
+            return
 
         # P2: L3 写回 / 人工裁决（规格 §6）
         if path == "/api/knowledge/feedback":
