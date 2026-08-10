@@ -364,7 +364,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         "created": created,
         "components": comp_hits,
         "warnings": warnings,
-        "url": f"{base_url}/research/reports/{filename}" if base_url else f"/research/reports/{filename}",
+        "url": f"{base_url}/reports/{filename}" if base_url else f"/reports/{filename}",
     }
     if not created:
         result["updated"] = today

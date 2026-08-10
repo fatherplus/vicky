@@ -30,7 +30,7 @@ class TestCardWall(unittest.TestCase):
         self.assertIn("assets/img/card-foo/01-a.png", wall)     # 按名排序第一张作封面
         self.assertNotIn("02-b.png", wall)                      # 第二张不出现在封面
         self.assertIn("共 1 张", wall)
-        self.assertIn("/research/reports/", wall)               # 卡片链到报告页
+        self.assertIn("/reports/", wall)               # 卡片链到报告页
 
     def test_placeholder_without_image(self):
         with tmp_env(server) as tmp:

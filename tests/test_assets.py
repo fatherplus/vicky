@@ -21,13 +21,13 @@ class TestSharedAssets(unittest.TestCase):
     def test_index_tpl_links_asset_no_inline_style(self):
         # P3 前端抢救：_INDEX_TPL 迁到 views/index.html，检查视图文件本身
         tpl = (REPO / "views/index.html").read_text(encoding="utf-8")
-        self.assertIn('<link rel="stylesheet" href="/research/assets/index.css">', tpl)
+        self.assertIn('<link rel="stylesheet" href="/assets/index.css">', tpl)
         self.assertNotIn("<style>", tpl)
 
     def test_knowledge_tpl_links_external_css_no_inline_style(self):
         # P3 前端抢救：knowledge.html 引外部 knowledge.css，无内联 style
         tpl = (REPO / "views/knowledge.html").read_text(encoding="utf-8")
-        self.assertIn('<link rel="stylesheet" href="/research/assets/knowledge.css">', tpl)
+        self.assertIn('<link rel="stylesheet" href="/assets/knowledge.css">', tpl)
         self.assertNotIn("<style>", tpl)
         # 验证 knowledge.css 存在并包含核心选择器
         css = (REPO / "public/assets/knowledge.css").read_text(encoding="utf-8")

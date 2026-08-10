@@ -17,7 +17,7 @@ description: >-
 
 `ai-report` 是一个**集中式研究报告管理平台**，包含：
 - **五个模板**：`templates/` 注册制 — `book`（默认，“书”页长读：宋体标题 + 书眉 + 藏书章 + 书签丝带）、`brief`（结论先行决策简报）、`arch-overview` / `arch-node`（项目架构多页站，骑丛书机制）、`card`（产品风格卡片，聚合成卡片墙）；所有报告共享同一份 CSS
-- **四类内容域**（`domain` 字段路由）：`tech` 技术文章（唯一进知识蒸馏）/ `ephemeral` 临时报告 / `design` 前端卡片（不蒸馏；卡片墙 `/research/design.html`，token 总纲 `GET /api/design`，CSS 资源包 `GET /api/design.css`）/ `arch` 架构站（不蒸馏）
+- **四类内容域**（`domain` 字段路由）：`tech` 技术文章（唯一进知识蒸馏）/ `ephemeral` 临时报告 / `design` 前端卡片（不蒸馏；卡片墙 `/design.html`，token 总纲 `GET /api/design`，CSS 资源包 `GET /api/design.css`）/ `arch` 架构站（不蒸馏）
 - **提交契约**：`skill/AGENT-GUIDE.md`（即 `GET /api/guide`）— domain 路由表、四类工作流、截图规范、arch 丛书约定
 - **风格规范**：`skill/BOOK-STYLE.md` — 书风格的硬约束（字体/配色/版式/动效/绝对禁止清单）
 - **GitLab Pages**：`public/` 目录自动发布为静态站点
@@ -161,7 +161,7 @@ git push origin main
 ### 6. Present Summary
 
 Give the user:
-- Local access URL: `http://192.168.1.100:9090/research/YYYY-MM-DD-slug.html`
+- Local access URL: `http://192.168.1.100:9093/reports/YYYY-MM-DD-slug.html`
 - GitLab Pages URL (after CI): `https://fatherplus.github.io/vicky/reports/YYYY-MM-DD-slug.html`
 - Concise bullet-point summary of key findings
 

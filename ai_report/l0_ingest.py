@@ -161,5 +161,5 @@ def save_images(images: list, slug: str) -> tuple[list[str], str | None]:
             return [], f"图片过大: {name}（上限 {IMG_MAX_BYTES // 1024 // 1024}MB）"
         safe_name = os.path.basename(name)
         (img_dir / safe_name).write_bytes(raw)
-        saved.append(f"/research/assets/img/{slug}/{safe_name}")
+        saved.append(f"/assets/img/{slug}/{safe_name}")
     return saved, None

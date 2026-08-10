@@ -55,4 +55,4 @@ echo "Installing Nginx config (纯反代)..."
 scp scripts/nginx-research.conf "$HOST:/tmp/ai-report-nginx.conf"
 ssh "$HOST" "sudo cp /tmp/ai-report-nginx.conf /var/www/vicky/ai-report-nginx.conf && sudo nginx -t && sudo nginx -s reload"
 
-echo "Done. http://192.168.1.100:9090/research/"
+echo "Done. http://192.168.1.100:9093/"

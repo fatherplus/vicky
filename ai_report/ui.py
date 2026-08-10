@@ -55,7 +55,7 @@ def toc_row(r: dict, num: int) -> str:
     sub = (f'<span class="toc-sub">{html_mod.escape(r["subtitle"])}</span>'
            if r.get("subtitle") else "")
     updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
-    return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/research/reports/{r["file"]}"'
+    return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/reports/{r["file"]}"'
             f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}">'
             f'<span class="toc-num">{num:02d}</span>'
             f'<span class="toc-main"><span class="toc-line">'
@@ -97,7 +97,7 @@ def frontmatter_html(front: list[dict]) -> str:
     if not front:
         return ""
     fm = [
-        f'<a class="fm-item reveal" href="/research/reports/{r["file"]}">'
+        f'<a class="fm-item reveal" href="/reports/{r["file"]}">'
         f'<span class="fm-seal" aria-hidden="true">序</span>'
         f'<span class="fm-body"><span class="fm-title">{html_mod.escape(r["title"])}</span>'
         f'<span class="fm-desc">{html_mod.escape(r.get("subtitle") or "关于这个平台本身的设计说明。")}</span></span>'
@@ -132,7 +132,7 @@ def _card_cover(slug: str) -> str:
             if img_dir.exists() else [])
     if imgs:
         name = html_mod.escape(imgs[0], quote=True)
-        return (f'<img class="cwall-cover" src="/research/assets/img/{slug}/{name}" '
+        return (f'<img class="cwall-cover" src="/assets/img/{slug}/{name}" '
                 f'alt="{html_mod.escape(slug)} 封面" loading="lazy">')
     return ('<div class="cwall-cover" style="display:flex;align-items:center;'
             'justify-content:center;color:var(--sub);font-family:var(--serif);font-size:14px">'
@@ -147,7 +147,7 @@ def card_wall_item(r: dict) -> str:
     sub = r.get("subtitle") or r.get("tag") or ""
     esc_sub = html_mod.escape(sub, quote=True)
     href = html_mod.escape(r["file"], quote=True)
-    return (f'<a class="cwall-card reveal" href="/research/reports/{href}">{cover}'
+    return (f'<a class="cwall-card reveal" href="/reports/{href}">{cover}'
             f'<div class="cwall-body"><span class="cwall-title">{title}</span>'
             f'<span class="cwall-sub">{esc_sub}</span></div></a>')
 
@@ -164,7 +164,7 @@ def _src_link(src: str) -> str:
         return f' <span class="src" title="使用写回">{html_mod.escape(src)}</span>'
     short = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", src).removesuffix(".html")
     href = src if src.endswith(".html") else src + ".html"
-    return (f' <a class="src" href="/research/reports/{html_mod.escape(href)}" '
+    return (f' <a class="src" href="/reports/{html_mod.escape(href)}" '
             f'title="{html_mod.escape(href)}">{html_mod.escape(short)}</a>')
 
 

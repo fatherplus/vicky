@@ -24,7 +24,7 @@ curl -X POST http://<HOST>:9091/api/reports \
   }'
 ```
 
-返回：`{"ok": true, "file": "...", "created": true, "components": ["mermaid"], "warnings": [...], "url": ".../research/reports/..."}`
+返回：`{"ok": true, "file": "...", "created": true, "components": ["mermaid"], "warnings": [...], "url": ".../reports/..."}`
 
 > **domain 路由**：`domain` 决定内容类型与蒸馏去向，可选值：
 >
@@ -108,7 +108,7 @@ AI 调研自媒体/开源资料后，把成品按本指南规范直接提交。�
 - **视口 1440×900**，PNG 格式
 - 默认抓**产品主页**；可补 2–3 张关键页（列表 / 详情 / 设置等），一页一图
 - 经 `images: [{"name": "home.png", "b64": "<base64>"}]` 字段随提交上传（单张 ≤10MB，允许 png/jpg/jpeg/webp/svg），落盘 `public/assets/img/{slug}/`
-- 正文里以 `/research/assets/img/{slug}/{name}` 引用（如 `<figure>` 里 `<img src="/research/assets/img/card-xxx/home.png">`），HTML 里不内嵌 base64
+- 正文里以 `/assets/img/{slug}/{name}` 引用（如 `<figure>` 里 `<img src="/assets/img/card-xxx/home.png">`），HTML 里不内嵌 base64
 
 ### 项目架构多页（domain=arch）
 
