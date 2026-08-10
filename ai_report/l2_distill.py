@@ -49,6 +49,10 @@ DISTILL_MODEL = os.environ.get("DISTILL_MODEL", "glm-5.2-fast").strip()  # 非�
 LLM_ON = bool(AIMETER_KEY)
 STALE_DAYS = 90  # 编译知识的默认保鲜期（过期视图标红提示重验）；按 type/domain 分化时改这里
 
+# 知识库专栏枚举（spec 2026-08-10-knowledge-taxonomy-design §1）——蒸馏时每主题必归其一
+CATEGORIES = config.CATEGORIES
+CATEGORY_KEYS = tuple(CATEGORIES.keys())
+
 
 # ============================================================
 # HTML → 结构化知识提取（规则存根版）
@@ -198,14 +202,18 @@ def _parse_json_loose(text: str):
         return json.loads(t)
     except Exception:
         pass
-    # 截取首个 [ 或 { 到末尾对应括号
-    for open_c, close_c in (("[", "]"), ("{", "}")):
+    # 截取括号结构（优先最外层：嵌套时取起始最早者，避免短对象里先抠到内层数组）
+    cands = []
+    for open_c, close_c in (("{", "}"), ("[", "]")):
         i, j = t.find(open_c), t.rfind(close_c)
-        if i != -1 and j != -1 and j > i:
+        if i != -1 and j > i:
             try:
-                return json.loads(t[i:j + 1])
+                cands.append((i, json.loads(t[i:j + 1])))
             except Exception:
                 continue
+    if cands:
+        cands.sort(key=lambda c: c[0])
+        return cands[0][1]
     return None
 
 
@@ -414,6 +422,56 @@ def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
         return ""
     t = md_path.read_text(encoding="utf-8")
     return t[:maxlen] + ("…[截断]" if len(t) > maxlen else "")
+def existing_tags() -> list[str]:
+    """收集全库已有标签清单（frontmatter tags 字段，去重保序），供编译/classify prompt 优先复用。
+    分类规格 §1：小标签无治理流程，靠 prompt 收敛，不做标签注册表。"""
+    tags, seen = [], set()
+    if KNOWLEDGE_DIR.exists():
+        for domain_dir in sorted(p for p in KNOWLEDGE_DIR.iterdir()
+                                 if p.is_dir() and not p.name.startswith(".")):
+            for tdir in sorted(domain_dir.iterdir()):
+                ovf = tdir / "overview.md"
+                if not tdir.is_dir() or not ovf.exists():
+                    continue
+                meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
+                for t in (meta.get("tags") or []):
+                    t = str(t).strip()
+                    if t and t not in seen:
+                        seen.add(t)
+                        tags.append(t)
+    return tags
+
+
+def llm_classify(topic: str, body: str, existing: list) -> dict | None:
+    """LLM 为存量主题补 category + tags（cli classify 用，不重编译正文）。
+    返回 {"category": key, "tags": [...]}；LLM 不可用/返回不可解析 → None（调用方留白不误分）。
+    category 不在枚举内 → 兜底 'ai'；tags 为空 → []（写入时字段省略）。"""
+    excerpt = body.strip()[:1500]
+    cat_desc = "；".join(
+        f"{k}（{CATEGORIES[k]}：收{v}" for k, v in config.CATEGORY_SCOPES.items())
+    tag_pool = "、".join(existing) if existing else "（暂无）"
+    prompt = (
+        "你是知识库编辑，为下面的主题选专栏分类与标签。\n"
+        f"专栏枚举（key 即输出值）: {cat_desc}\n"
+        f"已有标签清单（优先复用，避免造新词）: {tag_pool}\n\n"
+        f"主题: {topic}\n内容摘录:\n{excerpt}\n\n"
+        '输出 JSON：{"category": "ai", "tags": ["RAG", "检索"]}\n'
+        "category 必须取枚举 key 之一；tags 2-5 个，用简短短语、不要含逗号；"
+        "拿不准分类时取 ai。只输出该 JSON 对象，不要任何解释。")
+    raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=300, timeout=120)
+    if not raw:
+        return None
+    data = _parse_json_loose(raw)
+    if not isinstance(data, dict):
+        return None
+    cat = str(data.get("category", "")).strip()
+    if cat not in CATEGORIES:
+        cat = "ai"
+    tags = [str(t).strip() for t in (data.get("tags") or [])
+            if isinstance(t, str) and t.strip()][:5]
+    return {"category": cat, "tags": tags}
+
+
 def llm_compile_topic(topic: str, members: list, feedbacks: list | None = None) -> dict:
     """LLM 读各篇原文，为主题编译一整篇浓缩 wiki（结构化 JSON）。
     返回 {summary, points:[..], data:[..], traps:[..], contradictions:[{point,sides}]}。
@@ -441,6 +499,9 @@ def llm_compile_topic(topic: str, members: list, feedbacks: list | None = None) 
                 if not feedbacks else
                 f"{n} 篇报告的结构化摘要与 {len(feedbacks)} 条已采纳的使用写回反馈（每段以 [slug] 或 [feedback#id] 标注来源）")
     cross = "交叉综合这些来源的共识、互补与演进脉络" if (n + len(feedbacks)) >= 2 else "提炼这篇报告的核心知识"
+    existing = existing_tags()
+    tag_pool = "、".join(existing) if existing else "（暂无）"
+    cat_desc = "；".join(f"{k}（{CATEGORIES[k]}）" for k in CATEGORIES)
     prompt = (
         f"你是知识库编辑，正在为主题『{topic}』编译一篇浓缩 wiki，材料来自 {src_desc}。\n"
         f"请{cross}，产出一份读者读完即懂该主题的完整浓缩内容。要求：写实质内容，含具体机制/数字/名称，不要废话套话，不要说『缺乏结论』；"
@@ -451,9 +512,14 @@ def llm_compile_topic(topic: str, members: list, feedbacks: list | None = None) 
         '- data: 字符串数组，真正有意义的数字/事实/对比（0-6 条），只收有信息量的，禁止空泛行；\n'
         '- traps: 字符串数组，陷阱/反模式/踩坑点（0-5 条）；\n'
         '- contradictions: 数组，来源间真正的观点冲突，每项 {point, sides:[\"[slugX] 原话\",...]}；无则空数组。\n'
+        f'- category: 字符串，专栏归类，必须取枚举 key 之一：{cat_desc}；\n'
+        '- tags: 字符串数组（2-5 个），主题的小标签（如「RAG」「检索」「开源项目」），'
+        '用简短短语、不要含逗号，优先复用已有标签；\n'
+        f"当前全库已有标签清单（优先复用，可按需新增）: {tag_pool}\n"
         '只输出该 JSON 对象，不要任何解释。\n\n' + body)
     raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=3000, timeout=300)
-    empty = {"summary": "", "points": [], "data": [], "traps": [], "contradictions": []}
+    empty = {"summary": "", "points": [], "data": [], "traps": [], "contradictions": [],
+             "category": "ai", "tags": []}
     if not raw:
         return empty
     data = _parse_json_loose(raw)
@@ -470,12 +536,20 @@ def llm_compile_topic(topic: str, members: list, feedbacks: list | None = None) 
         if isinstance(c, dict) and c.get("point") and c.get("sides"):
             contra.append({"point": str(c["point"]).strip(),
                            "sides": [str(s).strip() for s in c["sides"]]})
+    # 分类规格 §1：category 必须命中枚举，校验失败兜底 'ai'；tags 0-5 个，空则无
+    cat = str(data.get("category", "")).strip()
+    if cat not in CATEGORIES:
+        cat = "ai"
+    tags = [str(t).strip() for t in (data.get("tags") or [])
+            if isinstance(t, str) and t.strip()][:5]
     return {
         "summary": str(data.get("summary", "")).strip(),
         "points": strs("points", 8),
         "data": strs("data", 6),
         "traps": strs("traps", 5),
         "contradictions": contra,
+        "category": cat,
+        "tags": tags,
     }
 
 # ============================================================
@@ -702,6 +776,7 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     stale_after = (datetime.now() + timedelta(days=STALE_DAYS)).strftime("%Y-%m-%d")
     meta = {
         "id": slug, "title": topic, "type": "Topic", "domain": domain,
+        "category": compiled.get("category", "ai"),  # 分类规格 §1：枚举 key，编译校验兜底 ai
         "status": "stable",
         "generated": {"by": f"agent:{model_tag}", "at": today},
         "verified": verified, "sources_count": n, "stale_after": stale_after,
@@ -710,6 +785,9 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
         # P2（规格 §6③）：被使用、被检验写进信任元数据；0 也记，表明该主题尚未经使用回路
         "feedback_sources": len(feedbacks),
     }
+    # 分类规格 §1：tags 为空则无（frontmatter 不写空列表字段）
+    if compiled.get("tags"):
+        meta["tags"] = compiled["tags"][:5]
 
     lines = ["## 概述", "", summary, ""]
     if compiled["points"]:
@@ -857,9 +935,7 @@ def _sweep_feedbacks() -> list:
 # 内联 CSS 提取到 public/assets/knowledge.css
 # ============================================================
 
-# P3 前端抢救：常量共享给 ui.py（此处保留别名，build_knowledge_page 中 DOMAIN_NAME 仍用）
-DOMAIN_NAME = ui.DOMAIN_NAME
-
+# P3 前端抢救：卡片/分区片段归 ui.py（P4 分类规格后分区键为 category，DOMAIN_NAME 别名移除）
 # 旧引用别名（build_knowledge_page 通过 _render_card 调用 ui.render_knowledge_card）
 _render_card = ui.render_knowledge_card
 _src_link = ui._src_link
@@ -978,7 +1054,8 @@ def parse_overview(text: str) -> dict:
     meta_fm, body = parse_frontmatter(text)
     meta = {"updated": "", "sources": 0, "confidence": "low",
             "status": "stable", "verified": "unverified", "stale_after": "",
-            "id": "", "generated": {}, "source_reports": []}
+            "id": "", "generated": {}, "source_reports": [],
+            "category": "ai", "category_label": CATEGORIES["ai"], "tags": []}
     title = ""
     if meta_fm:
         title = str(meta_fm.get("title", ""))
@@ -992,6 +1069,14 @@ def parse_overview(text: str) -> dict:
         meta["id"] = str(meta_fm.get("id", ""))
         meta["generated"] = gen
         meta["source_reports"] = meta_fm.get("source_reports", []) or []
+        # 分类规格 §1：category 枚举校验，非法/缺失兜底 ai；tags 0-5 个，空则 []
+        _cat = str(meta_fm.get("category", "ai")).strip()
+        if _cat not in CATEGORIES:
+            _cat = "ai"
+        meta["category"] = _cat
+        meta["category_label"] = CATEGORIES[_cat]
+        meta["tags"] = [str(t).strip() for t in (meta_fm.get("tags") or [])
+                        if str(t).strip()][:5]
     sections, cur, scan = [], None, (body if meta_fm else text)
     for line in scan.splitlines():
         if line.startswith("# "):
@@ -1029,8 +1114,10 @@ def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "",
 
 def build_knowledge_page() -> Path:
     """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。
-    P3 前端抢救：模板从 views/knowledge.html 加载，卡片片段用 ui.py。"""
-    topics_by_domain: dict[str, list] = {"tech": []}
+    P3 前端抢救：模板从 views/knowledge.html 加载，卡片片段用 ui.py。
+    P4 分类规格 §3：分区键从 domain 换成 category（专栏枚举）；chips 走 data-c 契约，
+    分节走 data-category 契约；统计数照旧。"""
+    topics_by_cat: dict[str, list] = {k: [] for k in CATEGORIES}
     total_sources = total_disag = total_synth = 0
     # P2：写回次数批量查（一次查完，卡片渲染用；循环可见，规格 §6④）
     conn = store.get_db()
@@ -1047,22 +1134,25 @@ def build_knowledge_page() -> Path:
             if not ovf.exists():
                 continue
             ov = parse_overview(ovf.read_text(encoding="utf-8"))
-            topics_by_domain[domain].append((tdir.name, ov))
+            # 分区键 = category（parse_overview 已兜底 ai，全库主题必落一栏）
+            topics_by_cat[ov["category"]].append((tdir.name, ov))
             total_sources += ov["sources"]
             for s in ov["sections"]:
                 if s["label"] == "分歧": total_disag += len(s["items"])
             if ov["sources"] >= 2:  # 多源 = 经过 LLM 交叉综合
                 total_synth += 1
-    ntopics = sum(len(v) for v in topics_by_domain.values())
+    ntopics = sum(len(v) for v in topics_by_cat.values())
     # 同名主题（LLM 聚类随机性导致同名不同成员）加来源数后缀，便于区分
     from collections import Counter
-    title_count = Counter(ov["title"] for dom in topics_by_domain.values() for _, ov in dom)
+    title_count = Counter(ov["title"] for cat in topics_by_cat.values() for _, ov in cat)
 
+    # 专栏 chips（全部 + 五专栏，data-c 契约；含 0 计数，筛选态稳定）
+    chips_html = "\n".join(ui.knowledge_chips_html(topics_by_cat))
     sections_html = []
-    for domain, topics in topics_by_domain.items():
+    for cat, topics in topics_by_cat.items():
         if not topics:
             continue
-        sections_html.append(ui.knowledge_pavilion_html(domain, topics, title_count, fb_counts))
+        sections_html.append(ui.knowledge_pavilion_html(cat, topics, title_count, fb_counts))
     if not sections_html:
         sections_html.append('<p class="none reveal">知识库还是空的——提交报告后跑 <code>python3 distill.py</code>。</p>')
 
@@ -1072,8 +1162,9 @@ def build_knowledge_page() -> Path:
            .replace("__SOURCES__", str(total_sources))
            .replace("__DISAGREE__", str(total_disag))
            .replace("__SYNTH__", str(total_synth))
-           .replace("__NTECH__", str(len(topics_by_domain["tech"])))
+           .replace("__CHIPS__", chips_html)
            .replace("__SECTIONS__", "\n".join(sections_html))
+           .replace("__NTECH__", str(len(topics_by_cat["ai"])))  # 过渡期兼容旧模板占位符（新模板无此占位，no-op）
            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M")))
     out_dir = PUBLIC_DIR / "knowledge"
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,6 @@ from . import config
 CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
 VER_LABEL = {"unverified": ("未验证", "v-unv"), "machine-confirmed": ("机确认", "v-mach"),
              "human-reviewed": ("人复核", "v-human")}
-DOMAIN_NAME = {"tech": "tech 阁"}
 SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
            "数据": "data", "分歧": "disag", "综合": "synth", "agree": "agree"}
 STRUCT_SECS = {"一句话结论", "概述", "来源"}
@@ -168,9 +167,11 @@ def _src_link(src: str) -> str:
             f'title="{html_mod.escape(href)}">{html_mod.escape(short)}</a>')
 
 
-def render_knowledge_card(domain: str, topic: str, ov: dict, title_suffix: str = "",
+def render_knowledge_card(category: str, topic: str, ov: dict, title_suffix: str = "",
                           fb_count: int = 0) -> str:
-    """藏书楼知识卡片——P3 从 l2_distill._render_card 迁入 ui.py。"""
+    """藏书楼知识卡——P4 分类规格 §3 契约：
+    article.kcard data-category / data-tags / data-search；
+    .kcard-head（标题 + 元信息 + .tagchip 行 + .ksum 概述首句）+ .kcard-body（全文各节，沿用 .ksec）。"""
     conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
     # OKF 信任徽章
     vlabel, vcls = VER_LABEL.get(ov.get("verified", "unverified"), ("未验证", "v-unv"))
@@ -197,7 +198,7 @@ def render_knowledge_card(domain: str, topic: str, ov: dict, title_suffix: str =
             badges.append(f'<span class="kbadge {cls}">综合 ✓</span>')
         elif n:
             badges.append(f'<span class="kbadge {cls}">{html_mod.escape(s["label"])} {n}</span>')
-    # 正文分节
+    # 正文分节（kcard-body 内，沿用 .ksec 标记）
     secs = []
     for s in ov["sections"]:
         if not s["items"]:
@@ -212,29 +213,59 @@ def render_knowledge_card(domain: str, topic: str, ov: dict, title_suffix: str =
             f'<li>{html_mod.escape(it["text"])}{_src_link(it["source"])}</li>' for it in s["items"])
         secs.append(f'<div class="ksec {cls}"><div class="ksec-l">{html_mod.escape(s["label"])}</div>'
                     f'<ul>{lis}</ul></div>')
+    # .ksum：概述/一句话结论节的首句（默认收起态的摘要）
+    ksum = ""
+    for s in ov["sections"]:
+        if s["label"] in ("概述", "一句话结论") and s["items"]:
+            ksum = html_mod.escape(s["items"][0]["text"])
+            break
+    # .tagchip 行（data-t 供前端按标签筛选；prompt 约束标签不含逗号，契约才成立）
+    tags = ov.get("tags") or []
+    tagrow = "".join(
+        f'<span class="tagchip" data-t="{html_mod.escape(t, quote=True)}">{html_mod.escape(t)}</span>'
+        for t in tags)
+    tags_attr = ",".join(html_mod.escape(t, quote=True) for t in tags)
+    # 全文小写（data-search 供搜索框过滤）
     search_blob = html_mod.escape((ov["title"] + " " + topic + " " +
                                    " ".join(it["text"] for s in ov["sections"] for it in s["items"])).lower(), quote=True)
-    return (f'<article class="kcard reveal" data-domain="{domain}" data-status="{ov.get("status", "stable")}" data-search="{search_blob}">'
-            f'<div class="kcard-top"><span class="dtab {domain}">{domain}</span>'
-            f'<span class="conf {conf_cls}" title="置信度：{conf_label}">{conf_label}</span></div>'
+    head = (f'<div class="kcard-head">'
             f'<h3 class="ktitle">{html_mod.escape(ov["title"])}{html_mod.escape(title_suffix)}</h3>'
             f'<div class="kmeta">更新于 {ov["updated"]} · {ov["sources"]} 篇来源 · '
             f'{f"{fb_count} 次写回 · " if fb_count else ""}'
             f'<code>{html_mod.escape(topic)}</code> {trust}</div>'
+            f'<div class="tagrow">{tagrow}</div>'
+            f'{f"<p class=\"ksum\">{ksum}</p>" if ksum else ""}'
             f'<div class="ksi">{"".join(badges)}</div>'
-            f'<div class="kbody">{"".join(secs)}</div></article>')
+            f'</div>')
+    body = f'<div class="kcard-body">{"".join(secs)}</div>'
+    return (f'<article class="kcard reveal" data-category="{category}" '
+            f'data-tags="{tags_attr}" data-search="{search_blob}">'
+            f'{head}{body}</article>')
 
 
-def knowledge_pavilion_html(domain: str, topics: list, title_count: dict,
+def knowledge_pavilion_html(category: str, topics: list, title_count: dict,
                             fb_counts: dict) -> str:
-    """藏书楼 domain 分区（pavilion）→ cards——P3 从 l2_distill.build_knowledge_page 提取。"""
+    """藏书楼专栏分区（pavilion）→ cards——P4 分类规格 §3 契约：
+    <section class="pavilion" data-category="{key}"> 含 .pav-head（h2 专栏名 + .pav-count）+ .cards。"""
+    cat_name = config.CATEGORIES.get(category, category)
     cards = "\n".join(
-        render_knowledge_card(domain, t, ov,
+        render_knowledge_card(category, t, ov,
                               f' · {ov["sources"]}源' if title_count.get(ov["title"], 0) > 1 else "",
                               fb_count=fb_counts.get(t, 0))
         for t, ov in topics)
-    return (f'<section class="pavilion" data-domain="{domain}">'
-            f'<div class="pav-head reveal"><span class="pav-tab {domain}"></span>'
-            f'<h2>{DOMAIN_NAME[domain]}</h2>'
+    return (f'<section class="pavilion" data-category="{category}">'
+            f'<div class="pav-head reveal"><h2>{html_mod.escape(cat_name)}</h2>'
             f'<span class="pav-count">{len(topics)} 个主题</span></div>'
             f'<div class="cards">{cards}</div></section>')
+
+
+def knowledge_chips_html(topics_by_cat: dict) -> list[str]:
+    """藏书楼专栏 chips——P4 分类规格 §3 契约：
+    <span class="chip" data-c="{key|all}">{名}<span class="n">{数量}</span></span>。
+    全部 + 五专栏（含 0 计数，筛选态稳定）。"""
+    ntopics = sum(len(v) for v in topics_by_cat.values())
+    chips = [f'<span class="chip on" data-c="all">全部<span class="n">{ntopics}</span></span>']
+    for k, name in config.CATEGORIES.items():
+        n = len(topics_by_cat.get(k, []))
+        chips.append(f'<span class="chip" data-c="{k}">{html_mod.escape(name)}<span class="n">{n}</span></span>')
+    return chips

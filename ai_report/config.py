@@ -53,6 +53,26 @@ NARRATIVE_CONTRACTS = {
 
 DOMAINS = {"tech", "design", "ephemeral", "arch"}
 
+# 知识库专栏枚举（spec 2026-08-10-knowledge-taxonomy-design §1）——蒸馏时每主题必归其一（MECE），
+# key → 中文名。分类校验失败兜底 'ai'（宁可默认也不留无分类主题）。
+CATEGORIES = {
+    "ai": "AI 专栏",
+    "infra": "后端与基础设施专栏",
+    "eng": "工程效能专栏",
+    "ops": "成本与治理专栏",
+    "design": "产品与设计专栏",
+}
+
+# 各专栏收什么（spec 2026-08-10-knowledge-taxonomy-design §1）——classify/编译 prompt 注入，
+# 引导 LLM 按内容归栏，避免盲猜。key 与 CATEGORIES 严格同键。
+CATEGORY_SCOPES = {
+    "ai": "Agent、RAG、模型、记忆、提示工程、开源项目介绍",
+    "infra": "数据库、架构、分布式、图存储",
+    "eng": "开发工具、agent 工程方法、工作流",
+    "ops": "用量分析、费用治理、监控",
+    "design": "前端、设计 token、产品分析",
+}
+
 # 前端卡片 token 总纲（design.md）指向的稳定别名文档 slug（端点由 P2 实现）
 DESIGN_DOC_SLUG = "why-this-book"
 

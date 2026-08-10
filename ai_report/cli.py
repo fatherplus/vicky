@@ -189,12 +189,57 @@ def backfill(force: bool = False):
 
 
 # ============================================================
+# classify：存量知识补专栏分类 + 标签（分类规格 §2，幂等）
+# ============================================================
+def classify():
+    """遍历 knowledge/ 全部主题，LLM 补 category + tags 写回 frontmatter，不重编译正文。
+    - 幂等：frontmatter 已有 category 的主题跳过
+    - LLM 不可用则整体跳过并提示（宁可留白不误分，不猜分类）
+    - 写回只动 frontmatter（parse_frontmatter 切 meta/body，body 原样保留）"""
+    from . import l2_distill
+    if not l2_distill.LLM_ON:
+        print("! classify 跳过：LLM 不可用（未设 AIMETER_KEY）——宁可留白不误分，请部署后手动运行")
+        return
+    kdir = l2_distill.KNOWLEDGE_DIR
+    if not kdir.exists():
+        print("! knowledge/ 不存在，跳过")
+        return
+    existing = l2_distill.existing_tags()
+    done = skipped = failed = 0
+    for domain_dir in sorted(p_ for p_ in kdir.iterdir()
+                             if p_.is_dir() and not p_.name.startswith(".")):
+        for tdir in sorted(domain_dir.iterdir()):
+            ovf = tdir / "overview.md"
+            if not tdir.is_dir() or not ovf.exists():
+                continue
+            text = ovf.read_text(encoding="utf-8")
+            meta, body = l2_distill.parse_frontmatter(text)
+            if meta.get("category"):
+                skipped += 1
+                continue
+            result = l2_distill.llm_classify(tdir.name, body, existing)
+            if result is None:
+                failed += 1
+                continue  # LLM 失败，留白不误分（下轮可重试）
+            meta["category"] = result["category"]
+            if result["tags"]:
+                meta["tags"] = result["tags"]
+            ovf.write_text(l2_distill.dump_frontmatter(meta) + body, encoding="utf-8")
+            done += 1
+            tag_str = ", ".join(result["tags"]) if result["tags"] else "无标签"
+            print(f"  ✓ {domain_dir.name}/{tdir.name} → {result['category']} [{tag_str}]")
+    print(f"\nclassify 完成：{done} 篇已分类，{skipped} 篇已有 category 跳过，{failed} 篇 LLM 失败留白")
+    if existing:
+        print(f"标签池（{len(existing)} 个）：{'、'.join(existing)}")
+
+
+# ============================================================
 # 入口
 # ============================================================
 def main():
     if len(sys.argv) < 2:
         print("用法: python3 -m ai_report.cli <命令>")
-        print("命令: backfill [--force] | render | distill | judge")
+        print("命令: backfill [--force] | render | distill | classify | judge")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -242,6 +287,10 @@ def main():
         l2_distill.DRY_RUN = "--dry-run" in sys.argv
         l2_distill.CLEAN = "--clean" in sys.argv
         l2_distill.distill()
+    elif cmd == "classify":
+        # P4：存量知识补专栏分类 + 标签（分类规格 §2）
+        from . import l2_distill
+        classify()
     elif cmd == "judge":
         # P2：LLM 批量初裁 pending 反馈（无 AIMETER_KEY 优雅跳过）
         from . import l3_feedback

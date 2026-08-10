@@ -16,6 +16,7 @@ from urllib.parse import urlparse, parse_qs
 
 from . import config
 from . import l1_publish
+from . import l2_distill  # P2 分类规格 §3: /api/knowledge 列表条目读 frontmatter 补 category/tags
 from . import l3_feedback
 from . import store
 from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
@@ -137,8 +138,15 @@ class Handler(BaseHTTPRequestHandler):
                         for td in sorted(dd.iterdir()):
                             ov = td / "overview.md"
                             if ov.exists():
+                                # 分类规格 §3: 列表条目补 category / category_label / tags（parse_overview
+                                # 已做枚举校验+兜底 ai、tags 截断，与藏书楼页同一出处）
+                                text = ov.read_text(encoding="utf-8")
+                                parsed = l2_distill.parse_overview(text)
                                 pages.append({"domain": dd.name, "topic": td.name,
-                                              "content": ov.read_text(encoding="utf-8")})
+                                              "content": text,
+                                              "category": parsed["category"],
+                                              "category_label": parsed["category_label"],
+                                              "tags": parsed["tags"]})
                 self._json({"ok": True, "pages": pages})
             else:
                 # P2: 支持只给 topic（目录名是全库唯一 id）——扫各 domain 定位

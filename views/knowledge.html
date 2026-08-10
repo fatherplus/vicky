@@ -28,15 +28,12 @@
 
   <div class="toolbar reveal">
     <input id="q" class="search" type="search" placeholder="检索知识…" aria-label="检索知识">
-    <div class="chips">
-      <span class="chip on" data-d="all">全部<span class="n">__TOPICS__</span></span>
-      <span class="chip" data-d="tech">tech 阁<span class="n">__NTECH__</span></span>
-    </div>
+    <div class="chips" id="chips">__CHIPS__</div>
   </div>
 
   <main>
 __SECTIONS__
-    <div id="empty">无匹配的知识条目。</div>
+    <div id="empty">无匹配的知识条目。<span class="empty-hint">换一个专栏、标签或检索词试试。</span></div>
   </main>
 
   <footer class="colophon">
@@ -47,31 +44,81 @@ __SECTIONS__
 
 <script>
 (function(){
-  var q=document.getElementById('q'),chips=[].slice.call(document.querySelectorAll('.chip')),domain='all';
+  'use strict';
+  var q=document.getElementById('q');
+  var chips=[].slice.call(document.querySelectorAll('.chip'));
+  var cat='all', tag=null;
+
+  function tagVal(el){ return (el.dataset.t||'').trim(); }
+
+  /* 专栏 chip × 标签 × 搜索框 三者叠加过滤 */
   function apply(){
     var term=q.value.trim().toLowerCase();
-    [].forEach.call(document.querySelectorAll('.kcard'),function(c){
-      var okD=domain==='all'||c.dataset.domain===domain;
-      var okQ=!term||c.dataset.search.indexOf(term)>=0;
-      c.classList.toggle('hide',!(okD&&okQ));
+    var cards=document.querySelectorAll('.kcard');
+    [].forEach.call(cards,function(c){
+      var okC=cat==='all'||c.dataset.category===cat;
+      var okT=!tag||(c.dataset.tags||'').split(',').map(function(s){return s.trim();}).indexOf(tag)>=0;
+      var okQ=!term||(c.dataset.search||'').indexOf(term)>=0;
+      c.classList.toggle('hide',!(okC&&okT&&okQ));
     });
+    /* 空节隐藏 */
     [].forEach.call(document.querySelectorAll('.pavilion'),function(p){
       var any=[].some.call(p.querySelectorAll('.kcard'),function(c){return !c.classList.contains('hide');});
       p.classList.toggle('hide',!any);
     });
-    document.getElementById('empty').classList.toggle('show',!document.querySelector('.pavilion:not(.hide)'));
+    /* 无结果空态 */
+    var anyTotal=[].some.call(cards,function(c){return !c.classList.contains('hide');});
+    document.getElementById('empty').classList.toggle('show',!anyTotal);
   }
+
+  /* 卡片点击展开/收起（tagchip/链接不触发）*/
+  [].forEach.call(document.querySelectorAll('.kcard'),function(card){
+    var head=card.querySelector('.kcard-head');
+    if(!head)return;
+    head.setAttribute('aria-expanded','false');
+    head.addEventListener('click',function(e){
+      if(e.target.closest('.tagchip,a,button'))return;
+      card.classList.toggle('open');
+      head.setAttribute('aria-expanded',card.classList.contains('open')?'true':'false');
+    });
+  });
+
+  /* 标签筛选：再次点击取消；同标签在所有卡片上同步激活态 */
+  [].forEach.call(document.querySelectorAll('.tagchip'),function(t){
+    t.addEventListener('click',function(e){
+      e.stopPropagation();
+      var v=tagVal(t);
+      tag=tag===v?null:v;
+      [].forEach.call(document.querySelectorAll('.tagchip'),function(x){
+        x.classList.toggle('on',tag!==null&&tagVal(x)===tag);
+      });
+      apply();
+    });
+  });
+
+  /* 专栏 chips */
   chips.forEach(function(c){c.addEventListener('click',function(){
-    chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');domain=c.dataset.d;apply();});});
+    chips.forEach(function(x){x.classList.remove('on');});
+    c.classList.add('on');
+    cat=c.dataset.c;
+    apply();
+  });});
+
+  /* 检索 */
   q.addEventListener('input',apply);
+
+  /* 滚动渐显 */
   var io=new IntersectionObserver(function(es){es.forEach(function(e){
     if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.06});
   [].forEach.call(document.querySelectorAll('.reveal'),function(el){io.observe(el);});
+
+  /* 计数动画 */
   [].forEach.call(document.querySelectorAll('[data-count]'),function(el){
     var target=+el.dataset.count,t0=null,dur=900;
     function tick(t){if(t0===null)t0=t;var p=Math.min(1,(t-t0)/dur);
       el.textContent=Math.round(target*(1-Math.pow(1-p,3)));if(p<1)requestAnimationFrame(tick);}
-    requestAnimationFrame(tick);});
+    requestAnimationFrame(tick);
+  });
 })();
 </script>
 </body>
