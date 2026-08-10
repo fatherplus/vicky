@@ -295,49 +295,12 @@ def build_index(reports: list[dict]) -> str:
 # 核心操作
 # ============================================================
 def list_reports() -> list[dict]:
-    """从 reports 表查全部报告，按日期倒序（P1：正则刮 HTML 退休）。
-    DB 为空时回退扫描 public/reports/（backfill 运行前的过渡期兼容）。"""
-    # ── 主路径：DB 查（P1 起的数据源）──
+    """从 reports 表查全部报告，按日期倒序（P1：12 个正则刮 HTML 退休）。"""
+    conn = store.get_db()
     try:
-        conn = store.get_db()
-        rows = store.list_reports_from_db(conn)
+        return store.list_reports_from_db(conn)
+    finally:
         conn.close()
-        if rows:
-            return rows
-    except Exception:
-        pass  # DB 不可用时回退文件扫描
-
-    # ── 回退路径：文件扫描（backfill 前的过渡兼容，P2 移除）──
-    result = []
-    if not REPORTS_DIR.exists():
-        return result
-    for f in sorted(REPORTS_DIR.glob("*.html"), reverse=True):
-        name = f.name
-        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", name)
-        date = date_match.group(1) if date_match else "0000-00-00"
-        date_display = date[5:]
-        content = f.read_text(encoding="utf-8")
-        title_match = re.search(r"<title>(.+?)</title>", content)
-        title = title_match.group(1) if title_match else name
-        tag_match = re.search(r'<div class="kicker">([^<]*)</div>', content)
-        tag = tag_match.group(1).strip() if tag_match else ""
-        sub_match = re.search(r'<p class="subtitle">([^<]*)</p>', content)
-        subtitle = sub_match.group(1).strip() if sub_match else ""
-        updated_match = re.search(r'<meta name="updated" content="([^"]*)"', content)
-        updated = updated_match.group(1) if updated_match else ""
-        series_match = re.search(r'<meta name="series" content="([^"]*)"', content)
-        order_match = re.search(r'<meta name="series-order" content="(\d+)"', content)
-        total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
-        tpl_match = re.search(r'<meta name="template" content="([^"]*)"', content)
-        domain_match = re.search(r'<meta name="domain" content="([^"]*)"', content)
-        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle,
-                       "date": date, "date_display": date_display, "updated": updated,
-                       "series": html_mod.unescape(series_match.group(1)) if series_match else "",
-                       "series_order": int(order_match.group(1)) if order_match else 0,
-                       "series_total": int(total_match.group(1)) if total_match else 0,
-                       "template": tpl_match.group(1) if tpl_match else "book",
-                       "domain": domain_match.group(1) if domain_match else "tech"})
-    return result
 
 
 # ============================================================

@@ -106,9 +106,18 @@ def backfill(force: bool = False):
             date_str, slug = m.group(1), m.group(2)
 
             # 幂等检查
-            if not force and store.slug_has_submissions(conn, slug):
-                skipped += 1
-                continue
+            if store.slug_has_submissions(conn, slug):
+                if not force:
+                    skipped += 1
+                    continue
+                # --force：先删旧数据再重入（保持 rev=0001）
+                conn.execute("DELETE FROM reports WHERE slug=?", (slug,))
+                conn.execute("DELETE FROM submissions WHERE slug=?", (slug,))
+                # 也删 L0 快照目录
+                old_dir = _config.DATA_DIR / "l0" / slug
+                if old_dir.exists():
+                    import shutil
+                    shutil.rmtree(old_dir)
 
             try:
                 html = f.read_text(encoding="utf-8")
