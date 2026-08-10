@@ -10,14 +10,19 @@ REPO_DIR = Path(__file__).resolve().parent.parent
 
 
 def _pick_sample_report() -> Path:
-    """选一篇真实报告用于往返验证。"""
+    """选一篇报告用于往返验证；仓库无真实报告时用内置 fixture。"""
     reports = sorted((REPO_DIR / "public" / "reports").glob("*.html"))
-    # 优先选 why-this-book（元数据最全：有 kicker / subtitle / domain 信息）
-    for name in ("why-this-book", "agent-knowledge-sources", "ponytail"):
-        for r in reports:
-            if name in r.name:
-                return r
-    return reports[0]
+    if reports:
+        # 优先选 why-this-book（元数据最全：有 kicker / subtitle / domain 信息）
+        for name in ("why-this-book", "agent-knowledge-sources", "ponytail"):
+            for r in reports:
+                if name in r.name:
+                    return r
+        return reports[0]
+    # 开源仓库不带示例报告——用内置 fixture（book 模板全元数据形态）
+    fixture = REPO_DIR / "tests" / "fixtures" / "2026-08-10-sample-report.html"
+    assert fixture.exists(), f"缺少 fixture: {fixture}"
+    return fixture
 
 
 def test_backfill_extract_main_content():
