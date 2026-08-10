@@ -6,7 +6,9 @@
 # 注意：ssh 非交互执行 sudo 需要 hgf 已配置 NOPASSWD（原脚本在本机交互 sudo 的前提一致）。
 set -e
 
-HOST="deploy-host"
+# 目标主机可传参覆盖：默认 deploy-host（LAN 192.168.1.100）；
+# LAN 不通时走 VPN：bash scripts/deploy.sh deploy@10.0.0.8
+HOST="${1:-deploy-host}"
 DST="/home/deploy/ai-report"
 
 echo "Deploying to $HOST:$DST ..."
