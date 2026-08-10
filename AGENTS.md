@@ -10,57 +10,112 @@
 ## 架构
 
 ```
-agent 写 HTML 内容 → POST /api/reports → server 按名套模板（templates/） → 写入 public/reports/
-                                          ↑                                    ↓
-                                    视觉 taste 在这一步强制注入      Nginx alias 直读 public/ → 用户
+agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/l0/）
+                                              ↓
+                                     L1 门禁 → 模板渲染 → public/reports/（HTML+MD 孪生）
+                                              ↓
+                                     L2 蒸馏 → knowledge/ Wiki（LLM 编译）
+                                              ↓
+                                     L3 反馈回灌 → 使用账本 + 仲裁 → 采纳进 L2
 ```
 
-**职责分离**：server.py 只做 API（127.0.0.1:9091），Nginx 只做静态文件（alias 直读 `public/`）+ 反代 `/api/`。不再双写。
+**L0-L3 四层数据管线**（每层产物可由下层再生）：
+
+| 层 | 职责 | 存储 |
+|----|------|------|
+| L0 原始数据层 | 提交快照（不可变档案） | `data/l0/{slug}/{rev}/submission.json` + sqlite submissions 表 |
+| L1 表述层 | 门禁→模板→HTML+MD 孪生报告 + 索引页 | `public/reports/` + sqlite reports 表 |
+| L2 知识层 | knowledge Wiki（LLM 编译，输入 .md + adopted 反馈） | `knowledge/{domain}/{topic}/overview.md` |
+| L3 回写层 | 使用账本 + 仲裁 → 采纳反馈回灌 L2 | sqlite feedbacks 表 |
+
+**职责分离**：app（`ai_report/web.py`）自伺服全部 `/research/*` 静态文件 + `/api/*` 业务端点；Nginx 退化为可选纯反向代理。
 
 ## 文件地图
 
-| 文件 | 角色 | 改它之前注意 |
-|------|------|-------------|
-| `server.py` | HTTP API 服务（报告提交/列表/指南/模板） | 纯 stdlib，无依赖 |
-| `templates/` | 注册制模板：book（默认）/ brief；各含 template.html + manifest.json | 模板拥有结构不拥有视觉（视觉 token 在 `public/assets/book-style.css`） |
-| `skill/AGENT-GUIDE.md` | 面向外部 agent 的写作指南（`/api/guide` 返回它） | 这是 agent 的唯一入口文档 |
-| `skill/SKILL.md` | 内部 skill（pi 用），含部署流程和完整方法论 | 比 AGENT-GUIDE 更详细 |
-| `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） | 设计规范源头 |
-| `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」（形态/语义/自由区） | 改组件时同步这里 |
-| `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量，模板创建的依据 | `GET /api/principles` 返回它；manifest 契约条目取自其 §3 |
-| `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html`） | 只增不改 |
-| `public/assets/` | 共享资产（book-style.css / index.css / components/mermaid/） | book-style.css 是唯一 CSS 来源 |
-| `scripts/nginx-research.conf` | 个人环境 Nginx 配置（alias + /api/ 反代） | deploy.sh 安装 |
-| `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（9092 server block） | deploy-xlab.sh 安装 |
-| `tests/` | stdlib unittest | 改门禁/资产时同步 |
-| `public/index.html` | 索引页（server 自动生成，不要手改） | `build_index()` 生成 |
-| `convert_to_book.py` | 存量迁移：旧格式报告 → 书风格 | 一次性脚本 |
-| `html_to_md.py` | 平台转换器：报告 HTML → 紧凑 MD（提交时生成 .md 李生） | 纯 stdlib，封闭组件集确定性映射 |
-| `distill.py` | 知识蒸馏器：报告 → knowledge/ Wiki（KSI 进化） | 独立脚本，不 import server |
-| `scripts/backfill_md.py` | 存量报告补生成 .md（`--force` 重生成） | 一次性/可重复 |
-| `taste-skill/` | 上游参考（clone 自 GitHub），不直接使用 | 只读参考 |
+### 后端包 `ai_report/`
+
+| 文件 | 角色 | 层 |
+|------|------|----|
+| `ai_report/config.py` | 路径、常量、端口、DOMAINS | — |
+| `ai_report/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
+| `ai_report/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
+| `ai_report/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 丛书 | L1 |
+| `ai_report/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
+| `ai_report/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
+| `ai_report/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
+| `ai_report/web.py` | 薄路由层：每端点小函数 + 静态自伺服（`/research/*`） | — |
+| `ai_report/cli.py` | backfill / render / distill / judge 命令入口 | — |
+
+依赖方向严格单向：`web → l3 → l2 → l1 → l0 → store`，禁止反向。L2 编译时直查 feedbacks 表取 adopted 条目（不 import l3_feedback），防环依赖。
+
+### 旧入口（shim，指向包）
+
+| 文件 | 角色 |
+|------|------|
+| `server.py` | shim → `ai_report.web` |
+| `html_to_md.py` | shim → `ai_report.html_to_md` |
+| `distill.py` | shim → `ai_report.l2_distill` |
+
+### 前端
+
+| 路径 | 角色 |
+|------|------|
+| `public/reports/` | 所有已发布报告（`YYYY-MM-DD-slug.html` + `.md` 孪生），只增不改 |
+| `public/assets/` | 设计系统：`book-style.css`（唯一 CSS 来源）、`index.css`、`knowledge.css`、`components/`（mermaid 等按需 JS） |
+| `public/index.html` | 索引页（server 自动生成，不要手改） |
+| `templates/{book,brief}/` | 注册制报告模板（template.html + manifest.json） |
+| `views/` | 平台整页模板（`index.html`、`knowledge.html`），纯 HTML + `__占位符__` |
+
+### 数据
+
+| 路径 | 角色 |
+|------|------|
+| `data/ai-report.db` | sqlite 数据库（submissions / reports / feedbacks 三表），WAL 模式 |
+| `data/l0/{slug}/{rev:04d}/` | 不可变快照档案（submission.json + img/） |
+| `knowledge/{tech,design}/{topic}/` | 蒸馏产出的知识 Wiki（overview.md） |
+
+### 规范与部署
+
+| 文件 | 角色 |
+|------|------|
+| `skill/AGENT-GUIDE.md` | 面向外部 agent 的写作指南（`/api/guide` 返回） |
+| `skill/SKILL.md` | 内部 skill（pi 用），含部署流程和完整方法论 |
+| `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） |
+| `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」 |
+| `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量（`GET /api/principles`） |
+| `scripts/nginx-research.conf` | 个人环境 Nginx 配置（纯反代） |
+| `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（纯反代） |
+| `scripts/deploy.sh` | 个人环境部署（rsync 同步 + Nginx 重载） |
+| `scripts/deploy-xlab.sh` | xlab-test 部署 |
+| `scripts/backfill_md.py` | 存量报告补生成 .md（`--force` 重生成） |
+| `tests/` | stdlib unittest |
+| `convert_to_book.py` | 一次性脚本：旧格式报告 → 书风格 |
 
 ## API
 
 ```
-POST /api/reports    创建/修订报告（同 slug upsert）  body: {title, slug, tag, subtitle?, series?, order?, template?, domain?, images?, content}
-POST /api/validate   预检（violations/warnings/components，不落盘）
-POST /api/templates  创建模板（创建即收录 provisional；门禁：占位符/token/契约）
-GET  /api/reports    列出所有报告
-GET  /api/knowledge  知识库（?domain=&topic= 查单页；不带参列全部）
-GET  /api/guide      写作指南（markdown）
-GET  /api/skill      下载写作指南（.md 附件）
-GET  /api/template   查看 HTML 模板（?name=，默认 book）
-GET  /api/templates  模板目录
-GET  /api/principles 叙事宪法（markdown）
-GET  /api/health     健康检查
+POST /api/reports                    创建/修订报告（同 slug upsert）
+POST /api/validate                   预检（violations/warnings/components，不落盘）
+POST /api/templates                  创建模板（provisional；门禁：占位符/token/契约）
+POST /api/knowledge/feedback         新：L3 写回（evidence 必填，topic 必须已存在）   body: {topic, domain, agent, evidence, opinion, cited?}
+POST /api/knowledge/feedback/{id}/judge  新：人工裁决                                body: {verdict: "adopt"|"reject", note?}
+GET  /api/reports                    列出所有报告
+GET  /api/knowledge                  知识库（?domain=&topic= 查单页；不带参列全部；含 feedback_count/feedback_last_used）
+GET  /api/knowledge/feedback         新：账本可查（?topic=&status=）
+GET  /api/guide                      写作指南（markdown）
+GET  /api/skill                      下载写作指南（.md 附件）
+GET  /api/template                   查看 HTML 模板（?name=，默认 book）
+GET  /api/templates                  模板目录
+GET  /api/principles                 叙事宪法（markdown）
+GET  /api/health                     健康检查
+GET  /research/*                     静态自伺服（reports / assets / knowledge / index）
 ```
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
 
-**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`，决定蒸馏路由——`ephemeral` 不进知识库。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。蒸馏：`python3 distill.py`。
+**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`，决定蒸馏路由——`ephemeral` 不进知识库。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
 
-默认端口 9091。启动：`python3 server.py [port]（位置参数，默认 9091）`
+**L3 仲裁流**：反馈是带证据的陈述，不是分数；采纳是裁决，不是算术。状态机 pending → adopted | rejected，可翻案。裁决权始终可人工接管（judged_by 记 `human:{ip}`）。采纳后 feedback 作为 type=feedback 来源与报告平级进 L2 编译。证据为空直接拒收。
 
 ## Taste 约束分层
 
@@ -80,7 +135,6 @@ GET  /api/health     健康检查
 - `cmp-table` 无 `cmp-verdict`——对比必须有结论
 - 弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`）——模板已删除其样式
 - 丛书卷号重复——同 `series` 同 `order` 已被其他文件占用（upsert 本卷除外）
-- 模板对漏网裸表格有兜底样式（按 data-table 渲染），但门禁才是主防线
 
 **提醒约束（server 校验，随响应返回 warnings，不拒收）**：
 - figure 缺 fig-cap / fig-note
@@ -112,33 +166,51 @@ GET  /api/health     健康检查
 ## 开发
 
 ```bash
-# 启动服务
-python3 server.py
+# 启动服务（自伺服静态文件 + API）
+python3 -m ai_report.web [port]          # 默认 9091，位置参数
 
-# 测试提交
-curl -X POST http://localhost:9091/api/reports \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"测试","slug":"test","tag":"测试","content":"<section class=\"reveal\"><div class=\"wrap\"><p>hello</p></div></section>"}'
+# CLI 离线操作
+python3 -m ai_report.cli backfill [--force]    # 存量报告 → L0 快照（一次性）
+python3 -m ai_report.cli render --all          # L0 → L1 全量重渲染
+python3 -m ai_report.cli render --slug <slug>  # 单篇重渲染
+python3 -m ai_report.cli distill [--clean] [--dry-run]  # L2 蒸馏
+python3 -m ai_report.cli judge                  # LLM 批量初裁 pending 反馈
 
-# 部署：Nginx alias 直读 public/，不再 cp 报告
-# GitLab Pages 自动发布 public/ 目录
+# 测试
+python3 -m pytest tests/ -q
+
+# 冒烟
+curl http://localhost:9091/api/health
 ```
 
 ## 部署
 
+### 本地开发
+
+- `python3 -m ai_report.web` 启动，自伺服全部内容
+- 直连 `http://localhost:9091/research/` 即可浏览
+- Nginx 不需要——app 内置静态文件伺服
+
 ### 个人环境（192.168.1.100）
 
-- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091（仅本地）
-- 内部访问：`http://192.168.1.100:9090/research/`（Nginx alias 直读 `public/`）
+- systemd 服务 `ai-report.service`，`ExecStart=python3 -m ai_report.web`，绑定 127.0.0.1:9091
+- Nginx 纯反向代理：`/research/` 与 `/api/` 全部 `proxy_pass http://127.0.0.1:9091`
+- 内部访问：`http://192.168.1.100:9090/research/`（Nginx → app）
 - 外部访问：`https://fatherplus.github.io/vicky/`（GitLab Pages）
 - 仓库：`https://github.com/fatherplus/vicky`
-- 部署脚本：`scripts/deploy.sh`（安装 Nginx 配置）
+- 部署脚本：`scripts/deploy.sh`（rsync 同步代码 + Nginx 重载；排除 `data/` 保留远端快照）
 
 ### 公用测试环境（xlab-test / 192.168.1.200）
 
-- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091（仅本地）
-- 内网访问：`http://192.168.1.200:9092/research/`（Nginx alias 直读 `public/`）
+- systemd 服务 `ai-report.service`，绑定 127.0.0.1:9091
+- Nginx 纯反向代理：端口 9092 → `proxy_pass http://127.0.0.1:9091`
+- 内网访问：`http://192.168.1.200:9092/research/`
 - 外网访问：`http://47.97.51.69:9092/research/`
 - 路径：`/opt/ai-report`
-- 部署脚本：`scripts/deploy-xlab.sh`（同步代码 + Nginx 配置，保留远端报告数据）
+- 部署脚本：`scripts/deploy-xlab.sh`（同步代码 + Nginx 配置，排除 `data/` 保留远端数据）
 - 用途：公用实例，供团队 agent 提交报告；数据独立，不与个人环境混用
+
+### GitLab Pages
+
+- `public/` 目录自动发布为静态站点
+- 不受 server 部署影响——Pages 与 app 独立

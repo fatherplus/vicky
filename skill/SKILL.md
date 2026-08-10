@@ -96,7 +96,7 @@ Avoid duplicating work:
 Read the canonical template:
 ```bash
 # Template is in the ai-report repo
-read_file /home/deploy/ai-report/templates/book/template.html
+read_file templates/book/template.html
 ```
 
 The template uses `{{PLACEHOLDER}}` markers:
@@ -136,38 +136,17 @@ The template uses `{{PLACEHOLDER}}` markers:
 
 ### 5. Deploy
 
-**Step A — Local Nginx** (for internal preview):
+> **平台自动完成渲染与索引**：agent 只需 `POST /api/reports` 提交内容；server 自动写入 `public/reports/`、生成 .md 孪生、重建 `public/index.html`。部署是运维动作，agent 通常不需要手动执行。
+
+**Step A — 部署到内部环境**（运维用，非 agent 必需）:
 ```bash
-bash scripts/deploy.sh
+bash scripts/deploy.sh       # 个人环境 (192.168.1.100)
+bash scripts/deploy-xlab.sh  # xlab-test 公用环境
 ```
 
-`deploy.sh` 做三件事：
-- **报告直传 `reports/`**：`public/reports/*.html` → `$DST/reports/`，不再平铺复制。平铺旧链接由 `scripts/nginx-research.conf` 的 301 规则收敛到 canonical `reports/{file}`。
-- **资产每次同步**：`public/assets/`（book-style.css / index.css / components/mermaid）整体同步到 `$DST/assets/`。
-- **索引**：`public/index.html`（server `build_index()` 生成）同步到 `$DST/index.html`。
+部署脚本通过 rsync 同步代码到远端，排除 `data/`（保留远端快照与 DB）。远端 systemd 服务以 `python3 -m ai_report.web` 启动，Nginx 纯反向代理到 app 端口。
 
-> **模板随仓库发布**：`templates/` 不经 deploy.sh 同步——server 从仓库目录按名解析（`TEMPLATES_DIR`），仓库部署到服务器后模板即生效；新模板经 `POST /api/templates` 注册。
-
-> **首次部署**：需将 `scripts/nginx-research.conf` include 进站点 conf（deploy.sh 会尝试复制一份到上级目录供运维接入；目录不可写时按提示人工安装）。
-
-**Step B — Update Index Page**:
-```bash
-# Rebuild index from public/reports/
-ls -1t /home/deploy/ai-report/public/reports/*.html | while read f; do
-  name=$(basename "$f")
-  title=$(grep -oP '<title>\K[^<]+' "$f" 2>/dev/null | head -1)
-  [ -z "$title" ] && title="$name"
-  date=$(echo "$name" | grep -oP '^\d{4}-\d{2}-\d{2}')
-  echo "$date|$name|$title"
-done | sort -r -t'|' -k1
-```
-
-Then write the index to `public/index.html` and sync to Nginx:
-```bash
-sudo cp /home/deploy/ai-report/public/index.html /var/www/vicky/research/index.html
-```
-
-**Step C — Git commit and push** (triggers GitLab Pages):
+**Step B — Git commit and push** (triggers GitLab Pages):
 ```bash
 cd /home/deploy/ai-report
 git add public/
