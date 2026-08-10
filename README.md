@@ -18,37 +18,38 @@ vicky/
 │   └── brief/                ← 结论先行的决策简报
 ├── skill/
 │   └── SKILL.md              ← Hermes Agent 技能文件（报告生成工作流）
-├── public/                   ← GitLab Pages 根目录
-│   ├── index.html            ← 报告索引页（卷首 → 丛书函 → tag 函）
-│   ├── assets/               ← 共享资产（book-style.css 唯一 CSS 来源 / components/mermaid 按需注入）
-│   └── reports/              ← 所有报告（canonical：YYYY-MM-DD-slug.html）
+├── public/                   ← 静态自伺服根目录（首页/索引/报告均为运行时生成，不入库）
+│   └── assets/               ← 共享资产（book-style.css 唯一 CSS 来源 / components/mermaid 按需注入）
 ├── scripts/
-│   └── deploy.sh             ← 一键部署到本地 Nginx
-├── .gitlab-ci.yml            ← GitLab Pages 自动发布
+│   └── deploy.sh             ← 一键部署（systemd + Nginx）
+├── tests/                    ← stdlib unittest
 └── README.md
 ```
 
 ## 使用方式
 
-### 生成新报告
-
-1. 从 `templates/book/template.html` 复制模板
-2. 替换 `{{PLACEHOLDER}}` 标记
-3. 保存到 `public/reports/YYYY-MM-DD-slug.html`
-4. 更新 `public/index.html`（添加新条目）
-5. 提交并推送 → GitLab Pages 自动发布
-
-### 本地预览
+### 生成新报告（API 驱动）
 
 ```bash
-cd public && python3 -m http.server 8080
-# 访问 http://localhost:8080
+curl -X POST http://localhost:9091/api/reports \
+  -H 'Content-Type: application/json' \
+  -d '{"title": "...", "slug": "...", "tag": "tech", "content": "<section>...</section>"}'
 ```
 
-### 部署到内部 Nginx
+报告经 L0 快照 → L1 门禁校验 → 模板渲染 → HTML+MD 孪生发布，索引页与首页自动重建。
+
+先读 `GET /api/guide`（写作规范）再用 `POST /api/validate` 预检，避免 400 拒收。
+
+### 本地预览
+```bash
+python3 -m vicky.web        # 默认 127.0.0.1:9091
+# 访问 http://localhost:9091
+```
+
+### 部署
 
 ```bash
-bash scripts/deploy.sh
+bash scripts/deploy.sh      # systemd + Nginx（见 AGENTS.md 部署章节）
 ```
 
 ## API
@@ -69,10 +70,9 @@ GET  /api/principles 叙事宪法（markdown）
 - **模板**：注册制（`templates/`），`POST /api/reports` 以 `template` 参数按名选择（默认 book）。模板拥有结构不拥有视觉——调色板/字体由平台 `book-style.css` 拥有，叙事不变量由 `skill/NARRATIVE-PRINCIPLES.md` 约束。
 - 默认端口 9091：`python3 -m vicky.web`。
 
-## 在线访问
+## 报告列表
 
-- **GitLab Pages**：https://fatherplus.github.io/vicky/
-- **内部 Nginx**：http://192.168.1.100:9090/research/
+报告由平台运行时生成（`public/reports/` 不入库）。
 
 ## 报告列表
 

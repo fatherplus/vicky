@@ -100,6 +100,10 @@
         <div class="astep"><span class="anum">叁</span><div><b>CSS 资源包</b><code>GET /api/design.css</code><span class="fm-desc">下载 book-style.css 离线套用书风</span></div></div>
         <div class="astep"><span class="anum">肆</span><div><b>模板目录</b><code>GET /api/templates</code><span class="fm-desc">已注册报告模板清单与契约</span></div></div>
       </div>
+      <div class="abtns">
+        <button class="abtn primary" onclick="copyPrompt()">复制提示词</button>
+        <a class="abtn ghost" id="skillLink" href="/api/skill" download="vicky-skill.md">下载 Skill</a>
+      </div>
     </div>
   </div>
 
@@ -115,6 +119,35 @@ function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scroll
 addEventListener('scroll',setRibbon,{passive:true});setRibbon();
 var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
 document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
+/* Agent 接入：复制提示词 */
+var API=location.origin;
+document.getElementById('skillLink').href=API+'/api/skill';
+function copyText(s){
+  if(navigator.clipboard&&navigator.clipboard.writeText)return navigator.clipboard.writeText(s);
+  return new Promise(function(res,rej){
+    var ta=document.createElement('textarea');ta.value=s;
+    ta.style.cssText='position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(ta);ta.focus();ta.select();
+    var ok=false;try{ok=document.execCommand('copy');}catch(e){}
+    ta.remove();ok?res():rej(new Error('copy failed'));
+  });
+}
+function toast(msg){
+  var t=document.createElement('div');t.className='atoast show';t.textContent=msg;document.body.appendChild(t);
+  setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
+}
+function copyPrompt(){
+  var p=`当你需要写技术研究报告时，使用 Vicky 平台。
+1. 读写作规范：GET ${API}/api/guide
+2. 看设计 Token 总纲：GET ${API}/api/design
+3. 下载 CSS 资源包：GET ${API}/api/design.css
+4. 查看模板目录：GET ${API}/api/templates
+5. 按规范写内容，提交：POST ${API}/api/reports
+   Body: {"title":"标题", "slug":"slug", "tag":"标签", "domain":"tech", "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
+6. 查看已发布报告：GET ${API}/api/reports`;
+  copyText(p).then(function(){toast('已复制到剪贴板');})
+    .catch(function(){toast('复制失败，请手动选择文本');});
+}
 </script>
 </body>
 </html>

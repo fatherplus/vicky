@@ -9,8 +9,20 @@ ai-report/
 .DS_Store
 .codegraph/
 .pytest_cache/
-knowledge/  # 蒸馏生成，python3 distill.py 重建
-# html_to_md 生成（提交时自动 + scripts/backfill_md.py），构建产物
-public/reports/*.md
+
+# 运行时生成产物（server 启动自动重建）
+knowledge/
+public/reports/
+public/knowledge/
+public/home.html
+public/index.html
+public/design.html
+public/prototype/
+
+# 历史内容与一次性脚本（本地保留，不入库）
+docs/
+convert_gamekb.py
+convert_to_book.py
+
 # P1 L0+store：sqlite DB + 不可变快照档案（data/l0/{slug}/{rev}/）
 data/
