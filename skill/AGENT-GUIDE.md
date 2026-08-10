@@ -14,7 +14,9 @@ curl -X POST http://<HOST>:9091/api/reports \
   -d '{
     "title": "报告标题",
     "slug": "url-slug-english",
+    "domain": "tech",
     "tag": "分类标签",
+    "template": "book",
     "subtitle": "一行副标题（可选）",
     "series": "丛书显示名（可选，与 order 同生共死）",
     "order": 1,
@@ -23,6 +25,17 @@ curl -X POST http://<HOST>:9091/api/reports \
 ```
 
 返回：`{"ok": true, "file": "...", "created": true, "components": ["mermaid"], "warnings": [...], "url": ".../research/reports/..."}`
+
+> **domain 路由**：`domain` 决定内容类型与蒸馏去向，可选值：
+>
+> | domain | 内容类型 | 模板 | 蒸馏 |
+> |--------|----------|------|------|
+> | `tech`（默认，可不填） | 技术文章 | `book`（默认） | ✅ 进知识库 |
+> | `ephemeral` | 临时报告（给人/领导看） | `book` / `brief` | ❌ 跳过 |
+> | `design` | 前端卡片（一产品一卡） | `card` | ❌ 不进蒸馏（token 人工维护） |
+> | `arch` | 项目架构多页站 | `arch-overview` / `arch-node` | ❌ 跳过 |
+>
+> 蒸馏只处理 `tech`——`ephemeral` / `design` / `arch` 不入知识库。四类内容各自的提交约定见下方「四类工作流」。
 
 > **修订即重交**：同 `slug` 再次 POST 会覆盖原文件（保留原日期，索引显示「订」徽章），不产生新报告。
 > **丛书**：同时给 `series` + `order`（≥1 整数，同丛书内唯一）即成为丛书的一卷；索引按丛书聚函，报告页自动生成上下卷导航。
@@ -62,6 +75,87 @@ curl -X POST http://<HOST>:9091/api/reports \
 | 决策简报 / 选型建议 / 电梯摘要 | `brief` | 结论 → 依据 → 风险 → 行动 | PREP |
 | 问题报告 / 资源申请 | `brief`（短）/ `book`（长） | SCQA：现状 → 冲突 → 方案 | GRAO |
 | 重大复盘 / 跨部门评审 | `book` | 背景 → 原因 → 做法 → 验证 → 讨论 → 结论 | STAR + GRAO |
+
+---
+
+## 四类工作流（domain 路由）
+
+平台收四类内容，由 `domain` 路由、模板承载形态。**平台不管来源**——AI 调研、人工撰写、Agent 代交都行，过了门禁照单发布归档。
+
+### 技术文章（domain=tech · 默认）
+
+AI 调研自媒体/开源资料后，把成品按本指南规范直接提交。平台只负责渲染、发布、归档，不问内容从哪来。
+- `domain` 不填即为 `tech`，模板默认 `book`
+- 进知识库（L2 蒸馏），成为后续调研的素材
+
+### 临时报告（domain=ephemeral）
+
+给人/领导看的汇报、周报、评审材料——**不进知识库、不污染检索**。
+- `domain: "ephemeral"`，模板 `book` 或 `brief`
+- 对外共享机制本期不做，按现有方式发链接即可
+
+### 前端卡片（domain=design）
+
+**一产品一卡**：产品主页大图 + 风格说明，供设计参考。卡片是素材，**不蒸馏**——设计 token 总纲由人工维护（见「其他 API」`GET /api/design`）。
+- `slug: "card-{product}"`（如 `card-why-this-book`），`template: "card"`，`domain: "design"`
+- `tag` = 主题（如「侧边导航」），同主题产品互相参照
+- 截图走 `images` 字段（见下）
+
+#### 截图规范
+
+卡片（及任何带截图的报告）统一按此抓图：
+
+- **视口 1440×900**，PNG 格式
+- 默认抓**产品主页**；可补 2–3 张关键页（列表 / 详情 / 设置等），一页一图
+- 经 `images: [{"name": "home.png", "b64": "<base64>"}]` 字段随提交上传（单张 ≤10MB，允许 png/jpg/jpeg/webp/svg），落盘 `public/assets/img/{slug}/`
+- 正文里以 `/research/assets/img/{slug}/{name}` 引用（如 `<figure>` 里 `<img src="/research/assets/img/card-xxx/home.png">`），HTML 里不内嵌 base64
+
+### 项目架构多页（domain=arch）
+
+一个项目 = 一个丛书的多页站：总览卷 + 每模块一卷。每卷一份 MD 孪生，**总览 md 就是地图**——AI 先读地图，再按需钻节点卷。
+
+丛书约定（复用 `series` + `order` 机制）：
+
+```
+{project}-arch-overview    series="{project}-arch"    order=1
+{project}-arch-{module}    series="{project}-arch"    order=2..n
+```
+
+总览卷（模板 `arch-overview`）内容顺序：**定位段 → 全局 mermaid 流程图 → 模块索引 `data-table`**（模块 / 一句话职责 / 链接）。
+
+#### 节点卷三段硬契约（门禁 400）
+
+节点卷（模板 `arch-node`）正文必须依序出现三个 h2，**缺段会被 `POST /api/reports` 拒收（400）**：
+
+1. **输入与输出** —— 模块的边界契约：吃什么、吐什么
+2. **内部工作流** —— 模块内部怎么流转
+3. **架构方案** —— 每个技术决策必答三问：解决什么？为什么是它？不这么做呢？
+
+```html
+<section class="reveal"><div class="wrap">
+  <p class="section-label">01 · 输入与输出</p>
+  <h2>输入与输出</h2>
+  <p>……</p>
+  <!-- 02 内部工作流 → 03 架构方案，依此类推 -->
+</div></section>
+```
+
+#### 总览卷 mermaid click
+
+全局流程图用 mermaid `click` 语法把节点链到各节点卷文件（链接用 canonical 相对路径 `reports/{file}`）：
+
+```html
+<figure class="figure">
+  <pre class="mermaid">
+flowchart LR
+  A[网关] --> B[认证模块] --> C[订单模块]
+  click B "reports/{project}-arch-auth.html" "认证模块"
+  click C "reports/{project}-arch-order.html" "订单模块"
+  </pre>
+  <figcaption class="fig-cap">图 1 · {project} 模块全景</figcaption>
+  <p class="fig-note">点节点直接跳到对应节点卷；总览 md 即地图，AI 先读地图再钻节点。</p>
+</figure>
+```
 
 ---
 
@@ -195,6 +289,8 @@ flowchart LR
 | `GET /api/guide` | 本指南（text/markdown） |
 | `GET /api/skill` | 下载本指南（.md 文件） |
 | `GET /api/template` | 查看完整 HTML 模板（了解页面框架） |
+| `GET /api/design` | 设计 token 总纲（design.md，text/markdown；稳定别名，屏蔽文件名日期） |
+| `GET /api/design.css` | 设计 CSS 资源包（下载 `book-style.css`，单文件） |
 | `GET /api/reports` | 列出所有已发布报告 |
 | `GET /api/health` | 健康检查 |
 

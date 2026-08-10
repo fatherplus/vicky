@@ -1,0 +1,11 @@
+{
+  "name": "arch-node",
+  "purpose": "架构节点卷：输入与输出 / 内部工作流 / 架构方案三段硬契约，一模块一卷的深读（series=\"{project}-arch\" order=2..n）",
+  "document_types": ["架构节点说明"],
+  "narrative_contract": ["type-determines-narrative", "why-first", "conclusion-first",
+                          "three-questions", "evidence-for-claims", "figure-caption",
+                          "mece-structure"],
+  "default": false,
+  "provisional": false,
+  "rationale": "节点卷的文档类型是「架构节点说明」——一个模块的边界契约 + 内部流转 + 方案裁决，三段硬契约（输入与输出 → 内部工作流 → 架构方案）由 server 门禁按模板强制（缺段 400 拒收），架构方案段必答三问。book 的黄金结构五章是「技术调研选题」的排布，不声明也不保证这三段结构，更无模板级门禁钩子；其 document_types（技术研究/技术方案/数据分析）也装不下「架构节点说明」。故注册独立模板：长读框架（深色大开篇 + 章节 tab + 交替底色）复用 book 的叙事节奏，三段契约与三问由本模板的 manifest 类型 + 门禁规则承载。"
+}

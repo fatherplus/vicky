@@ -17,6 +17,7 @@ from urllib.parse import urlparse, parse_qs
 from . import config
 from . import l1_publish
 from . import l3_feedback
+from . import store
 from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
 
 # P0: 不创建 config 路径的本地别名——tests/tmp_env 通过 monkey-patch config.* 工作，
@@ -160,6 +161,25 @@ class Handler(BaseHTTPRequestHandler):
                                 "feedback_last_used": stats["feedback_last_used"]})
                 else:
                     self._json({"ok": True, "domain": domain, "topic": topic, "content": None})
+        elif self.path == "/api/design.css":
+            # 前端 CSS 资源包：单文件附件下载（spec §3）
+            self._serve_file(config.PUBLIC_DIR / "assets" / "book-style.css",
+                             "text/css; charset=utf-8", "book-style.css")
+        elif self.path == "/api/design":
+            # design.md token 总纲：稳定别名指向 DESIGN_DOC_SLUG 报告的 .md 孪生
+            conn = store.get_db()
+            try:
+                rep = store.get_report_by_slug(conn, config.DESIGN_DOC_SLUG)
+            finally:
+                conn.close()
+            if not rep:
+                self._json({"error": f"design 总纲文档（{config.DESIGN_DOC_SLUG}）尚未发布"}, 404)
+                return
+            md_path = config.REPORTS_DIR / Path(rep["file"]).with_suffix(".md")
+            if not md_path.exists():
+                self._json({"error": f"design 总纲的 .md 孪生不存在: {md_path.name}"}, 404)
+                return
+            self._serve_file(md_path, "text/markdown; charset=utf-8")
         else:
             self._serve_static()
 
@@ -243,7 +263,8 @@ class Handler(BaseHTTPRequestHandler):
         subtitle = data.get("subtitle", "").strip()
 
         if self.path == "/api/validate":
-            violations, warnings = l1_publish.validate_content(content, title)
+            template = (data.get("template") or "").strip()
+            violations, warnings = l1_publish.validate_content(content, title, template)
             # 可选字段：给了就检
             slug = data.get("slug", "").strip()
             if slug:
@@ -277,7 +298,8 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # 表述规范门禁（EXPRESSION-GRAMMAR.md）：硬伤直接拒收，错误信息即写作指导
-        violations, warnings = l1_publish.validate_content(content, title)
+        template = (data.get("template") or config.DEFAULT_TEMPLATE).strip()
+        violations, warnings = l1_publish.validate_content(content, title, template)
         if violations:
             self._json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
             return
@@ -302,7 +324,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": conflict}, 400)
                 return
 
-        template = data.get("template") or config.DEFAULT_TEMPLATE
         domain = (data.get("domain") or "tech").strip()
         err = validate_domain(domain)
         if err:
@@ -327,6 +348,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(result, 201)
         except KeyError as e:
             self._json({"ok": False, "error": e.args[0] if e.args else str(e)}, 400)
+        except ValueError as e:
+            # create_report 内模板级门禁兜底（arch-node 三段等）
+            self._json({"ok": False, "error": str(e)}, 400)
         except Exception as e:
             self._json({"ok": False, "error": str(e)}, 500)
 

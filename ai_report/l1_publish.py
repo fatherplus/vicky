@@ -145,11 +145,32 @@ def validate_template(name: str, manifest: dict, tpl_html: str, rationale: str) 
     return violations
 
 
-def validate_content(content: str, title: str = "") -> tuple:
+# arch-node 节点卷三段硬契约（spec §2）：依序必含 输入与输出 → 内部工作流 → 架构方案
+ARCH_NODE_SECTIONS = ("输入与输出", "内部工作流", "架构方案")
+H2_RE = re.compile(r"<h2\b[^>]*>([\s\S]*?)</h2>", re.I)
+
+
+def _h2_texts(content: str) -> list:
+    """提取全部 <h2> 文本（去内层标签），按出现顺序。"""
+    return [re.sub(r"<[^>]+>", "", h).strip() for h in H2_RE.findall(content)]
+
+
+def validate_content(content: str, title: str = "", template: str = "") -> tuple:
     """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
-    errors 触发 400 拒收；warnings 只随响应返回，agent 自觉修订。"""
+    errors 触发 400 拒收；warnings 只随响应返回，agent 自觉修订。
+    template="arch-node" 时追加节点卷三段硬契约校验（缺段/顺序错均拒收）。"""
     errors = []
     # --- errors：机器可判定的硬伤（原三条保留）---
+    if template == "arch-node":
+        headings = _h2_texts(content)
+        pos = {s: next((i for i, h in enumerate(headings) if s in h), -1)
+               for s in ARCH_NODE_SECTIONS}
+        missing = [s for s in ARCH_NODE_SECTIONS if pos[s] == -1]
+        if missing:
+            errors.append(f"arch-node 节点卷缺段：{'、'.join(missing)}——三段依序必含："
+                          f"{' → '.join(ARCH_NODE_SECTIONS)}")
+        elif not (pos["输入与输出"] < pos["内部工作流"] < pos["架构方案"]):
+            errors.append(f"arch-node 节点卷三段顺序错误：必须依序出现 {' → '.join(ARCH_NODE_SECTIONS)}")
     for tag in re.findall(r"<table\b[^>]*>", content, re.I):
         m = re.search(r"class\s*=\s*[\"']([^\"']*)[\"']", tag)
         classes = set(m.group(1).split()) if m else set()
@@ -260,6 +281,12 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         filename = f"{today}-{slug}.html"
         created = True
 
+    # ── 模板级硬契约门禁（arch-node 三段）──
+    # web.py 已预检过（400），此处兜底直调方（cli/测试），防止绕门禁
+    violations, _ = validate_content(content, title, template)
+    if violations:
+        raise ValueError("内容不符合表述规范：" + "；".join(violations))
+
     # ── L0：不可变快照存档 ──
     payload = {
         "title": title, "slug": slug, "tag": tag, "content": content,
@@ -325,6 +352,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     reports = list_reports()
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")
+    refresh_card_wall()
 
     if series:
         maintain_series_siblings(series)
@@ -415,6 +443,7 @@ def rebuild_index():
     """重建索引页（render --all 后调用）。"""
     reports = list_reports()
     INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
+    refresh_card_wall()
     # 全量丛书维护
     conn = store.get_db()
     try:
@@ -423,3 +452,33 @@ def rebuild_index():
                 maintain_series_siblings(r[0])
     finally:
         conn.close()
+
+
+# ============================================================
+# 卡片墙（spec §3）——design 报告聚合页 public/design.html
+# ============================================================
+def design_reports() -> list:
+    """domain=design 的报告（按 created_date 倒序）。"""
+    conn = store.get_db()
+    try:
+        return [r for r in store.list_reports_from_db(conn) if r.get("domain") == "design"]
+    finally:
+        conn.close()
+
+
+def build_card_wall() -> str:
+    """生成卡片墙页：遍历 design 报告，卡片循环标记由 ui.card_wall_item 产出。"""
+    design = design_reports()
+    cards = [ui.card_wall_item(r) for r in design]
+    year = design[0]["date"][:4] if design else str(datetime.now().year)
+    tpl = ui.load_view("design.html")
+    return (tpl
+            .replace("__CARDS__", "\n    ".join(cards))
+            .replace("__TOTAL__", str(len(design)))
+            .replace("__YEAR__", year))
+
+
+def refresh_card_wall():
+    """刷新 public/design.html（与索引页同目录；随发布与 cli render 重渲染调用）。"""
+    wall = config.INDEX_PATH.parent / "design.html"
+    wall.write_text(build_card_wall(), encoding="utf-8")

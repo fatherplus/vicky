@@ -18,7 +18,7 @@ from . import config
 CONF_SEAL = {"high": ("可信", "hi"), "medium": ("可参", "mid"), "low": ("存疑", "lo")}
 VER_LABEL = {"unverified": ("未验证", "v-unv"), "machine-confirmed": ("机确认", "v-mach"),
              "human-reviewed": ("人复核", "v-human")}
-DOMAIN_NAME = {"tech": "tech 阁", "design": "design 阁"}
+DOMAIN_NAME = {"tech": "tech 阁"}
 SEC_CLS = {"结论": "concl", "被否假设": "refut", "陷阱": "trap",
            "数据": "data", "分歧": "disag", "综合": "synth", "agree": "agree"}
 STRUCT_SECS = {"一句话结论", "概述", "来源"}
@@ -40,7 +40,7 @@ def load_view(name: str) -> str:
 # ============================================================
 def toc_row(r: dict, num: int) -> str:
     """目录行——报告条目循环标记。P3 从 l1_publish.build_index 提取。"""
-    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作"}
+    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作", "arch": "架构"}
     delay = (num % 12) * 0.04
     esc_tag = html_mod.escape(r["_tag"], quote=True)
     esc_series = html_mod.escape(r["_series"], quote=True)
@@ -66,7 +66,7 @@ def toc_row(r: dict, num: int) -> str:
 
 def chips_html(research: list[dict]) -> list[str]:
     """类型筹码 HTML 列表——P3 从 l1_publish.build_index 提取。"""
-    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作"}
+    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作", "arch": "架构"}
     tag_count, series_count, domain_count = {}, {}, {}
     for r in research:
         tag = r.get("_tag", "研究报告").strip() or "研究报告"
@@ -78,7 +78,7 @@ def chips_html(research: list[dict]) -> list[str]:
         domain_count[dom] = domain_count.get(dom, 0) + 1
 
     chips = [f'<span class="chip on" data-type="all" data-f="">全部<span class="n">{len(research)}</span></span>']
-    for dom in ("tech", "design", "ephemeral"):
+    for dom in ("tech", "design", "ephemeral", "arch"):
         dn = domain_count.get(dom, 0)
         if dn:
             chips.append(f'<span class="chip chip-domain {dom}" data-type="domain" data-f="{dom}">'
@@ -119,6 +119,37 @@ def volume_nav_html(series: str, order: int, siblings: list) -> str:
         links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html_mod.escape(next_r["title"])} →</a>'
     safe_series = html_mod.escape(re.sub(r"\s+", " ", (series or "").strip()))
     return f'<nav class="volume-nav" data-series="{safe_series}">{links}</nav>'
+
+
+# ============================================================
+# L1 卡片墙片段（spec §3）——design 报告聚合页
+# ============================================================
+def _card_cover(slug: str) -> str:
+    """封面图：assets/img/{slug}/ 按名排序第一张；无图给占位样式。"""
+    img_dir = config.IMG_DIR / slug
+    imgs = (sorted(p.name for p in img_dir.iterdir()
+                   if p.suffix.lower() in config.IMG_EXTENSIONS)
+            if img_dir.exists() else [])
+    if imgs:
+        name = html_mod.escape(imgs[0], quote=True)
+        return (f'<img class="cwall-cover" src="/research/assets/img/{slug}/{name}" '
+                f'alt="{html_mod.escape(slug)} 封面" loading="lazy">')
+    return ('<div class="cwall-cover" style="display:flex;align-items:center;'
+            'justify-content:center;color:var(--sub);font-family:var(--serif);font-size:14px">'
+            '暂无封面</div>')
+
+
+def card_wall_item(r: dict) -> str:
+    """卡片墙条目——一产品一卡，链到报告页。slug 从文件名反推（date-slug.html）。"""
+    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", r["file"]).removesuffix(".html")
+    cover = _card_cover(slug)
+    title = html_mod.escape(r["title"])
+    sub = r.get("subtitle") or r.get("tag") or ""
+    esc_sub = html_mod.escape(sub, quote=True)
+    href = html_mod.escape(r["file"], quote=True)
+    return (f'<a class="cwall-card reveal" href="/research/reports/{href}">{cover}'
+            f'<div class="cwall-body"><span class="cwall-title">{title}</span>'
+            f'<span class="cwall-sub">{esc_sub}</span></div></a>')
 
 
 # ============================================================

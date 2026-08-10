@@ -43,7 +43,10 @@ NARRATIVE_CONTRACTS = {
     "verdict-on-comparison", "figure-caption", "mece-structure",
 }
 
-DOMAINS = {"tech", "design", "ephemeral"}
+DOMAINS = {"tech", "design", "ephemeral", "arch"}
+
+# 前端卡片 token 总纲（design.md）指向的稳定别名文档 slug（端点由 P2 实现）
+DESIGN_DOC_SLUG = "why-this-book"
 
 # ============================================================
 # 图片上传约束

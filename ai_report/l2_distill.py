@@ -7,7 +7,7 @@ L2 知识层（P0 包化：从 distill.py 搬迁，行为零变化）。
 
 流程（对应治理链路 关2-3）：
   1. 扫描 public/reports/*.html，对比 log.md 已处理列表
-  2. 按 domain 路由：ephemeral 跳过、tech/design 进提取
+  2. 按 domain 路由：只蒸 tech（ephemeral / design / arch 跳过）
   3. 提取知识条目（结论/被否假设/陷阱/数据），每条标来源
   4. AGREE 追加到 knowledge/{domain}/{topic}/overview.md
   5. 更新 index.md、追加 log.md
@@ -123,31 +123,6 @@ def extract_tech(html_content: str, source: str) -> list[dict]:
     return items
 
 
-def extract_design(html_content: str, source: str) -> list[dict]:
-    """从 HTML 报告提取设计知识条目（规则版）。
-
-    提取四类：反模式 / 风格锚点 / 工具链 / 样本
-    # ponytail: 规则版证明管线；LLM prompt 版等有真实设计报告积累后再调
-    """
-    items = []
-    # 反模式：callout warn + 含「不要/禁止/避免/不许」的 blockquote
-    for text in _extract_callouts(html_content, "warn"):
-        items.append({"kind": "trap", "text": text, "source": source})
-    for text in _extract_blockquotes(html_content):
-        if re.search(r"不要|禁止|避免|不许|不能|别用", text):
-            items.append({"kind": "trap", "text": text, "source": source})
-        else:
-            items.append({"kind": "conclusion", "text": text, "source": source})
-    # 工具链：code 块中的 npx/npm/pip 命令
-    for m in re.findall(r"<code>([^<]*(?:npx|npm|pip)[^<]*)</code>", html_content):
-        items.append({"kind": "data", "text": f"工具: {html_mod.unescape(m).strip()}", "source": source})
-    # 样本：figure 中的 img src（风格参考图）
-    for m in re.findall(r'<img[^>]+src="([^"]+)"', html_content):
-        if "/assets/img/" in m:
-            items.append({"kind": "data", "text": f"风格样本: {m}", "source": source})
-    return items
-
-
 def extract_tech_md(md_content: str, source: str) -> list[dict]:
     """P2：从 .md 孪生报告提取技术知识条目（extract_tech 的 md 对应版）。
     html_to_md 的映射：blockquote → `> …`；callout warn → `> ⚠️ …`；callout note → `> 📝 …`。
@@ -164,29 +139,6 @@ def extract_tech_md(md_content: str, source: str) -> list[dict]:
         items.append({"kind": "refuted", "text": m.strip(), "source": source})
     for text in _md_tables(md_content):
         items.append({"kind": "data", "text": text, "source": source})
-    return items
-
-
-def extract_design_md(md_content: str, source: str) -> list[dict]:
-    """P2：extract_design 的 md 对应版（反模式/结论/工具链/风格样本）。"""
-    items = []
-    for text in _md_blockquotes(md_content):
-        if text.startswith("⚠️"):
-            text = text.lstrip("⚠️").strip()
-            items.append({"kind": "trap", "text": text, "source": source})
-        elif text.startswith("📝"):
-            continue
-        elif re.search(r"不要|禁止|避免|不许|不能|别用", text):
-            items.append({"kind": "trap", "text": text, "source": source})
-        else:
-            items.append({"kind": "conclusion", "text": text, "source": source})
-    # 工具链：行内/围栏代码中的 npx/npm/pip 命令
-    for m in re.findall(r"`([^`]*(?:npx|npm|pip)[^`]*)`", md_content):
-        items.append({"kind": "data", "text": f"工具: {m.strip()}", "source": source})
-    # 样本：markdown 图片链接里的平台资产图
-    for m in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", md_content):
-        if "/assets/img/" in m:
-            items.append({"kind": "data", "text": f"风格样本: {m}", "source": source})
     return items
 
 
@@ -226,7 +178,10 @@ def _md_tables(md_content: str) -> list[str]:
     return results
 
 
-EXTRACTORS = {"tech": extract_tech_md, "design": extract_design_md}  # P2: 输入换 .md 孪生
+EXTRACTORS = {"tech": extract_tech_md}  # P2: 输入换 .md 孪生；只蒸 tech（design 退出自动蒸馏）
+
+# 不参与蒸馏的 domain（spec §1：design 卡片靠人工维护 token，arch/ephemeral 不进知识库）
+SKIP_DOMAINS = {"ephemeral", "design", "arch"}
 
 
 # ============================================================
@@ -328,7 +283,7 @@ def _norm_clusters(data, reports: list, anchors: list | None = None) -> list:
         if not members:
             continue
         seen.update(members)
-        if dom not in ("tech", "design"):
+        if dom not in ("tech",):
             from collections import Counter
             dom = Counter(slug_domain[s] for s in members).most_common(1)[0][0]
         rid = cid if cid in anchor_by_id else ""  # 只认锚点里的 id，其余当新概念
@@ -362,7 +317,7 @@ def _cluster_one_batch(batch: list, anchors: list | None = None) -> list:
     prompt = (
         "你是知识库编辑。" + (anchor_block or "") + "【待归类报告】（slug + 标题）：\n" + catalog + "\n"
         + extra + "规则：members 必须是待归类报告里的 slug 原样字符串；每个 slug 恰好归一处；"
-        "domain 只能是 tech 或 design；" + id_rule +
+        "domain 只能是 tech；" + id_rule +
         "只输出 JSON 数组，不要任何解释。每个元素是含 id/topic/domain/members 的对象，禁止只输出 slug 数组。形如："
         '[{"id":"","topic":"向量检索","domain":"tech","members":["hnsw-algorithm"]},'
         '{"id":"usage--abc","topic":"用量分析","domain":"tech","members":["aws-claude-usage"]}]\n\n')
@@ -378,7 +333,7 @@ def _cluster_one_batch(batch: list, anchors: list | None = None) -> list:
 def _load_existing_concepts() -> list:
     """读现有 knowledge 概念作增量聚类锚点（id + title + members）。兼容新旧格式。"""
     anchors = []
-    for domain in ("tech", "design"):
+    for domain in ("tech",):
         ddir = KNOWLEDGE_DIR / domain
         if not ddir.exists():
             continue
@@ -866,7 +821,7 @@ def _sweep_feedbacks() -> list:
     log_entries = []
     conn = store.get_db()
     try:
-        for domain in ("tech", "design"):
+        for domain in ("tech",):
             ddir = KNOWLEDGE_DIR / domain
             if not ddir.exists():
                 continue
@@ -1075,7 +1030,7 @@ def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "",
 def build_knowledge_page() -> Path:
     """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。
     P3 前端抢救：模板从 views/knowledge.html 加载，卡片片段用 ui.py。"""
-    topics_by_domain: dict[str, list] = {"tech": [], "design": []}
+    topics_by_domain: dict[str, list] = {"tech": []}
     total_sources = total_disag = total_synth = 0
     # P2：写回次数批量查（一次查完，卡片渲染用；循环可见，规格 §6④）
     conn = store.get_db()
@@ -1083,7 +1038,7 @@ def build_knowledge_page() -> Path:
         fb_counts = store.feedback_counts(conn)
     finally:
         conn.close()
-    for domain in ("tech", "design"):
+    for domain in ("tech",):
         ddir = KNOWLEDGE_DIR / domain
         if not ddir.exists():
             continue
@@ -1118,7 +1073,6 @@ def build_knowledge_page() -> Path:
            .replace("__DISAGREE__", str(total_disag))
            .replace("__SYNTH__", str(total_synth))
            .replace("__NTECH__", str(len(topics_by_domain["tech"])))
-           .replace("__NDESIGN__", str(len(topics_by_domain["design"])))
            .replace("__SECTIONS__", "\n".join(sections_html))
            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M")))
     out_dir = PUBLIC_DIR / "knowledge"
@@ -1135,13 +1089,13 @@ def build_knowledge_page() -> Path:
 def distill():
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     if CLEAN:
-        for d in ("tech", "design"):
+        for d in ("tech",):
             ddir = KNOWLEDGE_DIR / d
             if ddir.exists():
                 for sub in ddir.iterdir():
                     if sub.is_dir():
                         shutil.rmtree(sub)
-        print("[clean] 已清空 knowledge/{tech,design}")
+        print("[clean] 已清空 knowledge/tech")
     reports = scan_reports()
     if LLM_ON:
         print(f"[LLM 编译模式] model={DISTILL_MODEL}")
@@ -1169,8 +1123,8 @@ def _run_incremental(reports: list):
         fname, domain, source = r["file"], r["domain"], r["file"]
         if fname in done:
             continue
-        if domain == "ephemeral":
-            log_entries.append(f"[x] {fname} — skipped (ephemeral)"); stats["skipped"] += 1; continue
+        if domain in SKIP_DOMAINS:
+            log_entries.append(f"[x] {fname} — skipped ({domain})"); stats["skipped"] += 1; continue
         extractor = EXTRACTORS.get(domain)
         if not extractor:
             log_entries.append(f"[x] {fname} — skipped (unknown domain)"); stats["skipped"] += 1; continue
@@ -1203,7 +1157,7 @@ def _run_compiled(reports: list):
     for r in reports:
         d = r["domain"]
         tag = _md_tag(r["content"])  # P2：输入换 .md 后从 md kicker 读 tag
-        if d == "ephemeral" or d not in EXTRACTORS:
+        if d in SKIP_DOMAINS or d not in EXTRACTORS:
             continue
         if tag.upper().startswith("META"):
             continue  # 卷首/关于本书，非知识，不蒸馏

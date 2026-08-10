@@ -1,0 +1,10 @@
+{
+  "name": "arch-overview",
+  "purpose": "项目架构站总览卷：定位 + 全局流程图 + 模块索引，一个项目一本书的卷首地图（series=\"{project}-arch\" order=1）",
+  "document_types": ["项目架构总览"],
+  "narrative_contract": ["type-determines-narrative", "why-first", "conclusion-first",
+                          "three-questions", "figure-caption", "mece-structure"],
+  "default": false,
+  "provisional": false,
+  "rationale": "book 的黄金结构五章（定位→痛点→为什么→方案→验证）围绕单篇技术研究的论证纵深排布，深色大开篇吃掉首屏；总览卷的文档类型是「地图」而非「研究」——一页定位、一张全局 mermaid 流程图、一张模块索引表，读者要的是全局导航与钻取入口，不是逐章论证。且多页站靠丛书机制拆卷：总览=第 1 卷地图，其余模块=节点卷，book 没有「以图为纲的卷首」这个叙事位置。故 overview 用轻站头把首屏让给大图，章节 tab 直达定位/流程图/索引三段，图表装裱走 figure 契约。"
+}

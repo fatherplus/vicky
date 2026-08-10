@@ -1,0 +1,9 @@
+{
+  "name": "card",
+  "purpose": "一产品一卡的风格素材卡：主页大图 + AI 风格说明，供卡片墙聚合",
+  "document_types": ["产品风格卡片"],
+  "narrative_contract": ["type-determines-narrative", "figure-caption"],
+  "default": false,
+  "provisional": false,
+  "rationale": "book 是 3000 字以上逐章长读：深色大开篇、吸顶章节 tab、交替节底色全部为多章节长文服务——单屏卡片只有一图一说明，首屏必须整幅让给产品主页截图，书的大开篇会把图压到首屏之下；brief 是决策简报，结论先行、为决策者压缩信息，而卡片是素材陈列，读者要的是「一眼看风格、附一段说明」，不是结论与建议。card 用纸底紧凑页头替代深色 opener、去掉章节 tab 与交替底色，让 figure 成为页面真正的主角。"
+}
