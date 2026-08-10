@@ -1,57 +1,54 @@
 #!/usr/bin/env python3
-"""阶段1 验收：domain 字段 + ephemeral 隔离。P0 包化：import 更新。"""
-from ai_report.l1_publish import create_report, list_reports, build_index
-from ai_report.config import DOMAINS, REPORTS_DIR
+"""阶段1 验收：domain 字段 + ephemeral 隔离。
+P0 包化：import 更新。P1：隔离 DATA_DIR 避免污染真实 DB。"""
+from tests.util import load_server, tmp_env
+from ai_report.config import DOMAINS
+
+server = load_server()
 
 
 def test_domain_constant():
     assert DOMAINS == {"tech", "design", "ephemeral"}
 
+
 def test_create_with_domain():
-    r = create_report("T", "test-domain", "测试", "<p>hello</p>", domain="ephemeral")
-    assert r["ok"]
-    # 回读 HTML 确认 meta 烙入
-    html = (REPORTS_DIR / r["file"]).read_text(encoding="utf-8")
-    assert '<meta name="domain" content="ephemeral">' in html
+    with tmp_env(server) as tmp:
+        r = server.create_report("T", "test-domain", "测试", "<p>hello</p>", domain="ephemeral")
+        assert r["ok"]
+        html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
+        assert '<meta name="domain" content="ephemeral">' in html
+
 
 def test_create_default_domain():
-    r = create_report("T2", "test-domain-default", "测试", "<p>hello</p>")
-    assert r["ok"]
-    html = (REPORTS_DIR / r["file"]).read_text(encoding="utf-8")
-    assert '<meta name="domain" content="tech">' in html
+    with tmp_env(server) as tmp:
+        r = server.create_report("T2", "test-domain-default", "测试", "<p>hello</p>")
+        assert r["ok"]
+        html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
+        assert '<meta name="domain" content="tech">' in html
+
 
 def test_list_reports_reads_domain():
-    create_report("T3", "test-domain-list", "测试", "<p>hello</p>", domain="design")
-    reports = list_reports()
-    match = [r for r in reports if r["file"].endswith("test-domain-list.html")]
-    assert match, "report not found in list"
-    assert match[0]["domain"] == "design"
+    with tmp_env(server) as tmp:
+        server.create_report("T3", "test-domain-list", "测试", "<p>hello</p>", domain="design")
+        reports = server.list_reports()
+        match = [r for r in reports if r["file"].endswith("test-domain-list.html")]
+        assert match, "report not found in list"
+        assert match[0]["domain"] == "design"
+
 
 def test_legacy_report_defaults_tech():
-    # 存量报告无 domain meta → list_reports 返回 tech
-    create_report("T4", "test-domain-legacy", "测试", "<p>hello</p>")
-    # 手动删掉 domain meta 模拟存量
-    p = REPORTS_DIR / "2026-07-31-test-domain-legacy.html"
-    if not p.exists():
+    with tmp_env(server) as tmp:
+        server.create_report("T4", "test-domain-legacy", "测试", "<p>hello</p>")
         # 找实际文件名
-        matches = list(REPORTS_DIR.glob("*test-domain-legacy*"))
+        matches = list((tmp / "reports").glob("*test-domain-legacy*"))
         p = matches[0]
-    html = p.read_text(encoding="utf-8")
-    html = html.replace('<meta name="domain" content="tech">', '')
-    p.write_text(html, encoding="utf-8")
-    reports = list_reports()
-    match = [r for r in reports if "test-domain-legacy" in r["file"]]
-    assert match[0]["domain"] == "tech"
+        html = p.read_text(encoding="utf-8")
+        html = html.replace('<meta name="domain" content="tech">', '')
+        p.write_text(html, encoding="utf-8")
+        reports = server.list_reports()
+        match = [r for r in reports if "test-domain-legacy" in r["file"]]
+        assert match[0]["domain"] == "tech"
 
-def cleanup():
-    for f in REPORTS_DIR.glob("*test-domain*"):
-        f.unlink()
-    # 测试会触发 build_index，清场后重建索引避免断链
-    (REPORTS_DIR.parent / "index.html").write_text(build_index(list_reports()), encoding="utf-8")
-
-
-import atexit
-atexit.register(cleanup)  # pytest 不走 __main__，用 atexit 保证清场
 
 if __name__ == "__main__":
     test_domain_constant()
@@ -59,5 +56,4 @@ if __name__ == "__main__":
     test_create_default_domain()
     test_list_reports_reads_domain()
     test_legacy_report_defaults_tech()
-    cleanup()
     print("ALL PASS")

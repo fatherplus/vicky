@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 
 from . import config
+from . import store
+from . import l0_ingest
 from .html_to_md import html_to_md
 
 # ============================================================
@@ -293,21 +295,30 @@ def build_index(reports: list[dict]) -> str:
 # 核心操作
 # ============================================================
 def list_reports() -> list[dict]:
-    """扫描 reports 目录，按日期倒序"""
+    """从 reports 表查全部报告，按日期倒序（P1：正则刮 HTML 退休）。
+    DB 为空时回退扫描 public/reports/（backfill 运行前的过渡期兼容）。"""
+    # ── 主路径：DB 查（P1 起的数据源）──
+    try:
+        conn = store.get_db()
+        rows = store.list_reports_from_db(conn)
+        conn.close()
+        if rows:
+            return rows
+    except Exception:
+        pass  # DB 不可用时回退文件扫描
+
+    # ── 回退路径：文件扫描（backfill 前的过渡兼容，P2 移除）──
     result = []
     if not REPORTS_DIR.exists():
         return result
     for f in sorted(REPORTS_DIR.glob("*.html"), reverse=True):
         name = f.name
-        # 提取日期
         date_match = re.match(r"(\d{4}-\d{2}-\d{2})", name)
         date = date_match.group(1) if date_match else "0000-00-00"
         date_display = date[5:]
-        # 提取标题
         content = f.read_text(encoding="utf-8")
         title_match = re.search(r"<title>(.+?)</title>", content)
         title = title_match.group(1) if title_match else name
-        # 提取 tag（kicker）与副标题，用于卷首分流（META → 卷首）
         tag_match = re.search(r'<div class="kicker">([^<]*)</div>', content)
         tag = tag_match.group(1).strip() if tag_match else ""
         sub_match = re.search(r'<p class="subtitle">([^<]*)</p>', content)
@@ -319,12 +330,13 @@ def list_reports() -> list[dict]:
         total_match = re.search(r'<meta name="series-total" content="(\d+)"', content)
         tpl_match = re.search(r'<meta name="template" content="([^"]*)"', content)
         domain_match = re.search(r'<meta name="domain" content="([^"]*)"', content)
-        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle, "date": date, "date_display": date_display, "updated": updated,
-                       "series": html_mod.unescape(series_match.group(1)) if series_match else "",  # 烙入用了 html.escape，刮回需还原
+        result.append({"file": name, "title": title, "tag": tag, "subtitle": subtitle,
+                       "date": date, "date_display": date_display, "updated": updated,
+                       "series": html_mod.unescape(series_match.group(1)) if series_match else "",
                        "series_order": int(order_match.group(1)) if order_match else 0,
                        "series_total": int(total_match.group(1)) if total_match else 0,
-                       "template": tpl_match.group(1) if tpl_match else "book",  # 存量无 meta → book
-                       "domain": domain_match.group(1) if domain_match else "tech"})  # 存量无 meta → tech
+                       "template": tpl_match.group(1) if tpl_match else "book",
+                       "domain": domain_match.group(1) if domain_match else "tech"})
     return result
 
 
@@ -467,16 +479,17 @@ def _existing_for_slug(slug: str) -> list:
 # ============================================================
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
                   series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
-                  base_url: str = "", domain: str = "tech") -> dict:
-    """创建或修订报告（同 slug 已存在 → 覆盖原文件、保留原日期）"""
-    tpl_path = template_path(template)          # 未知模板在此抛 KeyError
-    tpl = tpl_path.read_text(encoding="utf-8")
+                  base_url: str = "", domain: str = "tech",
+                  images: list | None = None, client_ip: str = "127.0.0.1") -> dict:
+    """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
+    同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。"""
     today = datetime.now().strftime("%Y-%m-%d")
 
+    # ── 确定文件名与 created 标记 ──
     existing = _existing_for_slug(slug)
     warnings = []
     if existing:
-        filename = existing[-1].name                 # 保留原文件名（原日期）
+        filename = existing[-1].name
         created = False
         if len(existing) > 1:
             warnings.append(f"同 slug 存在 {len(existing)} 份历史文件，覆盖最新 {filename}，其余建议人工清理")
@@ -484,8 +497,26 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         filename = f"{today}-{slug}.html"
         created = True
 
+    # ── L0：不可变快照存档 ──
+    payload = {
+        "title": title, "slug": slug, "tag": tag, "content": content,
+        "subtitle": subtitle, "series": series, "order": order,
+        "template": template, "domain": domain,
+    }
+    if images:
+        payload["images"] = [{"name": img.get("name", "")} for img in images]
+    rev = l0_ingest.ingest_submission(slug, payload, client_ip=client_ip, provenance="api")
+
+    # ── L0 图片原件保存 ──
+    if images:
+        l0_ingest.save_l0_images(slug, rev, images)
+
+    # ── 渲染报告（模板 + 门禁 + 组件注入，逻辑不变）──
+    tpl_path = template_path(template)
+    tpl = tpl_path.read_text(encoding="utf-8")
+
     meta_tags = []
-    meta_tags.append(f'<meta name="template" content="{template}">')   # 恒烙，保证可重渲染
+    meta_tags.append(f'<meta name="template" content="{template}">')
     meta_tags.append(f'<meta name="domain" content="{domain}">')
     if not created:
         meta_tags.append(f'<meta name="updated" content="{today}">')
@@ -493,12 +524,11 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     if series:
         meta_tags.append(f'<meta name="series" content="{html_mod.escape(series)}">')
         meta_tags.append(f'<meta name="series-order" content="{order}">')
-        meta_tags.append(f'<meta name="series-total" content="1">')  # 占位，maintain 会重算
+        meta_tags.append(f'<meta name="series-total" content="1">')
     meta_html = "\n".join(meta_tags)
 
     series_badge = (f'<span class="series-badge">《{html_mod.escape(series)}》第 {order} 卷 · 共 1 卷</span>'
                     if series else "")
-    # 导航先烙空锚（maintain 统一重算，含本卷）
     volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(series)}"></nav>' if series else ""
 
     comp_head, comp_hits = component_head(content)
@@ -511,10 +541,24 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     report_path = REPORTS_DIR / filename
     report_path.write_text(html_out, encoding="utf-8")
-    # 平台能力：生成 .md 兄弟文件（执行 AI 拿 .md 链接，体积约 1/4）
     (REPORTS_DIR / (filename[:-5] + ".md")).write_text(html_to_md(html_out), encoding="utf-8")
 
-    # 4. 重建索引
+    # ── L1：DB upsert reports 表（P1：替代正则刮 HTML）──
+    conn = store.get_db()
+    try:
+        # 获取 submission id（刚插入的那条）
+        sub_row = conn.execute(
+            "SELECT id FROM submissions WHERE slug=? AND rev=?", (slug, rev)).fetchone()
+        sub_id = sub_row[0] if sub_row else 0
+        created_date = filename[:10] if len(filename) >= 10 else today
+        updated_date = today if not created else ""
+        store.upsert_report(conn, slug, filename, title, tag, subtitle, domain,
+                            template, series, order, created_date, updated_date, sub_id)
+        conn.commit()
+    finally:
+        conn.close()
+
+    # ── 重建索引 ──
     reports = list_reports()
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")

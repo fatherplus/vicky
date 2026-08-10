@@ -21,22 +21,29 @@ def load_server():
 
 @contextlib.contextmanager
 def tmp_env(server):
-    """把 REPORTS_DIR/INDEX_PATH/TEMPLATES_DIR 指到临时目录。
-    P0 包化：同时 patch ai_report.config 和 l1_publish 模块（两边绑定同步）。"""
+    """把 REPORTS_DIR/INDEX_PATH/TEMPLATES_DIR/DATA_DIR 指到临时目录。
+    P0 包化 + P1 DB：patch config 全局路径；server 模块的本地别名同步更新。
+    store._db_path() 延迟求值，patch config.DATA_DIR 后自动生效。"""
     import ai_report.config as cfg
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "reports").mkdir()
+        (tmp / "data").mkdir()  # P1: 隔离 sqlite DB
         shutil.copytree(REPO / "templates", tmp / "templates")  # 预置 book，create_report 默认模板可用
-        # 保存原始值（config 和 server 模块各一份）
-        targets = [cfg, server]
-        origs = [(t.REPORTS_DIR, t.INDEX_PATH, t.TEMPLATES_DIR) for t in targets]
-        for t in targets:
-            t.REPORTS_DIR = tmp / "reports"
-            t.INDEX_PATH = tmp / "index.html"
-            t.TEMPLATES_DIR = tmp / "templates"
+        # 保存 config 原始值
+        _rd, _idx, _td, _dd = cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR
+        # 保存 server 模块本地别名（独立于 config 的引用）
+        _s_rd, _s_idx, _s_td = server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR
+        # patch config
+        cfg.REPORTS_DIR = tmp / "reports"
+        cfg.INDEX_PATH = tmp / "index.html"
+        cfg.TEMPLATES_DIR = tmp / "templates"
+        cfg.DATA_DIR = tmp / "data"  # P1: 隔离 DB
+        # patch server 本地别名
+        server.REPORTS_DIR = tmp / "reports"
+        server.INDEX_PATH = tmp / "index.html"
+        server.TEMPLATES_DIR = tmp / "templates"
         yield tmp
-        for t, (rd, idx, td) in zip(targets, origs):
-            t.REPORTS_DIR = rd
-            t.INDEX_PATH = idx
-            t.TEMPLATES_DIR = td
+        # 恢复
+        cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR = _rd, _idx, _td, _dd
+        server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR = _s_rd, _s_idx, _s_td

@@ -11,6 +11,7 @@ from pathlib import Path
 # 路径（由 REPO_DIR 派生；tests 通过 monkey-patch 覆盖）
 # ============================================================
 REPO_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = REPO_DIR / "data"           # L0 快照 + sqlite DB（git-ignore）
 TEMPLATES_DIR = REPO_DIR / "templates"
 DEFAULT_TEMPLATE = "book"
 REPORTS_DIR = REPO_DIR / "public" / "reports"
