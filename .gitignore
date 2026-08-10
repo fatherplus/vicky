@@ -7,5 +7,7 @@ taste-skill/
 .DS_Store
 .codegraph/
 knowledge/  # 蒸馏生成，python3 distill.py 重建
-public/reports/*.md  # html_to_md 生成（提交时自动 + scripts/backfill_md.py），构建产物
-data/  # P1 L0+store：sqlite DB + 不可变快照档案（data/l0/{slug}/{rev}/）
+# html_to_md 生成（提交时自动 + scripts/backfill_md.py），构建产物
+public/reports/*.md
+# P1 L0+store：sqlite DB + 不可变快照档案（data/l0/{slug}/{rev}/）
+data/
