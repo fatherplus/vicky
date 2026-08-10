@@ -30,12 +30,16 @@ for s in $MANIFEST; do
 done
 [ -n "$SRCS" ] || { echo "! 同步清单为空，退出"; exit 1; }
 
-rsync -avz \
-  --exclude='__pycache__/' \
-  --exclude='*.pyc' \
-  --exclude='.DS_Store' \
-  --exclude='data/' \
-  $SRCS "$HOST:$DST/"
+# 逐项同步：目录用内容级（src/ → DST/src/）。macOS 自带 openrsync 对目录级
+# 传输会静默跳过（public/assets 新增文件曾因此缺失远端）；文件照旧。
+for s in $SRCS; do
+  if [ -d "$s" ]; then
+    rsync -avz --exclude='__pycache__/' --exclude='*.pyc' \
+      --exclude='.DS_Store' --exclude='data/' "$s/" "$HOST:$DST/$s/"
+  else
+    rsync -avz "$s" "$HOST:$DST/$s"
+  fi
+done
 
 # 新架构首跑必做：从远端自己的 reports 回填 L0 快照 + DB（幂等，已有快照跳过）。
 # 必须在 restart 前：新 list_reports 只读 DB，DB 为空则 /api/reports 返回空。
