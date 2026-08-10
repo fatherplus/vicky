@@ -19,7 +19,7 @@ from . import l1_publish
 from . import l2_distill  # P2 分类规格 §3: /api/knowledge 列表条目读 frontmatter 补 category/tags
 from . import l3_feedback
 from . import store
-from .mcp import router  # P1: MCP 协议层（POST /mcp, JSON-RPC 2.0, stateless）
+from .mcp import router, register_default_tools  # P1: MCP 协议层（POST /mcp, JSON-RPC 2.0, stateless）
 from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
 
 # P0: 不创建 config 路径的本地别名——tests/tmp_env 通过 monkey-patch config.* 工作，
@@ -401,6 +401,8 @@ class Handler(BaseHTTPRequestHandler):
 # 启动
 # ============================================================
 def main():
+    # P2: 写入线工具注册（显式/惰性——tools/list 在 import 期保持空，P1 协议测试依赖此契约）
+    register_default_tools()
     # 启动时重建索引（手动操作/迁移后索引可能过期）
     reports = l1_publish.list_reports()
     config.INDEX_PATH.write_text(l1_publish.build_index(reports), encoding="utf-8")
