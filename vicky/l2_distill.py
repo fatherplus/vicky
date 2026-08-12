@@ -563,6 +563,7 @@ def _read_meta(html_content: str, name: str) -> str:
 
 def scan_reports() -> list[dict]:
     """扫描 reports/，返回 [{file, domain, slug, title, content}]。
+    审核治理：reports 表 hidden=1 的报告直接跳过（软下架不参与蒸馏，两路径统一生效）。
     P2（规格 §2/§9-P2）：蒸馏输入从 .html 换成 .md 孪生文件——content 读 .md；
     元数据（domain）查 L1 reports 表（元数据单一真相源，正则刮 HTML 退休），
     title 从 md 首个 # 标题取；DB 无登记时 domain 兜底 tech。
@@ -579,6 +580,8 @@ def scan_reports() -> list[dict]:
             title_m = re.search(r"^# (.+)$", content, re.MULTILINE)
             title = title_m.group(1).strip() if title_m else slug
             row = store.get_report_by_slug(conn, slug)
+            if row and row.get("hidden"):
+                continue  # 审核治理：软下架报告不参与蒸馏（规则/LLM 两路径统一过滤）
             domain = (row or {}).get("domain") or "tech"
             if row and row.get("title"):
                 title = row["title"]  # DB 是元数据真相源，md 标题只是兜底

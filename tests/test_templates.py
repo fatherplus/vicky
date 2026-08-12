@@ -66,21 +66,9 @@ class TestCreateTemplate(unittest.TestCase):
 
 # 辅助：经真实 handler POST（复用 T9 集成矩阵的 ThreadingHTTPServer 模式）
 def _post(server, path, body):
-    import json, threading, time, urllib.request, urllib.error
-    from http.server import ThreadingHTTPServer
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    port = srv.server_address[1]
-    t = threading.Thread(target=srv.serve_forever, daemon=True); t.start()
-    time.sleep(0.2)
-    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}",
-        data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req) as r:
-            out = (r.status, json.loads(r.read()))
-    except urllib.error.HTTPError as e:
-        out = (e.code, json.loads(e.read()))
-    srv.shutdown()
-    return out
+    """POST JSON → (status, parsed_json)。2026-08-12 重构后经 FastAPI TestClient。"""
+    from tests.util import http_post
+    return http_post(path, body)
 
 
 class TestBriefTemplate(unittest.TestCase):

@@ -16,7 +16,7 @@ import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 
-from tests.util import load_server, tmp_env
+from tests.util import load_server, tmp_env, http_get, live_server
 
 server = load_server()
 
@@ -24,19 +24,8 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def _get(server, path):
-    """经真实 Handler 发 GET；返回 (status, body, headers)。"""
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    port = srv.server_address[1]
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.2)
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as r:
-            out = (r.status, r.read(), r.headers)
-    except urllib.error.HTTPError as e:
-        out = (e.code, e.read(), e.headers)
-    srv.shutdown()
-    return out
+    """GET；返回 (status, body, headers)。2026-08-12 重构后经 FastAPI TestClient。"""
+    return http_get(path)
 
 
 def raw_status(port: int, path: str) -> int:
@@ -54,14 +43,6 @@ def raw_status(port: int, path: str) -> int:
     finally:
         s.close()
     return int(data.split(b"\r\n", 1)[0].split()[1])
-
-
-def _start(server):
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.2)
-    return srv, srv.server_address[1]
 
 
 def _mk_report(domain="tech", slug=None):
@@ -85,10 +66,10 @@ class TestHomeRoutes(unittest.TestCase):
                 html = body.decode("utf-8")
                 self.assertEqual(status, 200)
                 self.assertIn("text/html", headers.get("Content-Type", ""))
-                # 首页门户特征：五入口 + Agent 提交区
-                for marker in ("技术文章", "临时报告", "项目架构", "前端卡片墙", "藏书楼",
-                               "写作指南", "Token 总纲", "CSS 资源包", "模板目录",
-                               "index.html?domain=tech", "design.html", "href=\"knowledge\""):
+                # 首页门户特征：四区书架 + Agent 提交区（重构蓝图 2026-08-12 §04）
+                for marker in ("技术文库", "项目空间", "简报", "知识库", "Agent 接入",
+                               "写作指南", "CSS 资源包", "模板目录",
+                               "index.html?cat=research", "href=\"knowledge\""):
                     self.assertIn(marker, html)
                 # 占位符已填，未泄漏
                 self.assertNotIn("__TOTAL_", html)
@@ -150,7 +131,7 @@ class TestHomeRoutes(unittest.TestCase):
                 self.assertTrue(home.exists())
                 html = home.read_text(encoding="utf-8")
                 self.assertIn("共 2 篇报告", html)
-                self.assertIn("<b>1</b> 张", html)
+                self.assertIn("<b>1</b> 篇", html)  # 技术文库计数（design 为 legacy，不入四区）
                 self.assertIn("<b>2</b> 主题", html)
                 self.assertNotIn("__TOTAL_", html)
                 # 与真实 GET / 同内容
@@ -167,17 +148,15 @@ class TestHomeRoutes(unittest.TestCase):
             cfg.PUBLIC_DIR = tmp
             try:
                 server.refresh_home()
-                srv, port = _start(server)
-                try:
+                with live_server() as port:
                     # 裸 ../ 段：守卫 403
                     self.assertEqual(raw_status(port, "/../etc/passwd"), 403)
                     self.assertEqual(raw_status(port, "/research/../etc/passwd"), 403)
                     self.assertEqual(raw_status(port, "/reports/../../etc/passwd"), 403)
-                    # 编码 %2f：按字面文件名解析，不存在 → 404（不泄漏）
-                    self.assertEqual(raw_status(port, "/..%2fetc/passwd"), 404)
-                    self.assertEqual(raw_status(port, "/reports%2f..%2f..%2fetc%2fpasswd"), 404)
-                finally:
-                    srv.shutdown()
+                    # 编码 %2f：Starlette 先解码再路由 → 还原为 ../ 段同样被守卫 403
+                    # （比旧实现的 404 更严：编码穿越不再伪装成"文件不存在"）
+                    self.assertEqual(raw_status(port, "/..%2fetc/passwd"), 403)
+                    self.assertEqual(raw_status(port, "/reports%2f..%2f..%2fetc%2fpasswd"), 403)
             finally:
                 cfg.PUBLIC_DIR = orig_public
 

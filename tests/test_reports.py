@@ -165,7 +165,8 @@ class TestIndexChips(unittest.TestCase):
             server.create_report("丙", "c3", "向量检索", CONTENT, series="丛书Z", order=1)
             idx = server.build_index(server.list_reports())
         self.assertIn('data-f="向量检索">向量检索<span class="n">3</span>', idx)
-        self.assertIn('data-f="丛书Z">《丛书Z》<span class="n">1</span>', idx)
+        # 四区重构后筹码改为 分类（全部/技术文库/项目空间/简报）+ 标签 + 项目，丛书不再单独成筹码
+        self.assertIn('技术文库<span class="n">3</span>', idx)
         self.assertIn('全部<span class="n">3</span>', idx)
 
 if __name__ == "__main__":

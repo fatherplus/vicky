@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/assets/index.css">
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
 </head>
 <body>
 <div id="ribbon"></div>
@@ -15,13 +16,13 @@
   <div class="inner"><span class="book">《Vicky》</span><span class="chapter">目录 · CONTENTS</span></div>
 </header>
 
-<main class="page">
+<main class="page" x-data="indexApp">
   <div class="frontispiece">
     <div class="kicker">VICKY · 个人知识平台</div>
     <div class="titleblock">
       <div class="seal" aria-hidden="true">藏</div>
       <h1>Vicky <span class="mark">知识</span>文库</h1>
-      <p class="subtitle">技术研究与方案归档 —— 开源项目、算法机制与工程实践的深度研究。</p>
+      <p class="subtitle">四区书架 —— 技术文库（长读调研）、项目空间（方案与架构归档）、简报（用完即弃）、蒸馏知识库。</p>
     </div>
     <div class="volume">
       <span class="vtag">第一卷</span><span class="sep">·</span>
@@ -35,18 +36,46 @@
   __FRONTMATTER__
   <div class="contents">
     <div class="chead"><h2>目录</h2></div>
-    <div class="csub">CONTENTS · 按时间倒序 · 点类型筹码筛选，可与搜索叠加</div>
+    <div class="csub">CONTENTS · 四区时间倒序 · 点筹码按分类 / 标签 / 项目筛选，可与关键词搜索叠加</div>
 
     <div class="searchbox reveal">
       <span class="search-ic">检</span>
-      <input type="text" id="tocSearch" placeholder="输入关键词，模糊匹配报告标题……" autocomplete="off">
-      <span class="search-hint" id="searchHint"></span>
+      <input type="text" x-model="q" placeholder="输入关键词，模糊匹配标题 / 标签 / 项目……" autocomplete="off">
+      <span class="search-hint" x-show="active" x-text="shown + ' 篇匹配'"></span>
     </div>
-    <div class="noresult" id="noresult">没有匹配的报告</div>
+    <div class="noresult" x-show="active && shown===0">没有匹配的报告</div>
 
     <div class="chips reveal" id="chips">__CHIPS__</div>
 
-    __TOC__
+    <!-- 技术文库（主区：category=research，时间倒序） -->
+    <section x-show="cat==='all' || cat==='research'">
+      <div class="chead" style="margin-top:34px"><h2>技术文库</h2></div>
+      <div class="csub">RESEARCH · 长读调研 → 蒸馏进知识库（__RESEARCH_N__ 篇）</div>
+      __RESEARCH_ROWS__
+    </section>
+
+    <!-- 项目空间（tech-solution / arch-doc 带 project，按项目聚合） -->
+    <section x-show="cat==='all' || cat==='project'">
+      <div class="chead" style="margin-top:34px"><h2>项目空间</h2></div>
+      <div class="csub">PROJECTS · 方案与架构归档，链到项目页（__PROJECT_N__ 个项目）</div>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:8px">__PROJECT_CARDS__</div>
+    </section>
+
+    <!-- 简报区 + 知识库入口（弱入口：category=brief） -->
+    <section x-show="cat==='all' || cat==='brief'">
+      <div class="chead" style="margin-top:34px"><h2>简报</h2></div>
+      <div class="csub">BRIEF · 汇报决策，用完即弃（__BRIEF_N__ 篇）</div>
+      __BRIEF_ROWS__
+      <div class="chead" style="margin-top:40px"><h2>知识库</h2></div>
+      <div class="csub">KNOWLEDGE · 从研究报告中蒸馏，供 agent 查询检索</div>
+      <a class="fm-item reveal" href="/knowledge" data-category="brief" data-project="" data-tag=""
+         data-search="知识库 藏书楼 蒸馏 context7" x-show="visible($el)">
+        <span class="fm-seal" aria-hidden="true">藏</span>
+        <span class="fm-body"><span class="fm-title">藏书楼</span>
+        <span class="fm-desc">__TOPICS_N__ 个主题 · 供 agent 查询检索，人工审核把控质量</span></span>
+        <span class="fm-arrow">→</span>
+      </a>
+    </section>
   </div>
 
   <footer class="colophon">
@@ -56,53 +85,35 @@
 </main>
 
 <script>
+/* 四区筛选（重构蓝图 §04）：分类 / 项目 / 标签筹码 × 关键词搜索叠加。
+   rows 由 server 静态渲染（时间倒序），Alpine 只负责显隐——零构建、改完即生效。 */
+function indexApp(){
+  var m=(location.search||'').match(/[?&]cat=([^&]+)/);
+  return {
+    q:'', cat:m?decodeURIComponent(m[1]):'all', tag:'', proj:'',
+    get active(){ return !!(this.q||this.cat!=='all'||this.tag||this.proj); },
+    get shown(){
+      var n=0,s=this;
+      document.querySelectorAll('.toc-item,.fm-item').forEach(function(el){ if(s.visible(el)) n++; });
+      return n;
+    },
+    toggleTag(v){ this.tag=(this.tag===v)?'':v; },
+    toggleProj(v){ this.proj=(this.proj===v)?'':v; },
+    visible(el){
+      var d=el.dataset;
+      if(this.cat!=='all'&&this.cat!==d.category) return false;
+      if(this.tag&&this.tag!==d.tag) return false;
+      if(this.proj&&this.proj!==d.project) return false;
+      if(this.q){ var q=this.q.trim().toLowerCase(); if(q&&!(d.search||'').includes(q)) return false; }
+      return true;
+    }
+  };
+}
 var ribbon=document.getElementById('ribbon');
 function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';}
 addEventListener('scroll',setRibbon,{passive:true});setRibbon();
 var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
 document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
-/* 目录筛选：类型筹码 × 关键词搜索叠加生效 */
-var si=document.getElementById('tocSearch'),hint=document.getElementById('searchHint'),nores=document.getElementById('noresult');
-var items=Array.prototype.slice.call(document.querySelectorAll('.toc-item'));
-var chips=Array.prototype.slice.call(document.querySelectorAll('.chip'));
-var fTag=null,fSeries=null,fDomain=null;
-function applyFilter(pop){
-  var q=si.value.trim().toLowerCase(),shown=0,active=!!(q||fTag||fSeries||fDomain);
-  items.forEach(function(it){
-    var hit=(!q||it.textContent.toLowerCase().indexOf(q)>=0)
-      &&(!fTag||it.getAttribute('data-tag')===fTag)
-      &&(!fSeries||it.getAttribute('data-series')===fSeries)
-      &&(!fDomain||it.getAttribute('data-domain')===fDomain);
-    it.style.display=hit?'':'none';
-    if(hit){shown++;if(pop){it.classList.remove('pop');void it.offsetWidth;it.classList.add('pop');}}
-  });
-  hint.textContent=active?shown+' 篇匹配':'';
-  nores.style.display=(active&&shown===0)?'block':'none';
-}
-chips.forEach(function(c){c.addEventListener('click',function(){
-  chips.forEach(function(x){x.classList.remove('on');});c.classList.add('on');
-  fTag=c.getAttribute('data-type')==='tag'?c.getAttribute('data-f'):null;
-  fSeries=c.getAttribute('data-type')==='series'?c.getAttribute('data-f'):null;
-  fDomain=c.getAttribute('data-type')==='domain'?c.getAttribute('data-f'):null;
-  applyFilter(true);
-});});
-si.addEventListener('input',function(){applyFilter(false);});
-/* 行内 tag / 丛书徽章点击 = 选中对应筹码 */
-Array.prototype.forEach.call(document.querySelectorAll('.row-tag,.row-series,.row-domain'),function(b){
-  b.addEventListener('click',function(e){
-    e.preventDefault();e.stopPropagation();
-    for(var i=0;i<chips.length;i++){var c=chips[i];
-      if(c.getAttribute('data-type')===b.getAttribute('data-type')&&c.getAttribute('data-f')===b.getAttribute('data-f')){c.click();break;}}
-  });
-});
-/* 深链：URL ?domain= 参数 = 加载时点按对应 domain 筹码（复用现有筛选逻辑） */
-(function(){
-  var m=(location.search||'').match(/[?&]domain=([^&]+)/);
-  if(!m)return;
-  var dom=decodeURIComponent(m[1]);
-  for(var i=0;i<chips.length;i++){var c=chips[i];
-    if(c.getAttribute('data-type')==='domain'&&c.getAttribute('data-f')===dom){c.click();break;}}
-})();
 </script>
 </body>
 </html>

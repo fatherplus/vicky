@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""P4: knowledge_query MCP 读线工具。
+"""P4: knowledge_query 检索管线（原 MCP 读线工具的内核，2026-08-12 重构后经
+GET /api/knowledge?q= 暴露，见 tests/test_http_api.py）。
 
 覆盖：三阶段管线（召回/打分/预算装包）、目录模式、预算硬顶与截断、
-引文格式（id/topic/sources/url）、category/tag 过滤、空库 note、
-MCP 注册（tools/list 含 knowledge_query）。
+引文格式（id/topic/sources/url）、category/tag 过滤、空库 note。
 
 安全红线：全部 tmp 目录隔离（patch config.DATA_DIR + KNOWLEDGE_DIR），
-不碰真实 knowledge/ 与 data/。本文件按字母序排在 test_mcp_protocol 之前——
-绝不触发全局 register_default_tools（P1 契约 test_tools_list 断言 tools/list 为空），
-注册验证用全新 MCPRouter 复现注册逻辑。
+不碰真实 knowledge/ 与 data/。
 """
 import json
 import tempfile
@@ -80,16 +78,6 @@ def _env(topics: dict):
             store.create_knowledge_items_table()
             store.rebuild_items_index({"tech": list(topics)})
             yield tmp
-
-
-def _fresh_router():
-    """全新 MCPRouter（复现 register_default_tools 的注册逻辑，不污染全局注册表）。"""
-    from vicky import mcp
-    r = mcp.MCPRouter()
-    for name, handler, schema in mcp._DEFAULT_TOOLS:
-        r.tool_schemas[name] = schema
-        r.register(name, handler)
-    return r
 
 
 # ============================================================
@@ -221,37 +209,6 @@ def test_query_too_long_truncated():
         long_q = "HNSW " + "向量" * 300  # > 200 字符
         result = query({"q": long_q})
         assert "items" in result and "stats" in result
-
-
-# ============================================================
-# MCP 注册（不触发全局注册，P1 空表契约不受影响）
-# ============================================================
-def test_mcp_tool_registered():
-    """tools/list 含 knowledge_query，inputSchema 契约正确。"""
-    r = _fresh_router()
-    listing = r.dispatch("tools/list", {})
-    names = [t["name"] for t in listing["tools"]]
-    assert "knowledge_query" in names
-    schema = r.tool_schemas["knowledge_query"]
-    props = schema["inputSchema"]["properties"]
-    assert set(props) >= {"q", "budget", "category", "tag"}
-    assert props["budget"]["default"] == 2000
-
-
-def test_mcp_tool_call_via_router():
-    """经全新 router 的 tools/call 端到端：handler → knowledge_query.query → 结果入 content。"""
-    with _env({"hnsw-algorithm": ("ai", ["RAG", "检索"], HNSW_MD)}):
-        r = _fresh_router()
-        res = r.dispatch("tools/call", {
-            "name": "knowledge_query", "arguments": {"q": "HNSW", "budget": 300}})
-        data = json.loads(res["content"][0]["text"])
-        assert data["items"]
-        assert data["stats"]["budget_total"] == 300
-        # 目录模式走同一工具
-        cat = r.dispatch("tools/call", {
-            "name": "knowledge_query", "arguments": {"q": ""}})
-        cat_data = json.loads(cat["content"][0]["text"])
-        assert "catalog" in cat_data
 
 
 if __name__ == "__main__":

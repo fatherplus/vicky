@@ -2,7 +2,7 @@
 
 ## 这是什么
 
-个人知识平台：任何 AI Agent 调研完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档，并经 L0-L3 蒸馏成可持续演化的知识 Wiki。**已落地 MCP 知识服务**：agent 可通过 `POST /mcp` 挂载五工具——投稿（submit_report）、查知识（knowledge_query）、写反馈（submit_feedback）、看规范（authoring_guide）、注册模板（register_template）。HTTP API 并行保留作为底座。
+个人知识平台：任何 AI Agent 调研完一个技术后，把内容 POST 过来，平台自动套用统一的"书"风格渲染、发布、归档，并经 L0-L3 蒸馏成可持续演化的知识 Wiki。**2026-08-12 产品重构**：内容按「4 大分类骨架（research / brief / tech-solution / arch-doc）× 叙事方式 × 统一视觉」两层模型组织，归档（知识库 / 项目区 / 临时）与模板正交；agent 交互走 `skill/vicky-writer` + 直接 HTTP（MCP 已删除）；后端为 FastAPI，知识库支持人工审核（软下架 / 硬删除 / 单条知识状态）。
 
 **核心问题**：不同 agent、不同时间写的报告，风格五花八门；研究结论散落在单篇报告里，难以被后续 Agent 直接复用。
 **解法**：视觉 taste 由 server 端模板强制（agent 碰不到 CSS）；内容 taste 分三层——表述形态由 server 门禁强制（裸表格/无结论对比直接拒收），语义词汇由表述规范约束，框内的画完全放开。`/api/guide` 暴露写作规范。知识层由 L2 蒸馏沉淀、L3 反馈回灌，逐步长成可供 Agent 查询的知识服务。
@@ -36,17 +36,19 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 | 文件 | 角色 | 层 |
 |------|------|----|
-| `vicky/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、DOMAINS、DESIGN_DOC_SLUG | — |
+| `vicky/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、REPORT_CATEGORIES / LEGACY_DOMAIN_TO_CATEGORY / NARRATIVES、DESIGN_DOC_SLUG | — |
 | `vicky/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
 | `vicky/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
 | `vicky/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 卡片墙 + 丛书 | L1 |
 | `vicky/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
 | `vicky/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
 | `vicky/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
-| `vicky/web.py` | 薄路由层：每端点小函数 + 静态自伺服（根级直出 + `/research/*` 兼容） | — |
-| `vicky/cli.py` | backfill / render / distill / judge 命令入口 | — |
+| `vicky/curate.py` | 审核治理：软下架/硬删除级联 + 知识条目状态 + 审核视图 | L3 层 |
+| `vicky/knowledge_query.py` | 知识库 FTS 三阶段检索（召回→打分→预算装包），`GET /api/knowledge?q=` 的内核 | — |
+| `vicky/web.py` | FastAPI 薄路由层：每端点小函数 + 静态自伺服（根级直出 + `/research/*` 兼容） | — |
+| `vicky/cli.py` | backfill / render / distill / judge / hide / delete / audit 命令入口 | — |
 
-依赖方向严格单向：`web → l3 → l2 → l1 → l0 → store`，禁止反向。L2 编译时直查 feedbacks 表取 adopted 条目（不 import l3_feedback），防环依赖。
+依赖方向严格单向：`web → curate/l3 → l2 → l1 → l0 → store`，禁止反向。L2 编译时直查 feedbacks 表取 adopted 条目（不 import l3_feedback），防环依赖。
 
 ### 旧入口（shim，指向包）
 
@@ -85,6 +87,8 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `skill/BOOK-STYLE.md` | 书风格设计硬约束（字体/配色/版式/动效/禁止清单） |
 | `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」 |
 | `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量（`GET /api/principles`） |
+| `skill/NARRATIVES.md` | 叙事方式选型库——7 种叙事的章节骨骼与选型决策表（`GET /api/narratives`） |
+| `skill/vicky-writer/SKILL.md` | 外部 agent 投稿技能（2026-08-12 起替代 MCP：按需触发 + 直接 HTTP） |
 | `scripts/nginx-research.conf` | 个人环境 Nginx 配置（纯反代） |
 | `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（纯反代） |
 | `scripts/deploy.sh` | 个人环境部署（逐项内容级 rsync + backfill + Nginx 重载；macOS openrsync 目录级传输会静默跳过，勿改回批量） |
@@ -96,16 +100,22 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 
 ## API
 
-### HTTP（存量，保留不动）
+### HTTP（唯一入口——agent 经 skill/vicky-writer 直接调用）
 
 ```
-POST /api/reports                    创建/修订报告（同 slug upsert）
+POST /api/reports                    创建/修订报告（同 slug upsert；category/narrative/project 三字段显式指定）
 POST /api/validate                   预检（violations/warnings/components，不落盘）
 POST /api/templates                  创建模板（provisional；门禁：占位符/token/契约）
 POST /api/knowledge/feedback         L3 写回（evidence 必填，topic 必须已存在）
 POST /api/knowledge/feedback/{id}/judge  人工裁决
 GET  /api/reports                    列出所有报告
-GET  /api/knowledge                  知识库（?domain=&topic= 查单页；不带参列全部）
+GET  /api/knowledge                  知识库（?domain=&topic= 查单页；不带参列全部；?q= FTS 检索）
+GET  /api/knowledge/audit            知识条目审核视图（?topic=，含 hidden）
+POST /api/knowledge/items/{id}/status  单条知识 active/hidden
+POST /api/reports/{slug}/hide        软下架/恢复（body {"hidden": bool}，级联知识条目）
+POST /api/reports/{slug}/delete      硬删除（L0+文件+DB+知识条目级联，不可逆）
+GET  /api/narratives                 叙事方式选型库（markdown）
+GET  /api/projects                   项目空间清单（项目名/篇数/最新日期）
 GET  /api/knowledge/feedback         账本可查（?topic=&status=）
 GET  /api/guide                      写作指南（markdown）
 GET  /api/skill                      下载写作指南（.md 附件）
@@ -118,21 +128,27 @@ GET  /api/health                     健康检查
 GET  /research/*                     静态自伺服兼容入口
 ```
 
-### MCP（agent 工具协议，`POST /mcp`）
+### Agent 接入（Skill + HTTP，2026-08-12 起替代 MCP）
 
-| 工具 | 方向 | 职责 |
-|---|---|---|
-| `submit_report` | agent → 平台 | 完整投稿，`dry_run=true` 即预检（report + validate 合一） |
-| `submit_feedback` | agent → 平台 | L3 使用回写，`cited` 引知识条目 ID（无效 ID 拒收） |
-| `register_template` | agent → 平台 | 模板注册 |
-| `knowledge_query` | agent ← 平台 | 预算内片段流 + 引用 ID——Mintlify 式知识查询 |
-| `authoring_guide` | agent ← 平台 | 写作工具包一次取全：规范 + 模板目录 + domain 路由 + 叙事宪法 |
+agent 触发 `skill/vicky-writer/SKILL.md` 后直接打 HTTP 端点，无常驻协议开销：
 
-judge 不暴露为 MCP 工具（人工裁决权）。
+| 动作 | 端点 |
+|---|---|
+| 读写作规范 | `GET /api/guide`（`skill/AGENT-GUIDE.md`） |
+| 选叙事方式 | `GET /api/narratives`（`skill/NARRATIVES.md`，7 种叙事选型库） |
+| 看模板目录 | `GET /api/templates` |
+| 预检 | `POST /api/validate` |
+| 投稿 | `POST /api/reports`（category + narrative + project 显式指定） |
+| 查知识 | `GET /api/knowledge?q=`（预算内片段流 + 引用 ID） |
+| 写反馈 | `POST /api/knowledge/feedback`（L3 使用回写） |
+
+人工裁决（judge / hide / delete）不经 agent——审核权在人。
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
 
-**domain 分区**：`domain` 枚举 `tech`（默认）/`design`/`ephemeral`/`arch`，决定蒸馏路由——只有 `tech` 进知识库蒸馏，`design`（前端卡片素材）/`ephemeral`（临时报告）/`arch`（架构站）均跳过。`design` 报告聚合成卡片墙 `public/design.html`；`arch` 报告为丛书机制多页站（`{project}-arch` 丛书：总览卷 + 节点卷）。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
+**category 骨架（2026-08-12 重构）**：`category` 枚举 `research`（技术调研长读，唯一进知识库蒸馏）/`brief`（决策简报/汇报，用完即弃）/`tech-solution`（技术方案，归项目区）/`arch-doc`（项目架构详情，归项目区）。`narrative` 为叙事方式（自由文本，选型见 `/api/narratives`），`project` 为归档项目名（tech-solution/arch-doc 必填，聚合成 `public/projects/{name}.html` 项目页）。存量 `domain` 仍被接受并映射：tech→research / ephemeral→brief / arch→arch-doc / design→legacy（不再开放新提交）。`tech-solution` 内容出现超过约 15 行代码块给 warning「方案不应包含实施代码」。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
+
+**审核治理**：报告两级操作——软下架（`hidden`，索引/项目页/蒸馏全部隐藏，可恢复）与硬删除（L0 快照 + 文件 + DB 行 + 关联知识条目级联物理删，不可逆）。知识条目独立状态 active/hidden，审核视图 `GET /api/knowledge/audit`。CLI：`python3 -m vicky.cli hide/delete/audit`。
 
 **L3 仲裁流**：反馈是带证据的陈述，不是分数；采纳是裁决，不是算术。状态机 pending → adopted | rejected，可翻案。裁决权始终可人工接管（judged_by 记 `human:{ip}`）。采纳后 feedback 作为 type=feedback 来源与报告平级进 L2 编译。证据为空直接拒收。
 
@@ -160,6 +176,7 @@ judge 不暴露为 MCP 工具（人工裁决权）。
 - figure 缺 fig-cap / fig-note
 - AI 腔词（赋能/闭环/打通/一站式/全方位/引领）、标题正文 emoji
 - mermaid 未装裱进 figure
+- `category=tech-solution` 内容出现超过约 15 行代码块——「方案不应包含实施代码」（止步于架构与表结构示意）
 
 重量级渲染资源（mermaid / arch-flow）由 server 检测 HTML 契约后按篇注入 `<head>`（`COMPONENTS` 注册表），模板不无条件加载。
 
@@ -186,6 +203,9 @@ judge 不暴露为 MCP 工具（人工裁决权）。
 ## 开发
 
 ```bash
+# 依赖（2026-08-12 起：FastAPI 换壳）
+pip install -r requirements.txt    # fastapi + uvicorn + httpx(测试用)
+
 # 启动服务（自伺服静态文件 + API）
 python3 -m vicky.web [port] [host]  # 默认 9091 / 127.0.0.1，位置参数
 
@@ -195,6 +215,9 @@ python3 -m vicky.cli render --all          # L0 → L1 全量重渲染
 python3 -m vicky.cli render --slug <slug>  # 单篇重渲染
 python3 -m vicky.cli distill [--clean] [--dry-run]  # L2 蒸馏
 python3 -m vicky.cli judge                  # LLM 批量初裁 pending 反馈
+python3 -m vicky.cli hide --slug X          # 软下架（restore 恢复）
+python3 -m vicky.cli delete --slug X --yes  # 硬删除（级联，不可逆）
+python3 -m vicky.cli audit [--topic X]      # 知识条目审核视图
 
 # 测试
 python3 -m pytest tests/ -q

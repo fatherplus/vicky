@@ -29,6 +29,9 @@ PUBLIC_DIR = config.PUBLIC_DIR
 IMG_DIR = config.IMG_DIR
 NARRATIVE_CONTRACTS = config.NARRATIVE_CONTRACTS
 DOMAINS = config.DOMAINS
+REPORT_CATEGORIES = config.REPORT_CATEGORIES
+LEGACY_DOMAIN_TO_CATEGORY = config.LEGACY_DOMAIN_TO_CATEGORY
+NARRATIVES = config.NARRATIVES
 COMPONENTS = config.COMPONENTS
 FIGURE_RE = config.FIGURE_RE
 AI_WORDS = config.AI_WORDS
@@ -71,31 +74,82 @@ def render(template: str, **kwargs) -> str:
 _INDEX_TPL = None  # P3 前端抢救：启动时由 _init_index_tpl() 填充
 
 
-def build_index(reports: list[dict]) -> str:
-    """生成书风格索引页。tag 以 META 开头的文档钉住「卷首」（关于本书），
-    其余按时间倒序进目录流，类型筹码（tag / 丛书）前端筛选。
-    P3 前端抢救：模板从 views/index.html 加载，片段用 ui.py。"""
-    total = len(reports)
-    front = [r for r in reports if r.get("tag", "").upper().startswith("META")]
-    research = [r for r in reports if not r.get("tag", "").upper().startswith("META")]
-    # 给每条 research 打上 _tag/_series/_domain 字段供 ui.chips_html / ui.toc_row 使用
-    for r in research:
-        r["_tag"] = (r.get("tag") or "研究报告").strip() or "研究报告"
+def _annotate_rows(rows: list, default_tag: str) -> None:
+    """给目录行打 _tag/_series/_domain/_category/_project 供 ui 构建器使用。"""
+    for r in rows:
+        r["_tag"] = (r.get("tag") or default_tag).strip() or default_tag
         r["_series"] = normalize_series(r["series"]) if r.get("series") else ""
         r["_domain"] = r.get("domain") or "tech"
+        r["_category"] = r.get("category") or "research"
+        r["_project"] = r.get("project") or ""
 
+
+def build_index(reports: list[dict]) -> str:
+    """生成四区书风格索引页（重构蓝图 §04）——技术文库 / 项目空间 / 简报·知识库。
+    - hidden=1 与 legacy design（category=design）不进入任何区；
+    - META 开头 tag 钉住「卷首」（关于本书），不进目录流；
+    - 技术文库（research）与简报（brief）时间倒序；项目空间（tech-solution / arch-doc 带 project）
+      按项目聚合，链到 /projects/{slug}.html；
+    - Alpine 前端筛选：分类 / 项目 / 标签 + 关键词，默认时间倒序（行序即 server 时间倒序）。"""
+    visible = [r for r in reports if not r.get("hidden")]
+    front = [r for r in visible if r.get("tag", "").upper().startswith("META")]
+    research = [r for r in visible if r.get("category") == "research"]
+    briefs = [r for r in visible if r.get("category") == "brief"]
+    # 项目区聚合 tech-solution + arch-doc 且带 project（蓝图 §04-B：项目空间 = 方案 + 架构归档）
+    project_docs = [r for r in visible
+                    if r.get("project") and r.get("category") in ("tech-solution", "arch-doc")]
+    _annotate_rows(research, "研究报告")
+    _annotate_rows(briefs, "简报")
+    for docs in _group_projects(project_docs).values():
+        _annotate_rows(docs, "方案")
+
+    # 标签筹码计数（技术文库 + 简报，按计数倒序）
+    tag_counts = {}
+    for r in research + briefs:
+        tag = r["_tag"]
+        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    tag_list = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    # 项目卡片 + 项目筹码（按最新日期倒序）
+    proj_map = _group_projects(project_docs)
+    proj_sorted = sorted(proj_map.items(),
+                         key=lambda kv: (kv[1][0]["date"] if kv[1] else ""), reverse=True)
+    cards = [ui.project_card(name, docs) for name, docs in proj_sorted]
+    proj_chips = [(name, len(docs)) for name, docs in proj_sorted]
+
+    zone_total = len(research) + len(briefs) + len(project_docs)
+    chips = ui.index_chips(zone_total, len(research), len(briefs), len(proj_map),
+                           tag_list, proj_chips)
     frontmatter = ui.frontmatter_html(front)
-    chips = ui.chips_html(research)
-    rows = [ui.toc_row(r, i) for i, r in enumerate(research, 1)]
-    year = reports[0]["date"][:4] if reports else str(datetime.now().year)
+    research_rows = [ui.toc_row(r, i) for i, r in enumerate(research, 1)]
+    brief_rows = [ui.toc_row(r, i) for i, r in enumerate(briefs, 1)]
+    year = (research + briefs + project_docs)[0]["date"][:4] \
+        if (research + briefs + project_docs) else str(datetime.now().year)
 
     tpl = ui.load_view("index.html")
     return (tpl
             .replace("__FRONTMATTER__", frontmatter)
             .replace("__CHIPS__", "\n    ".join(chips))
-            .replace("__TOC__", "\n    ".join(rows))
-            .replace("__TOTAL__", str(total))
+            .replace("__RESEARCH_ROWS__", "\n    ".join(research_rows))
+            .replace("__BRIEF_ROWS__", "\n    ".join(brief_rows))
+            .replace("__PROJECT_CARDS__", "\n    ".join(cards))
+            .replace("__RESEARCH_N__", str(len(research)))
+            .replace("__BRIEF_N__", str(len(briefs)))
+            .replace("__PROJECT_N__", str(len(proj_map)))
+            .replace("__TOPICS_N__", str(count_knowledge_topics()))
+            .replace("__TOTAL__", str(zone_total))
             .replace("__YEAR__", year))
+
+
+def _group_projects(project_docs: list) -> dict:
+    """按 project 字段分组（保持每组内时间倒序），空 project 不入组。"""
+    out = {}
+    for r in project_docs:
+        name = (r.get("project") or "").strip()
+        if not name:
+            continue
+        out.setdefault(name, []).append(r)
+    return out
 
 
 # ============================================================
@@ -118,6 +172,47 @@ def component_head(content: str) -> tuple:
     hits = [name for name, comp in COMPONENTS.items() if comp["detect"](content)]
     head = "\n    ".join(tag for name in hits for tag in COMPONENTS[name]["head"])
     return head, hits
+
+
+# ============================================================
+# 骨架分类门禁 + tech-solution 代码块红线（重构蓝图 2026-08-12 §03）
+# ============================================================
+def validate_category(category: str, domain: str = "tech") -> str | None:
+    """骨架分类门禁：category 必须是四大分类之一；'design' 仅走 legacy domain 映射
+    （domain=design）放行，不再开放提交。非法返回错误文案，合法返回 None。"""
+    category = (category or "").strip() or "research"
+    if category in REPORT_CATEGORIES:
+        return None
+    if LEGACY_DOMAIN_TO_CATEGORY.get((domain or "tech").strip()) == category:
+        return None
+    return (f"category 必须是 {REPORT_CATEGORIES} 之一"
+            f"（design 仅 legacy domain 映射，不再开放提交）")
+
+
+# tech-solution 代码块红线：方案止步于架构与表结构示意，不出现大段实施代码
+CODE_BLOCK_RE = re.compile(r"<pre>\s*<code[^>]*>([\s\S]*?)</code>\s*</pre>", re.I)
+CODE_LINE_LIMIT = 15  # 超过约 15 行 → 疑似实施代码
+
+
+def _code_block_line_count(content: str) -> int:
+    """全部 <pre><code> 代码块中最大行数（去空行）；无代码块返回 0。"""
+    max_lines = 0
+    for m in CODE_BLOCK_RE.findall(content or ""):
+        lines = [ln for ln in m.split("\n") if ln.strip()]
+        max_lines = max(max_lines, len(lines))
+    return max_lines
+
+
+def code_block_warning(content: str, category: str) -> str | None:
+    """tech-solution 软提醒：内容中出现 <pre><code> 且代码块超过约 15 行 →
+    「技术方案不应包含实施代码（止步于架构与表结构示意）」。非 tech-solution 不告警。"""
+    if category != "tech-solution":
+        return None
+    lines = _code_block_line_count(content)
+    if lines > CODE_LINE_LIMIT:
+        return (f"tech-solution 不应包含实施代码：检测到 {lines} 行代码块"
+                f"（方案止步于架构与表结构示意）")
+    return None
 
 
 # ============================================================
@@ -155,10 +250,13 @@ def _h2_texts(content: str) -> list:
     return [re.sub(r"<[^>]+>", "", h).strip() for h in H2_RE.findall(content)]
 
 
-def validate_content(content: str, title: str = "", template: str = "") -> tuple:
+def validate_content(content: str, title: str = "", template: str = "",
+                     category: str = "") -> tuple:
     """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
     errors 触发 400 拒收；warnings 只随响应返回，agent 自觉修订。
-    template="arch-node" 时追加节点卷三段硬契约校验（缺段/顺序错均拒收）。"""
+    template="arch-node" 时追加节点卷三段硬契约校验（缺段/顺序错均拒收）。
+    category="tech-solution" 时追加实施代码软提醒（代码块超过约 15 行）。
+    重构蓝图：category 参数可选（不传 = 不检分类相关提醒），签名向后兼容。"""
     errors = []
     # --- errors：机器可判定的硬伤（原三条保留）---
     if template == "arch-node":
@@ -204,6 +302,9 @@ def validate_content(content: str, title: str = "", template: str = "") -> tuple
     bare = [m for m in SECTION_RE.findall(content) if _section_lacks_wrap(m[1])]
     if bare:
         warnings.append(f"{len(bare)} 个 section 缺 .wrap 版心（server 已自动补；提交时请包 <div class=\"wrap\">）")
+    cw = code_block_warning(content, category)
+    if cw:
+        warnings.append(cw)
     return errors, warnings
 
 
@@ -284,10 +385,21 @@ def _existing_for_slug(slug: str) -> list:
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
                   series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
                   base_url: str = "", domain: str = "tech",
-                  images: list | None = None, client_ip: str = "127.0.0.1") -> dict:
+                  images: list | None = None, client_ip: str = "127.0.0.1",
+                  category: str = "", narrative: str = "", project: str = "") -> dict:
     """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
-    同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。"""
+    重构蓝图（2026-08-12）：category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）
+    三字段显式指定，与模板正交；category 非法直接拒收（validate_category，design 仅 legacy 映射），
+    tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。"""
     today = datetime.now().strftime("%Y-%m-%d")
+
+    # ── 骨架分类推导 + 门禁（重构蓝图 §02）：显式 category 优先；未指定按 legacy domain
+    # 映射（tech→research / ephemeral→brief / arch→arch-doc / design→design legacy）。
+    # web.py 预检后可传 category；此处兜底直调方，防绕门禁 ──
+    category = (category or "").strip() or LEGACY_DOMAIN_TO_CATEGORY.get((domain or "tech").strip(), "research")
+    cat_err = validate_category(category, domain)
+    if cat_err:
+        raise ValueError(cat_err)
 
     # ── 确定文件名与 created 标记 ──
     existing = _existing_for_slug(slug)
@@ -301,17 +413,23 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         filename = f"{today}-{slug}.html"
         created = True
 
-    # ── 模板级硬契约门禁（arch-node 三段）──
+    # ── 模板级硬契约门禁（arch-node 三段等）──
     # web.py 已预检过（400），此处兜底直调方（cli/测试），防止绕门禁
-    violations, _ = validate_content(content, title, template)
+    violations, _ = validate_content(content, title, template, category)
     if violations:
         raise ValueError("内容不符合表述规范：" + "；".join(violations))
+
+    # ── tech-solution 实施代码软提醒（方案止步于架构与表结构示意）──
+    cw = code_block_warning(content, category)
+    if cw:
+        warnings.append(cw)
 
     # ── L0：不可变快照存档 ──
     payload = {
         "title": title, "slug": slug, "tag": tag, "content": content,
         "subtitle": subtitle, "series": series, "order": order,
         "template": template, "domain": domain,
+        "category": category, "narrative": narrative, "project": project,
     }
     if images:
         payload["images"] = [{"name": img.get("name", "")} for img in images]
@@ -364,7 +482,8 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         created_date = filename[:10] if len(filename) >= 10 else today
         updated_date = today if not created else ""
         store.upsert_report(conn, slug, filename, title, tag, subtitle, domain,
-                            template, series, order, created_date, updated_date, sub_id)
+                            template, series, order, created_date, updated_date, sub_id,
+                            category=category, narrative=narrative, project=project)
         conn.commit()
     finally:
         conn.close()
@@ -375,6 +494,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     INDEX_PATH.write_text(index_html, encoding="utf-8")
     refresh_card_wall()
     refresh_home()
+    refresh_projects()
 
     if series:
         maintain_series_siblings(series)
@@ -463,11 +583,13 @@ def render_from_l0(slug: str) -> dict:
 
 
 def rebuild_index():
-    """重建索引页（render --all 后调用）。"""
+    """重建索引页 + 首页 + 卡片墙 + 项目页 + 丛书（render --all 后调用）。
+    审核治理（curate 软下架/硬删除）也走此入口——项目页随之重算，hidden 文档自动消失。"""
     reports = list_reports()
     INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
     refresh_card_wall()
     refresh_home()
+    refresh_projects()
     # 全量丛书维护
     conn = store.get_db()
     try:
@@ -509,8 +631,62 @@ def refresh_card_wall():
 
 
 # ============================================================
+# 项目空间（重构蓝图 §04-B）——public/projects/{slug}.html
+# 每项目一页：项目名 + 文档时间线（倒序、tech-solution/arch-doc 类型徽章）+ 页间互链。
+# 聚合口径与索引页项目空间区一致：tech-solution / arch-doc 且带 project。
+# ============================================================
+def build_project_page(project: dict, docs: list[dict], all_projects: list[dict]) -> str:
+    """单项目页组装：文档时间线（倒序）+ 页间互链（其他项目）。
+    docs 已按时间倒序且限定 tech-solution/arch-doc；空文档给占位提示。"""
+    rows_html = "\n    ".join(ui.project_doc_row(r, i) for i, r in enumerate(docs, 1))
+    if not docs:
+        rows_html = '<div class="zone-empty">暂无已归档文档（tech-solution / arch-doc）</div>'
+    year = docs[0]["date"][:4] if docs else str(datetime.now().year)
+    tpl = ui.load_view("project.html")
+    return (tpl
+            .replace("__PROJECT_NAME__", html_mod.escape(project["project"]))
+            .replace("__COUNT__", str(len(docs)))
+            .replace("__YEAR__", year)
+            .replace("__DOCS__", rows_html)
+            .replace("__PROJECT_NAV__", ui.project_nav(all_projects, project["project"])))
+
+
+def build_project_pages() -> int:
+    """全量重建 public/projects/{slug}.html——每项目一页，返回生成页数。
+    随发布（create_report）与全量重渲染（rebuild_index）触发；
+    审核治理（curate 软下架/硬删除）经 rebuild_index 一并生效。"""
+    conn = store.get_db()
+    try:
+        projects = store.list_projects(conn)  # 已排除 hidden 与空 project
+        docs_by = {p["project"]: store.list_reports(conn, project=p["project"])
+                   for p in projects}
+    finally:
+        conn.close()
+    proj_dir = PUBLIC_DIR / "projects"
+    proj_dir.mkdir(parents=True, exist_ok=True)
+    for p in projects:
+        docs = [d for d in docs_by.get(p["project"], [])
+                if d.get("category") in ("tech-solution", "arch-doc")]
+        _annotate_rows(docs, "方案")
+        page = build_project_page(p, docs, projects)
+        (proj_dir / f"{ui.project_slug(p['project'])}.html").write_text(
+            page, encoding="utf-8")
+    # 清理孤儿页：项目最后一篇被下架/删除后，对应项目页一并移除
+    expected = {f"{ui.project_slug(p['project'])}.html" for p in projects}
+    for f in proj_dir.glob("*.html"):
+        if f.name not in expected:
+            f.unlink()
+    return len(projects)
+
+
+def refresh_projects():
+    """刷新 public/projects/ 全部项目页（与索引/首页/卡片墙同触发点）。"""
+    build_project_pages()
+
+
+# ============================================================
 # 首页门户（P2）——public/home.html，与索引页同目录
-# 占位符：__TOTAL_REPORTS__ / __TOTAL_CARDS__ / __TOTAL_TOPICS__ / __YEAR__
+# 占位符：__RESEARCH_N__ / __PROJECT_N__ / __BRIEF_N__ / __TOTAL_TOPICS__ / __YEAR__
 # ============================================================
 def count_knowledge_topics() -> int:
     """knowledge/ 主题目录数：有 overview.md 的才算（与 GET /api/knowledge 列表口径一致）。"""
@@ -527,18 +703,22 @@ def count_knowledge_topics() -> int:
 
 
 def build_home() -> str:
-    """生成首页门户：从 store 取 reports 总数 / design 数，扫 knowledge/ 主题数，填 views/home.html。"""
+    """生成首页门户：四区计数（文库篇数 / 项目数 / 简报数）+ 知识主题数 + 总篇数，
+    填 views/home.html。计数一律排除 hidden（store.list_reports / list_projects 默认过滤）。"""
     conn = store.get_db()
     try:
-        total_reports = conn.execute("SELECT COUNT(*) FROM reports").fetchone()[0]
-        total_cards = conn.execute(
-            "SELECT COUNT(*) FROM reports WHERE domain='design'").fetchone()[0]
+        reports = store.list_reports(conn)
+        research_n = sum(1 for r in reports if r.get("category") == "research")
+        brief_n = sum(1 for r in reports if r.get("category") == "brief")
+        project_n = len(store.list_projects(conn))
     finally:
         conn.close()
     tpl = ui.load_view("home.html")
     return (tpl
-            .replace("__TOTAL_REPORTS__", str(total_reports))
-            .replace("__TOTAL_CARDS__", str(total_cards))
+            .replace("__RESEARCH_N__", str(research_n))
+            .replace("__BRIEF_N__", str(brief_n))
+            .replace("__PROJECT_N__", str(project_n))
+            .replace("__TOTAL_REPORTS__", str(len(reports)))
             .replace("__TOTAL_TOPICS__", str(count_knowledge_topics()))
             .replace("__YEAR__", str(datetime.now().year)))
 

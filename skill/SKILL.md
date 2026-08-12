@@ -5,8 +5,9 @@ description: >-
   Use when the user asks to research a GitHub project, technology, or topic and produce
   a structured report. Content is submitted to the Vicky platform
   (https://github.com/fatherplus/vicky) via POST /api/reports, choosing a
-  template (book / brief / arch-overview / arch-node / card) and a domain
-  (tech / ephemeral / design / arch) by content type. Visual style is governed by the
+  category (research / brief / tech-solution / arch-doc, with optional
+  project for project documents) and a narrative (7 kinds, see GET /api/narratives).
+  Visual style is governed by the
   platform's book-style design system (skill/BOOK-STYLE.md); the submission contract
   lives in skill/AGENT-GUIDE.md.
 ---
@@ -17,8 +18,8 @@ description: >-
 
 `Vicky` 是一个**个人知识平台**（报告入库 → 知识蒸馏 → Agent 知识服务），包含：
 - **五个模板**：`templates/` 注册制 — `book`（默认，“书”页长读：宋体标题 + 书眉 + 藏书章 + 书签丝带）、`brief`（结论先行决策简报）、`arch-overview` / `arch-node`（项目架构多页站，骑丛书机制）、`card`（产品风格卡片，聚合成卡片墙）；所有报告共享同一份 CSS
-- **四类内容域**（`domain` 字段路由）：`tech` 技术文章（唯一进知识蒸馏）/ `ephemeral` 临时报告 / `design` 前端卡片（不蒸馏；卡片墙 `/design.html`，token 总纲 `GET /api/design`，CSS 资源包 `GET /api/design.css`）/ `arch` 架构站（不蒸馏）
-- **提交契约**：`skill/AGENT-GUIDE.md`（即 `GET /api/guide`）— domain 路由表、四类工作流、截图规范、arch 丛书约定
+- **四大分类骨架**（`category` 字段路由，旧 `domain` 已废弃）：`research` 技术长文（唯一进知识蒸馏）/ `brief` 决策简报（用完即弃）/ `tech-solution` 技术方案（归项目区，止步示意层）/ `arch-doc` 架构详情（归项目区，走丛书机制）。归档（`project`）与叙事（`narrative`，7 种见 `GET /api/narratives`）是正交字段
+- **提交契约**：`skill/AGENT-GUIDE.md`（即 `GET /api/guide`）— category 路由、三个工作流、截图规范、arch 丛书约定；叙事选型见 `skill/NARRATIVES.md`
 - **风格规范**：`skill/BOOK-STYLE.md` — 书风格的硬约束（字体/配色/版式/动效/绝对禁止清单）
 - **GitLab Pages**：`public/` 目录自动发布为静态站点
 - **Skill**：本文件 — 定义报告生成的标准工作流
@@ -96,20 +97,20 @@ Avoid duplicating work:
 - `search_files` in `vicky/public/reports/` for `*.html`
 - If a report on the same topic exists, cross-reference. Link to it from the new report.
 
-### 3. Choose Template & Domain
+### 3. Choose Template, Category & Narrative
 
 不手写整页 HTML——只写正文内容，`POST /api/reports` 时平台套模板、生成 .md 孪生、L0 存档。模板目录：`GET /api/templates`（或读 `templates/{name}/manifest.json`）。
 
-| 内容 | domain | template | slug 约定 |
+| 内容 | category | template | 附加字段 / slug 约定 |
 |---|---|---|---|
-| 技术文章（默认） | `tech` | `book` | 主题 slug |
-| 决策简报 | `tech` / `ephemeral` | `brief` | 主题 slug |
-| 临时报告（给人/领导看，不蒸馏） | `ephemeral` | `book` / `brief` | 主题 slug |
-| 产品风格卡片 | `design` | `card` | `card-{product}` |
-| 架构总览卷 | `arch` | `arch-overview` | `{project}-arch-overview`（series `{project}-arch`，order=1） |
-| 架构节点卷 | `arch` | `arch-node` | `{project}-arch-{module}`（同 series，order=2..n，三段 h2 硬契约） |
+| 技术调研长文（默认） | `research` | `book` | `narrative` 按内容选（默认黄金五章）；主题 slug |
+| 临时简报（给人/领导看，不蒸馏） | `brief` | `brief` | `narrative` 建议 `金字塔/结论先行`；主题 slug |
+| 技术方案 | `tech-solution` | `book` | `project` 必填（归项目区）；不含实施代码 |
+| 架构总览卷 | `arch-doc` | `arch-overview` | `project` + `{project}-arch-overview`（series `{project}-arch`，order=1） |
+| 架构节点卷 | `arch-doc` | `arch-node` | `project` + `{project}-arch-{module}`（同 series，order=2..n，三段 h2 硬契约） |
+| 产品风格卡片 | ~~design~~（legacy） | `card` | 不再开放提交 |
 
-模板框架由平台用占位符填充（`{{TITLE}}` `{{SUBTITLE}}` `{{HERO_TAG}}` `{{DATE}}` `{{META}}` `{{CONTENT}}` `{{COMPONENT_HEAD}}` `{{SERIES_BADGE}}` `{{VOLUME_NAV}}`），agent 不碰。四类工作流、截图规范（视口 1440×900 / 默认抓主页 / PNG / 走 `images` 字段）、arch 节点卷「输入与输出 → 内部工作流 → 架构方案」三段契约与 mermaid click 跳转写法，全部见 `skill/AGENT-GUIDE.md`。
+模板框架由平台用占位符填充（`{{TITLE}}` `{{SUBTITLE}}` `{{HERO_TAG}}` `{{DATE}}` `{{META}}` `{{CONTENT}}` `{{COMPONENT_HEAD}}` `{{SERIES_BADGE}}` `{{VOLUME_NAV}}`），agent 不碰。三个工作流（调研长文 / 临时简报 / 项目文档）、叙事选型（`GET /api/narratives`，7 种）、截图规范（视口 1440×900 / 默认抓主页 / PNG / 走 `images` 字段）、arch 节点卷「输入与输出 → 内部工作流 → 架构方案」三段契约与 mermaid click 跳转写法，全部见 `skill/AGENT-GUIDE.md`。
 
 ### 4. Write the Report
 

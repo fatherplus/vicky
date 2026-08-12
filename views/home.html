@@ -30,7 +30,7 @@
     <div class="titleblock">
       <div class="seal" aria-hidden="true">研</div>
       <h1><span class="mark">Vicky</span></h1>
-      <p class="subtitle">个人知识平台 —— 报告入库 → 知识蒸馏 → Agent 知识服务：技术文章、临时报告、项目架构与设计卡片四类内容统一书风渲染；人读有书架，Agent 有提交入口。</p>
+      <p class="subtitle">个人知识平台 —— 报告入库 → 知识蒸馏 → Agent 知识服务：四分类骨架（research / brief / tech-solution / arch-doc）× 叙事方式 × 统一书风渲染；人读有书架，Agent 有提交入口。</p>
     </div>
     <div class="volume">
       <span>__YEAR__</span><span class="sep">·</span>
@@ -40,47 +40,41 @@
 
   <div class="contents">
     <div class="chead"><h2>阅读</h2></div>
-    <div class="csub">READ · 五座书架 —— 四类内容分化 + 蒸馏知识</div>
+    <div class="csub">READ · 四区书架 —— 技术文库 / 项目空间 / 简报 / 蒸馏知识</div>
 
     <div class="pgrid">
-      <a class="fm-item" href="index.html?domain=tech">
+      <a class="fm-item" href="index.html?cat=research">
         <span class="fm-seal" aria-hidden="true">文</span>
         <span class="fm-body">
-          <span class="fm-title">技术文章</span>
-          <span class="fm-desc">开源项目、算法机制与工程实践 —— 深度研究报告，按类型筹码与关键词检索。</span>
+          <span class="fm-title">技术文库</span>
+          <span class="fm-desc">技术调研长读（research）—— 时间倒序 + 快速筛选，读后蒸馏进知识库。</span>
+          <span class="pcount"><b>__RESEARCH_N__</b> 篇</span>
         </span>
         <span class="fm-arrow">→</span>
       </a>
-      <a class="fm-item" href="index.html?domain=ephemeral">
-        <span class="fm-seal" aria-hidden="true">记</span>
+      <a class="fm-item" href="index.html?cat=project">
+        <span class="fm-seal" aria-hidden="true">项</span>
         <span class="fm-body">
-          <span class="fm-title">临时报告</span>
-          <span class="fm-desc">工作日志与速记归档 —— 尚未沉淀成文的碎片知识，统一收存、随时翻查。</span>
+          <span class="fm-title">项目空间</span>
+          <span class="fm-desc">技术方案与架构详情（tech-solution / arch-doc）—— 按项目归档，评审与回顾发展历程。</span>
+          <span class="pcount"><b>__PROJECT_N__</b> 个项目</span>
         </span>
         <span class="fm-arrow">→</span>
       </a>
-      <a class="fm-item" href="index.html?domain=arch">
-        <span class="fm-seal" aria-hidden="true">构</span>
+      <a class="fm-item" href="index.html?cat=brief">
+        <span class="fm-seal" aria-hidden="true">简</span>
         <span class="fm-body">
-          <span class="fm-title">项目架构</span>
-          <span class="fm-desc">丛书机制的多卷架构站 —— 总览卷 + 节点卷，逐模块拆解系统设计。</span>
-        </span>
-        <span class="fm-arrow">→</span>
-      </a>
-      <a class="fm-item" href="design.html">
-        <span class="fm-seal" aria-hidden="true">卡</span>
-        <span class="fm-body">
-          <span class="fm-title">前端卡片墙</span>
-          <span class="fm-desc">一产品一卡：主页大图 + AI 风格说明，供设计师与 agent 快速对照视觉语言。</span>
-          <span class="pcount"><b>__TOTAL_CARDS__</b> 张</span>
+          <span class="fm-title">简报</span>
+          <span class="fm-desc">决策简报（brief）—— 结论先行、给上级的压缩阅读，用完即弃。</span>
+          <span class="pcount"><b>__BRIEF_N__</b> 篇</span>
         </span>
         <span class="fm-arrow">→</span>
       </a>
       <a class="fm-item" href="knowledge">
         <span class="fm-seal" aria-hidden="true">藏</span>
         <span class="fm-body">
-          <span class="fm-title">藏书楼</span>
-          <span class="fm-desc">从研究报告中蒸馏的可持续知识 —— 自动运维，随报告提交而进化。</span>
+          <span class="fm-title">知识库</span>
+          <span class="fm-desc">从研究报告中蒸馏的可持续知识 —— 自动运维，供 agent 查询检索，质量人工把控。</span>
           <span class="pcount"><b>__TOTAL_TOPICS__</b> 主题</span>
         </span>
         <span class="fm-arrow">→</span>
@@ -93,10 +87,10 @@
       <div class="aseal" aria-hidden="true">启</div>
       <div class="akicker">FOR AGENTS · 提交区</div>
       <h2 class="atitle">Agent 接入</h2>
-      <p class="adesc">把提示词交给你的 Agent：它先读写作规范、看设计 token、下载 CSS 资源包、挑一个模板，然后 POST /api/reports 提交 —— 平台自动套用统一的"书"风格渲染发布。</p>
+      <p class="adesc">把提示词交给你的 Agent：它先读写作规范、选叙事方式、挑模板，然后 POST /api/reports 提交 —— 提交时显式指定 category（四分类骨架）+ narrative（叙事方式）+ project（归档项目，方案/架构类必填），平台自动套用统一的"书"风格渲染发布。</p>
       <div class="asteps">
         <div class="astep"><span class="anum">壹</span><div><b>写作指南</b><code>GET /api/guide</code><span class="fm-desc">面向 agent 的表述规范与黄金结构</span></div></div>
-        <div class="astep"><span class="anum">贰</span><div><b>Token 总纲</b><code>GET /api/design</code><span class="fm-desc">设计 token 一览：配色 / 字体 / 版式</span></div></div>
+        <div class="astep"><span class="anum">贰</span><div><b>分类与叙事</b><code>category / narrative / project</code><span class="fm-desc">进知识库 / 用完即弃 / 归项目区，显式指定</span></div></div>
         <div class="astep"><span class="anum">叁</span><div><b>CSS 资源包</b><code>GET /api/design.css</code><span class="fm-desc">下载 book-style.css 离线套用书风</span></div></div>
         <div class="astep"><span class="anum">肆</span><div><b>模板目录</b><code>GET /api/templates</code><span class="fm-desc">已注册报告模板清单与契约</span></div></div>
       </div>
@@ -137,14 +131,17 @@ function toast(msg){
   setTimeout(function(){t.classList.remove('show');setTimeout(function(){t.remove();},400);},1800);
 }
 function copyPrompt(){
-  var p=`当你需要写技术研究报告时，使用 Vicky 平台。
+  var p=`当你需要向 Vicky 平台投稿时：
 1. 读写作规范：GET ${API}/api/guide
-2. 看设计 Token 总纲：GET ${API}/api/design
-3. 下载 CSS 资源包：GET ${API}/api/design.css
-4. 查看模板目录：GET ${API}/api/templates
-5. 按规范写内容，提交：POST ${API}/api/reports
-   Body: {"title":"标题", "slug":"slug", "tag":"标签", "domain":"tech", "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
-6. 查看已发布报告：GET ${API}/api/reports`;
+2. 下载 CSS 资源包：GET ${API}/api/design.css
+3. 查看模板目录：GET ${API}/api/templates
+4. 按规范写内容，提交：POST ${API}/api/reports
+   Body: {"title":"标题", "slug":"slug", "tag":"标签",
+          "category":"research|brief|tech-solution|arch-doc",
+          "narrative":"金字塔/结论先行|对比擂台|问题拆解|场景演练|时间线/演进|总分总/地图|黄金五章",
+          "project":"项目名（tech-solution/arch-doc 必填；research/brief 可省）",
+          "content":"<section class='reveal'><div class='wrap'>...</div></section>"}
+5. 查看已发布报告：GET ${API}/api/reports`;
   copyText(p).then(function(){toast('已复制到剪贴板');})
     .catch(function(){toast('复制失败，请手动选择文本');});
 }

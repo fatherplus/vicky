@@ -9,13 +9,59 @@ REPO = Path(__file__).resolve().parent.parent
 
 def load_server():
     """返回 vicky.l1_publish 模块（兼容旧测试的 server.* 调用）。
-    P0 包化：原 server.py 函数已在 l1_publish.py。同时注入 Handler 供 test_templates 用。"""
+    2026-08-12 重构：Handler 已删（FastAPI 换壳），HTTP 层测试改用下方
+    http_get/http_post（TestClient）或 live_server（真端口）。"""
     import vicky.l1_publish as mod
-    # 注入 Handler（test_templates 通过 server.Handler 引用）
-    from vicky.web import Handler
-    mod.Handler = Handler
-    # P3 前端抢救：_INDEX_TPL 已迁出，不在模块级保存
     return mod
+
+
+def client():
+    """FastAPI TestClient（进程内、无 socket）——旧 ThreadingHTTPServer+Handler 模式的替代。"""
+    from fastapi.testclient import TestClient
+    from vicky.web import app
+    return TestClient(app)
+
+
+def http_get(path: str):
+    """GET → (status, body_bytes, headers)，与旧 _get 同形状。"""
+    r = client().get(path)
+    return r.status_code, r.content, r.headers
+
+
+def http_post(path: str, body: dict):
+    """POST JSON → (status, parsed_json)，与旧 _post 同形状。"""
+    r = client().post(path, json=body)
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"raw": r.text}
+
+
+@contextlib.contextmanager
+def live_server():
+    """起真实 uvicorn 服务（随机空闲端口）——仅用于需要裸 socket 的场景
+    （如路径穿越测试，httpx 客户端会归一化 ../）。yield 端口号。"""
+    import socket
+    import threading
+    import time
+    import uvicorn
+    from vicky.web import app
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    srv = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
+    t = threading.Thread(target=srv.run, daemon=True)
+    t.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.05)
+    try:
+        yield port
+    finally:
+        srv.should_exit = True
+        t.join(timeout=5)
 
 
 @contextlib.contextmanager
@@ -44,7 +90,9 @@ def tmp_env(server):
         server.REPORTS_DIR = tmp / "reports"
         server.INDEX_PATH = tmp / "index.html"
         server.TEMPLATES_DIR = tmp / "templates"
-        yield tmp
-        # 恢复
-        cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR, cfg.VIEWS_DIR = _rd, _idx, _td, _dd, _vd
-        server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR = _s_rd, _s_idx, _s_td
+        try:
+            yield tmp
+        finally:
+            # 恢复（无论断言成败都必须还原，否则会污染后续测试）
+            cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR, cfg.VIEWS_DIR = _rd, _idx, _td, _dd, _vd
+            server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR = _s_rd, _s_idx, _s_td

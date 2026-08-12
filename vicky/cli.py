@@ -278,12 +278,100 @@ def index_knowledge(topic: str | None = None):
 
 
 # ============================================================
+# 审核治理：hide / restore / delete / audit（重构蓝图 §04）
+# 业务逻辑在 vicky/curate.py；CLI 只做参数解析 + 展示 + 确认交互。
+# ============================================================
+def _require_flag(flag: str, usage: str) -> str:
+    """取 --flag 后的值，缺参报错退出。"""
+    if flag not in sys.argv:
+        print(f"用法: {usage}")
+        sys.exit(1)
+    idx = sys.argv.index(flag)
+    if idx + 1 >= len(sys.argv):
+        print(f"用法: {usage}")
+        sys.exit(1)
+    return sys.argv[idx + 1]
+
+
+def hide(slug: str):
+    """软下架报告（可逆）：报告 + 其蒸出的知识条目同步隐藏。"""
+    from . import curate
+    r = curate.hide_report(slug, True)
+    if not r["ok"]:
+        print(f"✗ {r['error']}")
+        sys.exit(1)
+    print(f"✓ {slug} 已软下架（同步隐藏 {r['items_affected']} 条知识条目），索引已重建")
+
+
+def restore(slug: str):
+    """恢复软下架的报告（可逆）：报告 + 其知识条目同步恢复。"""
+    from . import curate
+    r = curate.hide_report(slug, False)
+    if not r["ok"]:
+        print(f"✗ {r['error']}")
+        sys.exit(1)
+    print(f"✓ {slug} 已恢复（同步恢复 {r['items_affected']} 条知识条目），索引已重建")
+
+
+def delete(slug: str, yes: bool = False):
+    """级联物理删除（不可逆）。无 --yes 时打印将删清单并要求 stdin 确认。"""
+    from . import curate
+    m = curate.preview_delete(slug)
+    if not (m["report"] or m["submissions"] or m["knowledge_items"]):
+        print(f"✗ slug '{slug}' 不存在，无可删除")
+        sys.exit(1)
+    print(f"将删除 slug={slug}（不可逆）：")
+    if m["report"]:
+        print(f"  · 报告行: {m['report']['file']}（title: {m['report']['title']}）")
+        for p in (m["html"], m["md"]):
+            if p and p.exists():
+                print(f"  · 产物文件: {p}")
+    if m["l0_dir"].exists():
+        print(f"  · L0 快照目录: {m['l0_dir']}")
+    if m["img_dir"].exists():
+        print(f"  · 图片目录: {m['img_dir']}")
+    if m["submissions"]:
+        print(f"  · submissions 行: {m['submissions']} 条")
+    if m["knowledge_items"]:
+        print(f"  · 级联删知识条目: {', '.join(m['knowledge_items'])}")
+    if not yes:
+        answer = input("确认删除？输入 yes 继续: ").strip().lower()
+        if answer not in ("y", "yes"):
+            print("已取消")
+            return
+    r = curate.hard_delete_report(slug)
+    if not r["ok"]:
+        print(f"✗ {r['error']}")
+        sys.exit(1)
+    d = r["deleted"]
+    print(f"✓ 已删除 {slug}：报告文件 {len(d['report_files'])} 个"
+          + (f"，L0 目录 {d['l0_dir']}" if d["l0_dir"] else "")
+          + (f"，图片目录 {d['img_dir']}" if d["img_dir"] else "")
+          + f"，submissions {d['submissions']} 行，知识条目 {len(d['knowledge_items'])} 条；索引已重建")
+
+
+def audit(topic: str | None = None):
+    """打印审核视图表格：全部知识条目（含 hidden），可按 topic 过滤。"""
+    from . import curate
+    rows = curate.knowledge_audit(topic=topic)
+    if not rows:
+        print("（无知识条目" + (f"：topic={topic}" if topic else "——先跑 distill + index-knowledge") + "）")
+        return
+    print(f"共 {len(rows)} 条知识条目" + (f"（topic={topic}）" if topic else ""))
+    for r in rows:
+        text = r["text"] if len(r["text"]) <= 44 else r["text"][:41] + "…"
+        flag = " " if r["status"] == "active" else "隐"
+        print(f"  [{flag}] {r['id']:<28} {r['kind']:<10} {text}")
+
+
+# ============================================================
 # 入口
 # ============================================================
 def main():
     if len(sys.argv) < 2:
         print("用法: python3 -m vicky.cli <命令>")
         print("命令: backfill [--force] | render | distill | classify | judge | index-knowledge")
+        print("      | hide --slug X | restore --slug X | delete --slug X [--yes] | audit [--topic X]")
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -349,6 +437,28 @@ def main():
                 sys.exit(1)
             topic = sys.argv[idx + 1]
         index_knowledge(topic=topic)
+    elif cmd == "hide":
+        # 审核治理：软下架（可逆）
+        slug = _require_flag("--slug", "用法: python3 -m vicky.cli hide --slug <slug>")
+        hide(slug)
+    elif cmd == "restore":
+        # 审核治理：恢复软下架报告
+        slug = _require_flag("--slug", "用法: python3 -m vicky.cli restore --slug <slug>")
+        restore(slug)
+    elif cmd == "delete":
+        # 审核治理：级联物理删除（不可逆；无 --yes 时 stdin 确认）
+        slug = _require_flag("--slug", "用法: python3 -m vicky.cli delete --slug <slug> [--yes]")
+        delete(slug, yes="--yes" in sys.argv)
+    elif cmd == "audit":
+        # 审核治理：审核视图表格
+        topic = None
+        if "--topic" in sys.argv:
+            idx = sys.argv.index("--topic")
+            if idx + 1 >= len(sys.argv):
+                print("用法: python3 -m vicky.cli audit [--topic <topic>]")
+                sys.exit(1)
+            topic = sys.argv[idx + 1]
+        audit(topic=topic)
     else:
         print(f"未知命令: {cmd}")
         sys.exit(1)

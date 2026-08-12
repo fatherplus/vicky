@@ -1,4 +1,5 @@
-"""P4：knowledge_query MCP 工具——知识 Wiki 的读线（READ path，MCP 服务的心脏）。
+"""P4：knowledge_query 检索管线——知识 Wiki 的读线（READ path）。
+2026-08-12 重构：原 MCP 工具内核，现经 GET /api/knowledge?q= 暴露。
 
 三阶段管线：
   Stage 1 Recall   store.search_items(q, limit=50, category, tag)（FTS5 trigram）
@@ -10,7 +11,7 @@
 q 为空 → 目录模式：按专栏 category 列出全部主题 + 条目计数（store.knowledge_catalog）。
 
 纯 stdlib，无第三方依赖。错误策略：库空/无命中返回空 items + note（不抛错）；
-参数类型非法由本模块容错归一（str()/int() + 默认值），MCP 层兜底 RPCError。
+参数类型非法由本模块容错归一（str()/int() + 默认值），永不抛错。
 
 依赖方向：knowledge_query → store（只读），不反向。
 """

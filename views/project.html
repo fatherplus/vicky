@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__PROJECT_NAME__ · 项目空间 — Vicky</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/index.css">
+<style>
+/* 项目页 —— 页面私有：只做结构与克制微交互，配色一律走平台 var()，不重定义 token。
+   .row-domain.arch 补色：存量 CSS 只有 tech/design/ephemeral 三色块，arch-doc 徽章复用朱砂。 */
+.row-domain.arch{background:var(--seal)}
+.zone-empty{font-family:var(--serif);font-size:15px;color:var(--sub);text-align:center;padding:44px 0}
+</style>
+</head>
+<body>
+<div id="ribbon"></div>
+<header class="runninghead">
+  <div class="inner"><span class="book">《Vicky》</span><span class="chapter">项目空间 · PROJECT</span></div>
+</header>
+
+<main class="page">
+  <div class="frontispiece">
+    <div class="kicker">VICKY · 项目空间</div>
+    <div class="titleblock">
+      <div class="seal" aria-hidden="true">项</div>
+      <h1>__PROJECT_NAME__</h1>
+      <p class="subtitle">技术方案与架构文档归档 —— 按时间线回顾项目演进，给三方 agent 引用。</p>
+    </div>
+    <div class="volume">
+      <span class="vtag">__COUNT__ 篇文档</span><span class="sep">·</span>
+      <span>__YEAR__</span><span class="sep">·</span>
+      <a class="vtag" href="/" style="text-decoration:none">← 首页</a>
+      <a class="vtag" href="/index.html?cat=project" style="text-decoration:none">项目空间 →</a>
+    </div>
+  </div>
+
+  <div class="contents">
+    <div class="chead"><h2>文档时间线</h2></div>
+    <div class="csub">PROJECT TIMELINE · 按时间倒序 · 徽章：方案（tech-solution）/ 架构（arch-doc）</div>
+
+    __DOCS__
+
+    <div class="chead" style="margin-top:44px"><h2>相关项目</h2></div>
+    <div class="csub">OTHER PROJECTS · 页间互链，跳转各自归档页</div>
+    <div class="chips" style="margin-bottom:44px">__PROJECT_NAV__</div>
+  </div>
+
+  <footer class="colophon">
+    <div class="book">《Vicky》· 项目空间</div>
+    <div class="pg">Vicky · <a href="https://github.com/fatherplus/vicky">github.com/fatherplus/vicky</a></div>
+  </footer>
+</main>
+
+<script>
+var ribbon=document.getElementById('ribbon');
+function setRibbon(){var h=document.documentElement;ribbon.style.width=(h.scrollTop/(h.scrollHeight-h.clientHeight)*100)+'%';}
+addEventListener('scroll',setRibbon,{passive:true});setRibbon();
+var io=('IntersectionObserver' in window)?new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.08}):null;
+document.querySelectorAll('.reveal').forEach(function(el){if(io)io.observe(el);else el.classList.add('in');});
+</script>
+</body>
+</html>

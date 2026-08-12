@@ -18,18 +18,9 @@ REPO = Path(__file__).resolve().parent.parent
 
 
 def _get(server, path):
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    port = srv.server_address[1]
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.2)
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}") as r:
-            out = (r.status, r.read(), r.headers)
-    except urllib.error.HTTPError as e:
-        out = (e.code, e.read(), e.headers)
-    srv.shutdown()
-    return out
+    """GET；返回 (status, body, headers)。2026-08-12 重构后经 FastAPI TestClient。"""
+    from tests.util import http_get
+    return http_get(path)
 
 
 class TestDesignApi(unittest.TestCase):

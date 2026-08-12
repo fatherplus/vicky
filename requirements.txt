@@ -1,0 +1,5 @@
+# Vicky 运行依赖（2026-08-12 重构：http.server → FastAPI 换壳）
+# httpx 为 fastapi.testclient（tests/）所需
+fastapi>=0.110
+uvicorn>=0.29
+httpx>=0.27

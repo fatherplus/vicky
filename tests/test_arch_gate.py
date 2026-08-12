@@ -18,21 +18,9 @@ NODE_OK = ('<section><h2>输入与输出</h2><p>边界契约：上游事件与�
 
 
 def _post(server, path, body):
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
-    port = srv.server_address[1]
-    t = threading.Thread(target=srv.serve_forever, daemon=True)
-    t.start()
-    time.sleep(0.2)
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{port}{path}",
-        data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req) as r:
-            out = (r.status, json.loads(r.read()))
-    except urllib.error.HTTPError as e:
-        out = (e.code, json.loads(e.read()))
-    srv.shutdown()
-    return out
+    """POST JSON → (status, parsed_json)。2026-08-12 重构后经 FastAPI TestClient。"""
+    from tests.util import http_post
+    return http_post(path, body)
 
 
 class TestArchGate(unittest.TestCase):

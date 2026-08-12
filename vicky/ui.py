@@ -35,18 +35,48 @@ def load_view(name: str) -> str:
 
 
 # ============================================================
+# 重构蓝图（2026-08-12）：四区索引 + 项目空间片段
+# 分类徽章：复用现有 .row-domain.{modifier} 色块（不新增 CSS class），
+# modifier 映射到既有 domain 色（research/tech-solution→蓝、brief→灰、arch-doc→红）。
+# ============================================================
+CATEGORY_LABEL = {"research": "技术", "brief": "简报", "tech-solution": "方案",
+                  "arch-doc": "架构", "design": "设计"}
+CATEGORY_MOD_CLS = {"research": "tech", "tech-solution": "tech", "brief": "ephemeral",
+                    "arch-doc": "arch", "design": "design"}
+
+
+def project_slug(name: str) -> str:
+    """项目页文件名 slug：保留中英文与连字符，其余替换为 -（URL 安全）。"""
+    s = re.sub(r"[^\w-]+", "-", (name or "").strip(), flags=re.UNICODE)
+    s = re.sub(r"-{2,}", "-", s).strip("-")
+    return s or "unnamed"
+
+
+def _row_search(r: dict) -> str:
+    """关键词搜索串：标题 + 副题 + 标签 + 项目 + 丛书，小写（Alpine 前端模糊匹配）。"""
+    parts = [r["title"], r.get("subtitle") or "", r.get("_tag") or "",
+             r.get("_project") or "", r.get("_series") or ""]
+    return " ".join(p for p in parts if p).lower()
+
+
+# ============================================================
 # L1 索引页片段
 # ============================================================
 def toc_row(r: dict, num: int) -> str:
-    """目录行——报告条目循环标记。P3 从 l1_publish.build_index 提取。"""
-    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作", "arch": "架构"}
+    """目录行——报告条目循环标记（四区索引技术文库 / 简报用）。
+    新模型（重构蓝图）：徽章按 category 渲染（技术/简报/方案/架构），
+    data-category / data-project / data-search 供 Alpine 按分类、项目、标签、关键词筛选。"""
     delay = (num % 12) * 0.04
     esc_tag = html_mod.escape(r["_tag"], quote=True)
     esc_series = html_mod.escape(r["_series"], quote=True)
+    cat = r["_category"]
+    label = CATEGORY_LABEL.get(cat, cat)
+    mod = CATEGORY_MOD_CLS.get(cat, "tech")
     dom = r["_domain"]
-    esc_dom = html_mod.escape(DOMAIN_LABEL.get(dom, dom), quote=True)
-    badges = (f'<span class="row-domain {dom}" data-type="domain" data-f="{dom}">'
-              f'{esc_dom}</span> '
+    esc_proj = html_mod.escape(r.get("_project") or "", quote=True)
+    search = html_mod.escape(_row_search(r), quote=True)
+    badges = (f'<span class="row-domain {mod}" data-type="domain" data-f="{dom}">'
+              f'{html_mod.escape(label, quote=True)}</span> '
               f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>')
     if r["_series"]:
         badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
@@ -55,7 +85,9 @@ def toc_row(r: dict, num: int) -> str:
            if r.get("subtitle") else "")
     updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
     return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/reports/{r["file"]}"'
-            f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}">'
+            f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}"'
+            f' data-category="{cat}" data-project="{esc_proj}" data-search="{search}"'
+            f' x-show="visible($el)">'
             f'<span class="toc-num">{num:02d}</span>'
             f'<span class="toc-main"><span class="toc-line">'
             f'<span class="toc-title">{html_mod.escape(r["title"])}</span>{badges}</span>{sub}</span>'
@@ -63,32 +95,89 @@ def toc_row(r: dict, num: int) -> str:
             f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
 
 
-def chips_html(research: list[dict]) -> list[str]:
-    """类型筹码 HTML 列表——P3 从 l1_publish.build_index 提取。"""
-    DOMAIN_LABEL = {"tech": "技术", "design": "设计", "ephemeral": "工作", "arch": "架构"}
-    tag_count, series_count, domain_count = {}, {}, {}
-    for r in research:
-        tag = r.get("_tag", "研究报告").strip() or "研究报告"
-        tag_count[tag] = tag_count.get(tag, 0) + 1
-        sname = r.get("_series", "")
-        if sname:
-            series_count[sname] = series_count.get(sname, 0) + 1
-        dom = r.get("_domain", "tech")
-        domain_count[dom] = domain_count.get(dom, 0) + 1
-
-    chips = [f'<span class="chip on" data-type="all" data-f="">全部<span class="n">{len(research)}</span></span>']
-    for dom in ("tech", "design", "ephemeral", "arch"):
-        dn = domain_count.get(dom, 0)
-        if dn:
-            chips.append(f'<span class="chip chip-domain {dom}" data-type="domain" data-f="{dom}">'
-                         f'{html_mod.escape(DOMAIN_LABEL.get(dom, dom))}<span class="n">{dn}</span></span>')
-    for tag, n in sorted(tag_count.items(), key=lambda kv: (-kv[1], kv[0])):
-        chips.append(f'<span class="chip" data-type="tag" data-f="{html_mod.escape(tag, quote=True)}">'
-                     f'{html_mod.escape(tag)}<span class="n">{n}</span></span>')
-    for sname, n in sorted(series_count.items(), key=lambda kv: (-kv[1], kv[0])):
-        chips.append(f'<span class="chip chip-series" data-type="series" data-f="{html_mod.escape(sname, quote=True)}">'
-                     f'《{html_mod.escape(sname)}》<span class="n">{n}</span></span>')
+def index_chips(total: int, research_n: int, brief_n: int, project_n: int,
+                tag_counts: list, projects: list) -> list[str]:
+    """四区索引筹码——分类（全部/技术文库/项目空间/简报）+ 标签 + 项目，Alpine 绑定。
+    tag_counts: [(tag, n)] 按计数倒序；projects: [(项目名, 篇数)]。
+    分类筹码带 data-type="all"/"category" 供测试/深链识别；标签筹码保留 data-f 兼容旧筛选。"""
+    chips = [
+        f'<span class="chip on" data-type="all" @click="cat=\'all\'"'
+        f' :class="cat===\'all\'&&\'on\'">全部<span class="n">{total}</span></span>',
+        f'<span class="chip" data-type="category" @click="cat=\'research\'"'
+        f' :class="cat===\'research\'&&\'on\'">技术文库<span class="n">{research_n}</span></span>',
+        f'<span class="chip" data-type="category" @click="cat=\'project\'"'
+        f' :class="cat===\'project\'&&\'on\'">项目空间<span class="n">{project_n}</span></span>',
+        f'<span class="chip" data-type="category" @click="cat=\'brief\'"'
+        f' :class="cat===\'brief\'&&\'on\'">简报<span class="n">{brief_n}</span></span>',
+    ]
+    for tag, n in tag_counts:
+        esc = html_mod.escape(tag, quote=True)
+        chips.append(
+            f'<span class="chip" data-type="tag" @click="toggleTag(\'{esc}\')"'
+            f' :class="tag===\'{esc}\'&&\'on\'" data-f="{esc}">'
+            f'{html_mod.escape(tag)}<span class="n">{n}</span></span>')
+    for name, n in projects:
+        esc = html_mod.escape(name, quote=True)
+        chips.append(
+            f'<span class="chip" data-type="project" @click="toggleProj(\'{esc}\')"'
+            f' :class="proj===\'{esc}\'&&\'on\'">'
+            f'{html_mod.escape(name)}<span class="n">{n}</span></span>')
     return chips
+
+
+def project_card(name: str, docs: list) -> str:
+    """索引页项目空间卡片——项目名 + 文档数 + 最新日期，链到 /projects/{slug}.html。
+    docs 为该项目的报告（时间倒序），用于计数与关键词搜索串。"""
+    esc_name = html_mod.escape(name, quote=True)
+    slug = html_mod.escape(project_slug(name), quote=True)
+    latest = docs[0]["date"] if docs else ""
+    latest_d = latest[5:] if len(latest) >= 10 else latest
+    search = html_mod.escape((name + " " + " ".join(d["title"] for d in docs)).lower(),
+                             quote=True)
+    return (f'<a class="fm-item reveal" href="/projects/{slug}.html"'
+            f' data-category="project" data-project="{esc_name}" data-tag=""'
+            f' data-search="{search}" x-show="visible($el)">'
+            f'<span class="fm-seal" aria-hidden="true">项</span>'
+            f'<span class="fm-body"><span class="fm-title">{html_mod.escape(name)}</span>'
+            f'<span class="fm-desc">{len(docs)} 篇文档 · 最新 {latest_d}</span></span>'
+            f'<span class="fm-arrow">→</span></a>')
+
+
+def project_doc_row(r: dict, num: int) -> str:
+    """项目页文档时间线条目——标题 + 分类徽章（方案/架构/技术/简报）+ 日期，链到报告页。
+    （项目页无 Alpine 筛选，不带 x-show。）"""
+    cat = r["_category"]
+    label = CATEGORY_LABEL.get(cat, cat)
+    mod = CATEGORY_MOD_CLS.get(cat, "tech")
+    esc_tag = html_mod.escape(r.get("_tag") or "", quote=True)
+    sub = (f'<span class="toc-sub">{html_mod.escape(r["subtitle"])}</span>'
+           if r.get("subtitle") else "")
+    updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
+    return (f'<a class="toc-item reveal" style="--d:{(num % 12) * 0.04:.2f}s"'
+            f' href="/reports/{r["file"]}" data-category="{cat}"'
+            f' data-project="{html_mod.escape(r.get("_project") or "", quote=True)}">'
+            f'<span class="toc-num">{num:02d}</span>'
+            f'<span class="toc-main"><span class="toc-line">'
+            f'<span class="toc-title">{html_mod.escape(r["title"])}</span>'
+            f'<span class="row-domain {mod}">{html_mod.escape(label, quote=True)}</span> '
+            f'<span class="row-tag" data-f="{esc_tag}">{esc_tag}</span></span>{sub}</span>'
+            f'<span class="toc-dots"></span>'
+            f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
+
+
+def project_nav(projects: list, current: str) -> str:
+    """项目页间互链——其他项目 → 各自页面；当前项目高亮为纯文本筹码。"""
+    items = []
+    for p in projects:
+        name = p["project"]
+        esc = html_mod.escape(name, quote=True)
+        if name == current:
+            items.append(f'<span class="chip on">{esc}</span>')
+        else:
+            slug = html_mod.escape(project_slug(name), quote=True)
+            items.append(f'<a class="chip" href="/projects/{slug}.html"'
+                         f' style="text-decoration:none">{esc}</a>')
+    return "\n    ".join(items)
 
 
 def frontmatter_html(front: list[dict]) -> str:
