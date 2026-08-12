@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Vicky · 报告目录</title>
+<title>Vicky · 书架目录</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -13,24 +13,17 @@
 <body>
 <div id="ribbon"></div>
 <header class="runninghead">
-  <div class="inner"><span class="book">《Vicky》</span><span class="chapter">目录 · CONTENTS</span></div>
+  <div class="inner"><span class="book">《 Vicky》</span><span class="chapter">阅读 · READ</span></div>
 </header>
 
 <main class="page" x-data="indexApp">
-  <div class="frontispiece">
-    <div class="kicker">VICKY · 个人知识平台</div>
-    <div class="titleblock">
-      <div class="seal" aria-hidden="true">藏</div>
-      <h1>Vicky <span class="mark">知识</span>文库</h1>
-      <p class="subtitle">四区书架 —— 技术文库（长读调研）、项目空间（方案与架构归档）、简报（用完即弃）、蒸馏知识库。</p>
-    </div>
+  <div class="frontispiece frontispiece-compact">
     <div class="volume">
       <span class="vtag">第一卷</span><span class="sep">·</span>
       <span>__YEAR__</span><span class="sep">·</span>
       <span>共 __TOTAL__ 篇</span>
       <span class="sep">·</span>
-      <a class="vtag" href="/" style="text-decoration:none">← 首页</a>
-      <a class="vtag" href="/design.html" style="text-decoration:none">卡片墙 →</a>
+      <a class="vtag" href="/" style="text-decoration:none">← 回首页</a>
     </div>
   </div>
   __FRONTMATTER__
@@ -40,12 +33,13 @@
 
     <div class="searchbox reveal">
       <span class="search-ic">检</span>
-      <input type="text" x-model="q" placeholder="输入关键词，模糊匹配标题 / 标签 / 项目……" autocomplete="off">
+      <input type="text" x-model="q" placeholder="输入关键词，模糍匹配标题 / 标签 / 项目……" autocomplete="off">
       <span class="search-hint" x-show="active" x-text="shown + ' 篇匹配'"></span>
     </div>
     <div class="noresult" x-show="active && shown===0">没有匹配的报告</div>
 
-    <div class="chips reveal" id="chips">__CHIPS__</div>
+    <div class="chips reveal" id="chips">__CAT_CHIPS__</div>
+    <div class="chips chips-filter reveal" id="chips-filter">__FILTER_CHIPS__</div>
 
     <!-- 技术文库（主区：category=research，时间倒序） -->
     <section x-show="cat==='all' || cat==='research'">
@@ -99,12 +93,16 @@ function indexApp(){
     },
     toggleTag(v){ this.tag=(this.tag===v)?'':v; },
     toggleProj(v){ this.proj=(this.proj===v)?'':v; },
+    /* 三维度按区隔离（重构蓝图 §04 筛选修复）：
+       项目卡片(data-category=project) 只受 cat+proj 约束，忽略 tag；
+       文库条目(.toc-item) 只受 cat+tag 约束，忽略 proj；
+       关键词 q 对所有区生效。 */
     visible(el){
-      var d=el.dataset;
+      var d=el.dataset, isProj = d.category==='project';
       if(this.cat!=='all'&&this.cat!==d.category) return false;
-      if(this.tag&&this.tag!==d.tag) return false;
-      if(this.proj&&this.proj!==d.project) return false;
       if(this.q){ var q=this.q.trim().toLowerCase(); if(q&&!(d.search||'').includes(q)) return false; }
+      if(isProj){ if(this.proj&&this.proj!==d.project) return false; }
+      else { if(this.tag&&this.tag!==d.tag) return false; }
       return true;
     }
   };

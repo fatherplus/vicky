@@ -79,7 +79,7 @@ def test_report_upsert():
 
             # INSERT
             store.upsert_report(conn, "r1", "2026-08-10-r1.html", "标题1",
-                                tag="测试", subtitle="副标题", domain="tech",
+                                tag="测试", subtitle="副标题",
                                 template="book", series="", series_order=0,
                                 created_date="2026-08-10", updated_date="",
                                 current_rev=sub_id)
@@ -96,7 +96,7 @@ def test_report_upsert():
                                               "2026-08-11T00:00:00+00:00", "/fake/s2.json")
             conn.commit()
             store.upsert_report(conn, "r1", "2026-08-10-r1.html", "标题1修订",
-                                tag="测试", subtitle="副标题2", domain="design",
+                                tag="测试", subtitle="副标题2",
                                 template="book", series="", series_order=0,
                                 created_date="2026-08-10", updated_date="2026-08-11",
                                 current_rev=sub_id2)
@@ -106,7 +106,6 @@ def test_report_upsert():
             assert len(rows) == 1  # 仍是 1 行
             assert rows[0]["title"] == "标题1修订"
             assert rows[0]["updated"] == "2026-08-11"
-            assert rows[0]["domain"] == "design"
 
             # get_report_by_slug
             r = store.get_report_by_slug(conn, "r1")
@@ -203,8 +202,9 @@ def test_fresh_db_has_new_columns():
             config.DATA_DIR = orig
 
 
-def test_migration_backfills_legacy_domain_to_category():
-    """存量库：get_db 触发迁移 → 新列补上 + domain 按 LEGACY 映射回填 category。"""
+def test_migration_no_longer_backfills_domain_to_category():
+    """存量库：get_db 触发迁移 → 新列补上，category 保持默认值 'research'（不再从 domain 回填）。
+    A 阶段重构：domain→category 回填逻辑已删除。"""
     with tempfile.TemporaryDirectory() as d:
         orig = config.DATA_DIR
         config.DATA_DIR = Path(d)
@@ -219,25 +219,27 @@ def test_migration_backfills_legacy_domain_to_category():
             conn.commit()
             conn.close()
 
-            # 首次 get_db → 触发迁移
+            # 首次 get_db → 触发迁移（补列，但不回填 category）
             conn = store.get_db()
             rows = {r["slug"]: dict(r) for r in conn.execute(
                 "SELECT * FROM reports").fetchall()}
-            assert rows["a"]["category"] == "research"   # tech → research
-            assert rows["b"]["category"] == "brief"      # ephemeral → brief
-            assert rows["c"]["category"] == "arch-doc"   # arch → arch-doc
-            assert rows["d"]["category"] == "design"     # design → design（legacy 保留）
+            # A 阶段：category 全为默认值 'research'，不再从 domain 映射
+            for s in ["a", "b", "c", "d"]:
+                assert rows[s]["category"] == "research"
             # 新列默认值
             assert rows["a"]["narrative"] is None
             assert rows["a"]["project"] is None
             assert rows["a"]["hidden"] == 0
+            # domain 列仍存（旧库里留着，新代码不读）
+            assert rows["a"]["domain"] == "tech"
             conn.close()
         finally:
             config.DATA_DIR = orig
 
 
 def test_migration_is_idempotent():
-    """迁移幂等：同一库跑两轮不炸、不重复回填、结构性变更只发生一次。"""
+    """迁移幂等：同一库跑两轮不炸、不重复补列、结构性变更只发生一次。
+    A 阶段重构：不再做 domain→category 回填。"""
     with tempfile.TemporaryDirectory() as d:
         orig = config.DATA_DIR
         config.DATA_DIR = Path(d)
@@ -248,25 +250,25 @@ def test_migration_is_idempotent():
             conn.commit()
             conn.close()
 
-            # 第一轮：对旧库显式迁移 → 发生结构性变更 + 回填
+            # 第一轮：对旧库显式迁移 → 发生结构性变更（补列），不回填
             conn = sqlite3.connect(str(config.DATA_DIR / "vicky.db"))
             assert store._migrate_schema(conn) is True
             row = conn.execute("SELECT category FROM reports WHERE slug='b'").fetchone()
-            assert row[0] == "brief"
+            assert row[0] == "research"  # 默认值，不回填
             conn.close()
 
             # get_db 首次调用即完成迁移（建表后跑 _migrate_schema），再迁不炸
             conn = store.get_db()
             assert store._migrate_schema(conn) is False
             row = conn.execute("SELECT category FROM reports WHERE slug='b'").fetchone()
-            assert row[0] == "brief"
+            assert row[0] == "research"
             conn.close()
 
             # 新连接再跑一轮也不炸、不覆盖
             conn = store.get_db()
             assert store._migrate_schema(conn) is False
             row = conn.execute("SELECT category FROM reports WHERE slug='b'").fetchone()
-            assert row[0] == "brief"
+            assert row[0] == "research"
             conn.close()
         finally:
             config.DATA_DIR = orig
@@ -395,19 +397,19 @@ def test_knowledge_items_by_source_and_status():
             store.create_knowledge_items_table(conn)
             now = "2026-08-01 00:00:00"
             conn.execute(
-                "INSERT INTO knowledge_items (id, topic, domain, kind, text, sources, created_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                ("t1#data1", "topic-x", "tech", "data", "条目1",
+                "INSERT INTO knowledge_items (id, topic, kind, text, sources, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                ("t1#data1", "topic-x", "data", "条目1",
                  '["2026-01-01-a.html", "2026-01-02-b.html"]', now))
             conn.execute(
-                "INSERT INTO knowledge_items (id, topic, domain, kind, text, sources, created_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                ("t1#data2", "topic-x", "tech", "conclusion", "条目2",
+                "INSERT INTO knowledge_items (id, topic, kind, text, sources, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                ("t1#data2", "topic-x", "conclusion", "条目2",
                  '["2026-01-03-c.html"]', now))
             conn.execute(
-                "INSERT INTO knowledge_items (id, topic, domain, kind, text, sources, created_at)"
-                " VALUES (?,?,?,?,?,?,?)",
-                ("t2#data1", "topic-y", "tech", "data", "条目3",
+                "INSERT INTO knowledge_items (id, topic, kind, text, sources, created_at)"
+                " VALUES (?,?,?,?,?,?)",
+                ("t2#data1", "topic-y", "data", "条目3",
                  '["2026-01-01-a-suffix.html"]', now))  # 子串陷阱：不能误中 'a'
             conn.commit()
 
@@ -433,6 +435,102 @@ def test_knowledge_items_by_source_and_status():
             row = conn.execute(
                 "SELECT status FROM knowledge_items WHERE id='t1#data1'").fetchone()
             assert row[0] == "active"
+            conn.close()
+        finally:
+            config.DATA_DIR = orig
+
+
+# ============================================================
+# A 阶段重构 · projects 表 CRUD 测试
+# ============================================================
+def test_projects_table_crud():
+    """projects 表：建项目 / 查单项目 / 列全部元信息。"""
+    with tempfile.TemporaryDirectory() as d:
+        orig = config.DATA_DIR
+        config.DATA_DIR = Path(d)
+        try:
+            conn = store.get_db()
+
+            # create_project
+            store.create_project("proj-a", "项目A", "描述A", conn=conn)
+            store.create_project("proj-b", "项目B", conn=conn)
+            store.create_project("proj-c", "项目C", "描述C", conn=conn)
+            conn.commit()
+
+            # get_project
+            p = store.get_project("proj-a", conn)
+            assert p["slug"] == "proj-a"
+            assert p["name"] == "项目A"
+            assert p["description"] == "描述A"
+            assert p["created_at"] is not None
+            assert store.get_project("nonexistent", conn) is None
+
+            # list_projects_meta（按创建时间倒序；同秒时不保证次序，改为集合断言）
+            metas = store.list_projects_meta(conn)
+            assert {m["slug"] for m in metas} == {"proj-a", "proj-b", "proj-c"}
+            assert all("name" in m and "description" in m and "created_at" in m for m in metas)
+
+            # 重复 slug 抛 IntegrityError
+            try:
+                store.create_project("proj-a", "重名项目", conn=conn)
+                conn.commit()
+                assert False, "应该抛 IntegrityError"
+            except sqlite3.IntegrityError:
+                conn.rollback()
+
+            conn.close()
+        finally:
+            config.DATA_DIR = orig
+
+
+def test_projects_table_in_ddl():
+    """get_db 建表后 projects 表存在且列齐备。"""
+    with tempfile.TemporaryDirectory() as d:
+        orig = config.DATA_DIR
+        config.DATA_DIR = Path(d)
+        try:
+            conn = store.get_db()
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(projects)")}
+            assert cols == {"slug", "name", "description", "created_at"}
+            conn.close()
+        finally:
+            config.DATA_DIR = orig
+
+
+def test_list_projects_vs_list_projects_meta():
+    """list_projects（聚合版）与 list_projects_meta（元信息版）独立运作。
+    先建项目 + 后提交报告 → 聚合版有数据，元信息版也有数据，各自不干扰。"""
+    with tempfile.TemporaryDirectory() as d:
+        orig = config.DATA_DIR
+        config.DATA_DIR = Path(d)
+        try:
+            conn = store.get_db()
+
+            # 先建项目
+            store.create_project("proj-x", "项目X", conn=conn)
+            conn.commit()
+
+            # 提交两篇报告（同 project）
+            for i, (slug, date) in enumerate([("r1", "2026-01-01"), ("r2", "2026-06-15")], 1):
+                sub_id = store.insert_submission(conn, slug, 1,
+                                                 f"{date}T00:00:00+00:00", f"/fake/{slug}.json")
+                conn.commit()
+                store.upsert_report(conn, slug, f"{date}-{slug}.html", f"标题{slug}",
+                                    created_date=date, current_rev=sub_id, project="proj-x")
+            conn.commit()
+
+            # 聚合版：按 reports.project 分组
+            agg = store.list_projects(conn)
+            assert len(agg) == 1
+            assert agg[0]["project"] == "proj-x"
+            assert agg[0]["count"] == 2
+
+            # 元信息版：按 projects 表查
+            metas = store.list_projects_meta(conn)
+            assert len(metas) == 1
+            assert metas[0]["slug"] == "proj-x"
+            assert metas[0]["name"] == "项目X"
+
             conn.close()
         finally:
             config.DATA_DIR = orig

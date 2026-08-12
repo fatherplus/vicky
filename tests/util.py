@@ -70,6 +70,7 @@ def tmp_env(server):
     P0 包化 + P1 DB + P3 前端抢救：patch config 全局路径；server 模块的本地别名同步更新。
     store._db_path() 延迟求值，patch config.DATA_DIR 后自动生效。"""
     import vicky.config as cfg
+    import vicky.cli as climod
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         (tmp / "reports").mkdir()
@@ -80,6 +81,8 @@ def tmp_env(server):
         _rd, _idx, _td, _dd, _vd = cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR, cfg.VIEWS_DIR
         # 保存 server 模块本地别名（独立于 config 的引用）
         _s_rd, _s_idx, _s_td = server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR
+        # 保存 cli 模块本地别名（盲点修复：直接调 cli.backfill() 的测试否则会污染真实 data/vicky.db）
+        _c_rd = climod.REPORTS_DIR
         # patch config
         cfg.REPORTS_DIR = tmp / "reports"
         cfg.INDEX_PATH = tmp / "index.html"
@@ -90,9 +93,12 @@ def tmp_env(server):
         server.REPORTS_DIR = tmp / "reports"
         server.INDEX_PATH = tmp / "index.html"
         server.TEMPLATES_DIR = tmp / "templates"
+        # patch cli 本地别名
+        climod.REPORTS_DIR = tmp / "reports"
         try:
             yield tmp
         finally:
             # 恢复（无论断言成败都必须还原，否则会污染后续测试）
             cfg.REPORTS_DIR, cfg.INDEX_PATH, cfg.TEMPLATES_DIR, cfg.DATA_DIR, cfg.VIEWS_DIR = _rd, _idx, _td, _dd, _vd
             server.REPORTS_DIR, server.INDEX_PATH, server.TEMPLATES_DIR = _s_rd, _s_idx, _s_td
+            climod.REPORTS_DIR = _c_rd

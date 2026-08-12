@@ -18,6 +18,8 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 
 /* 扉页（封面） */
 .frontispiece{padding:100px 0 70px;position:relative}
+/* index.html 精简顶部（去头条阶标题后，仅留 volume 卷号行）——首页 4 卡牌已担任入口导航， index 只作列表落地页 */
+.frontispiece-compact{padding:56px 0 20px}
 .frontispiece .kicker{font-family:var(--mono);font-size:12.5px;color:var(--accent);letter-spacing:.24em;margin-bottom:30px;display:flex;align-items:center;gap:14px}
 .frontispiece .kicker::after{content:'';flex:1;height:1px;background:var(--hairline)}
 .titleblock{position:relative}
@@ -57,12 +59,16 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 .search-hint{font-family:var(--mono);font-size:12px;color:var(--accent);white-space:nowrap}
 .noresult{display:none;text-align:center;color:var(--sub);font-family:var(--serif);font-size:16px;padding:44px 0}
 /* 类型筛选筹码 */
-.chips{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 30px}
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0 14px}
+.chips-filter{margin:0 0 30px;padding-top:14px;border-top:1px dashed rgba(0,0,0,.1);position:relative}
+.chips-filter::before{content:"标签 / 项目筛选";position:absolute;top:-9px;left:0;background:var(--paper);padding:0 8px 0 0;font-family:var(--mono);font-size:10.5px;color:var(--sub);letter-spacing:.02em}
 .chip{font-family:var(--mono);font-size:12.5px;line-height:1;padding:9px 15px;border:1px solid rgba(0,0,0,.16);border-radius:999px;background:#fff;color:var(--ink);cursor:pointer;user-select:none;transition:all .18s ease}
 .chip .n{color:var(--sub);font-size:11px;margin-left:7px}
 .chip:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 12px rgba(12,74,110,.12)}
 .chip.on{background:var(--accent);border-color:var(--accent);color:#FBFAF7;box-shadow:0 4px 14px rgba(12,74,110,.28)}
 .chip.on .n{color:rgba(251,250,247,.72)}
+.chip-f{font-size:11.5px;padding:7px 13px;opacity:.82}
+.chip-f.on{opacity:1}
 .chip-series{border-style:dashed}
 .chip-series:hover{border-color:var(--seal);color:var(--seal);box-shadow:0 4px 12px rgba(166,58,46,.12)}
 .chip-series.on{background:var(--seal);border-color:var(--seal);box-shadow:0 4px 14px rgba(166,58,46,.28)}
@@ -89,11 +95,11 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);line-heigh
 .row-series{color:var(--seal);border:1px dashed rgba(166,58,46,.45)}
 .row-series:hover{background:var(--seal);color:#FBFAF7}
 /* domain 徽章：实心色块（粗分类，一眼可辨）——与 tag 描边 / series 虚线形成层级 */
-.row-domain{font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:1px;color:#FBFAF7;border:none;border-radius:3px;padding:3.5px 8px}
-.row-domain.tech{background:var(--accent)}
-.row-domain.design{background:var(--seal)}
-.row-domain.ephemeral{background:var(--sub)}
-.row-domain:hover{filter:brightness(1.12);transform:translateY(-1px)}
+.row-cat{font-family:var(--sans);font-size:10px;font-weight:700;letter-spacing:1px;color:#FBFAF7;border:none;border-radius:3px;padding:3.5px 8px}
+.row-cat.tech{background:var(--accent)}
+.row-cat.design{background:var(--seal)}
+.row-cat.ephemeral{background:var(--sub)}
+.row-cat:hover{filter:brightness(1.12);transform:translateY(-1px)}
 /* domain 筹码：左色条区分 */
 .chip-domain{position:relative;padding-left:18px}
 .chip-domain::before{content:"";position:absolute;left:7px;top:50%;transform:translateY(-50%);width:5px;height:5px;border-radius:50%}

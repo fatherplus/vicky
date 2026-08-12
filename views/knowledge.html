@@ -16,7 +16,7 @@
     <div>
       <div class="kicker">Knowledge Archive · 自动蒸馏</div>
       <h1>藏书楼</h1>
-      <p class="mast-sub">从研究报告中蒸馏的可持续知识。每一页由 distill 自动运维，随报告提交而进化。</p>
+      <p class="mast-sub">从研究报告中蒸馏的可持续知识。点击主题名进入词条全文页。</p>
     </div>
     <div class="ledger">
       <div class="stat"><span class="stat-n" data-count="__TOPICS__">0</span><span class="stat-l">知识主题</span></div>
@@ -27,13 +27,15 @@
   </header>
 
   <div class="toolbar reveal">
-    <input id="q" class="search" type="search" placeholder="检索知识…" aria-label="检索知识">
+    <input id="q" class="search" type="search" placeholder="按标题/结论模糊检索……" aria-label="检索知识">
     <div class="chips" id="chips">__CHIPS__</div>
   </div>
 
   <main>
+    <!-- 锚点导航：轻量分区标签 -->
+    <nav class="k-anchors reveal" id="anchors">__ANCHORS__</nav>
 __SECTIONS__
-    <div id="empty">无匹配的知识条目。<span class="empty-hint">换一个专栏、标签或检索词试试。</span></div>
+    <div id="empty">无匹配的知识条目。<span class="empty-hint">换一个专栏或检索词试试。</span></div>
   </main>
 
   <footer class="colophon">
@@ -46,55 +48,30 @@ __SECTIONS__
 (function(){
   'use strict';
   var q=document.getElementById('q');
-  var chips=[].slice.call(document.querySelectorAll('.chip'));
-  var cat='all', tag=null;
+  var chips=[].slice.call(document.querySelectorAll('#chips .chip'));
+  var anchors=[].slice.call(document.querySelectorAll('#anchors .k-anchor'));
+  var cat='all';
 
-  function tagVal(el){ return (el.dataset.t||'').trim(); }
-
-  /* 专栏 chip × 标签 × 搜索框 三者叠加过滤 */
+  /* 专栏 chip × 搜索框 叠加过滤 */
   function apply(){
-    var term=q.value.trim().toLowerCase();
-    var cards=document.querySelectorAll('.kcard');
-    [].forEach.call(cards,function(c){
-      var okC=cat==='all'||c.dataset.category===cat;
-      var okT=!tag||(c.dataset.tags||'').split(',').map(function(s){return s.trim();}).indexOf(tag)>=0;
-      var okQ=!term||(c.dataset.search||'').indexOf(term)>=0;
-      c.classList.toggle('hide',!(okC&&okT&&okQ));
+    var term=(q.value||'').trim().toLowerCase();
+    var rows=document.querySelectorAll('.krow');
+    [].forEach.call(rows,function(r){
+      var okC=cat==='all'||r.dataset.category===cat;
+      var okQ=!term||(r.dataset.search||'').indexOf(term)>=0;
+      r.classList.toggle('hide',!(okC&&okQ));
     });
     /* 空节隐藏 */
     [].forEach.call(document.querySelectorAll('.pavilion'),function(p){
-      var any=[].some.call(p.querySelectorAll('.kcard'),function(c){return !c.classList.contains('hide');});
+      var any=[].some.call(p.querySelectorAll('.krow'),function(r){return !r.classList.contains('hide');});
       p.classList.toggle('hide',!any);
     });
     /* 无结果空态 */
-    var anyTotal=[].some.call(cards,function(c){return !c.classList.contains('hide');});
+    var anyTotal=[].some.call(rows,function(r){return !r.classList.contains('hide');});
     document.getElementById('empty').classList.toggle('show',!anyTotal);
+    /* 锚点高亮 */
+    anchors.forEach(function(a){a.classList.toggle('on',a.dataset.c===cat);});
   }
-
-  /* 卡片点击展开/收起（tagchip/链接不触发）*/
-  [].forEach.call(document.querySelectorAll('.kcard'),function(card){
-    var head=card.querySelector('.kcard-head');
-    if(!head)return;
-    head.setAttribute('aria-expanded','false');
-    head.addEventListener('click',function(e){
-      if(e.target.closest('.tagchip,a,button'))return;
-      card.classList.toggle('open');
-      head.setAttribute('aria-expanded',card.classList.contains('open')?'true':'false');
-    });
-  });
-
-  /* 标签筛选：再次点击取消；同标签在所有卡片上同步激活态 */
-  [].forEach.call(document.querySelectorAll('.tagchip'),function(t){
-    t.addEventListener('click',function(e){
-      e.stopPropagation();
-      var v=tagVal(t);
-      tag=tag===v?null:v;
-      [].forEach.call(document.querySelectorAll('.tagchip'),function(x){
-        x.classList.toggle('on',tag!==null&&tagVal(x)===tag);
-      });
-      apply();
-    });
-  });
 
   /* 专栏 chips */
   chips.forEach(function(c){c.addEventListener('click',function(){
@@ -102,6 +79,16 @@ __SECTIONS__
     c.classList.add('on');
     cat=c.dataset.c;
     apply();
+  });});
+
+  /* 锚点点击：设置专栏筛选并滚动到对应节 */
+  anchors.forEach(function(a){a.addEventListener('click',function(e){
+    e.preventDefault();
+    cat=a.dataset.c;
+    chips.forEach(function(x){x.classList.toggle('on',x.dataset.c===cat);});
+    apply();
+    var sec=document.getElementById('sec-'+cat);
+    if(sec) sec.scrollIntoView({behavior:'smooth'});
   });});
 
   /* 检索 */

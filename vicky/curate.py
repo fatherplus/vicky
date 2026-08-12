@@ -44,7 +44,7 @@ def hide_report(slug: str, hidden: bool = True) -> dict:
     """软下架/恢复报告（可逆，L0 快照与 DB 行保留）。
     - 设 reports.hidden 标志
     - 同步：sources 含该 slug（或报告文件名）的知识条目一起 hidden/active（级联软下架）
-    - 触发索引/项目页重渲染（l1_publish.rebuild_index：索引 + 首页 + 卡片墙 + 丛书）
+    - 触发索引/项目页重渲染（l1_publish.rebuild_index：索引 + 首页 + 项目页 + 丛书）
     返回 {"ok", "slug", "hidden", "items_affected"}；slug 不存在返回 {"ok": False, "error"}。"""
     hidden = bool(hidden)
     store.create_knowledge_items_table()  # 幂等：新鲜库无知识条目表时先建（无条目 = 0 影响）

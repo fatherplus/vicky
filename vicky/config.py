@@ -51,26 +51,15 @@ NARRATIVE_CONTRACTS = {
     "verdict-on-comparison", "figure-caption", "mece-structure",
 }
 
-# 存量 domain 枚举（重构蓝图 2026-08-12-vicky-reshape-product-design 起已废弃，仅向后兼容保留）：
-# 新模型改为 category 骨架（REPORT_CATEGORIES），存量 domain 经 LEGACY_DOMAIN_TO_CATEGORY 迁移。
-DOMAINS = {"tech", "design", "ephemeral", "arch"}
-
 # ============================================================
 # 报告分类骨架（重构蓝图 2026-08-12 §03「四大分类」）
 # category = 骨架（平台强制）：决定进不进知识库 / 门禁红线 / 归档去向，
 # 与叙事方式（NARRATIVES）、模板（CATEGORY_DEFAULT_TEMPLATE）正交。
 # 命名说明：与下方知识库专栏 CATEGORIES（dict）同名冲突，故用 REPORT_CATEGORIES；
 # 专栏是 L2 蒸馏产物的归档维度，骨架是 L1 报告的路由维度，二者正交。
+# A 阶段重构：domain 语义已彻底删除，只保留 category-only 分类。
 # ============================================================
 REPORT_CATEGORIES = ["research", "brief", "tech-solution", "arch-doc"]
-
-# 存量 domain → 新 category 迁移映射（schema 迁移回填用；design 为 legacy，不再开放提交）
-LEGACY_DOMAIN_TO_CATEGORY = {
-    "tech": "research",
-    "ephemeral": "brief",
-    "arch": "arch-doc",
-    "design": "design",
-}
 
 # 各分类默认模板（agent 提交未显式指定 template 时兜底；骨架与模板正交，分类内可换模板）
 CATEGORY_DEFAULT_TEMPLATE = {

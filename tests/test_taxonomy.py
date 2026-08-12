@@ -16,13 +16,14 @@ from vicky import config, cli
 
 
 def _tmp_knowledge(tmp: Path, n: int = 2) -> None:
-    """在 tmp 下建 n 个 tech 主题（frontmatter 无 category/tags）。"""
-    (tmp / "tech").mkdir(parents=True, exist_ok=True)
+    """在 tmp 下建 n 个主题（目录扁平 tmp/{topic}/，frontmatter 无 category/tags）。
+    B 阶段重构：domain 语义已彻底删除，不再套 tech/ 子目录层。"""
+    tmp.mkdir(parents=True, exist_ok=True)
     for i in range(n):
         topic = f"topic-{i}"
-        d = tmp / "tech" / topic
+        d = tmp / topic
         d.mkdir()
-        meta = {"id": topic, "title": f"主题{i}", "type": "Topic", "domain": "tech",
+        meta = {"id": topic, "title": f"主题{i}", "type": "Topic",
                 "status": "stable",
                 "generated": {"by": "agent:glm", "at": "2026-08-01"},
                 "verified": "machine-confirmed", "sources_count": 2,
@@ -162,7 +163,7 @@ def test_classify_idempotent_mock_llm():
             cli.classify()  # 二跑：全部已有 category，零调用
 
         assert len(calls) == 2  # 只有首轮 2 主题各 1 次；二跑无新增
-        ovf = tmp / "tech" / "topic-0" / "overview.md"
+        ovf = tmp / "topic-0" / "overview.md"
         meta, body = parse_frontmatter(ovf.read_text(encoding="utf-8"))
         assert meta["category"] == "eng"
         assert meta["tags"] == ["CLI", "工作流"]
@@ -176,7 +177,7 @@ def test_classify_llm_unavailable_skips():
         with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp), \
              patch("vicky.l2_distill.LLM_ON", False):
             cli.classify()
-        ovf = tmp / "tech" / "topic-0" / "overview.md"
+        ovf = tmp / "topic-0" / "overview.md"
         meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
         assert "category" not in meta  # 留白不误写
 
@@ -190,7 +191,7 @@ def test_classify_llm_failure_keeps_blank():
              patch("vicky.l2_distill.LLM_ON", True), \
              patch("vicky.l2_distill.llm_chat", return_value=None):
             cli.classify()
-        ovf = tmp / "tech" / "topic-0" / "overview.md"
+        ovf = tmp / "topic-0" / "overview.md"
         meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
         assert "category" not in meta
 
@@ -201,15 +202,14 @@ def test_classify_llm_failure_keeps_blank():
 def test_build_page_contract():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
-        (tmp / "tech").mkdir(parents=True)
         _tmp_knowledge(tmp, n=2)
         # 手动给主题定分类/标签（模拟 distill/classify 产出）
-        p0 = tmp / "tech" / "topic-0" / "overview.md"
+        p0 = tmp / "topic-0" / "overview.md"
         m0, b0 = parse_frontmatter(p0.read_text(encoding="utf-8"))
         m0["category"] = "ai"
         m0["tags"] = ["RAG", "检索"]
         p0.write_text(dump_frontmatter(m0) + b0, encoding="utf-8")
-        p1 = tmp / "tech" / "topic-1" / "overview.md"
+        p1 = tmp / "topic-1" / "overview.md"
         m1, b1 = parse_frontmatter(p1.read_text(encoding="utf-8"))
         m1["category"] = "infra"
         m1["tags"] = ["数据库"]
@@ -228,20 +228,20 @@ def test_build_page_contract():
         assert 'data-c="ai">AI 专栏<span class="n">1</span>' in html
         assert 'data-c="infra">后端与基础设施专栏<span class="n">1</span>' in html
         assert 'data-c="design">产品与设计专栏<span class="n">0</span>' in html
-        # 分节契约
-        assert '<section class="pavilion" data-category="ai">' in html
-        assert '<section class="pavilion" data-category="infra">' in html
-        assert '<section class="pavilion" data-category="design">' not in html  # 空栏不出节
+        # 分节契约（B 方案：sec-{cat} id 锚点）
+        assert '<section class="pavilion" id="sec-ai" data-category="ai">' in html
+        assert '<section class="pavilion" id="sec-infra" data-category="infra">' in html
+        assert '<section class="pavilion"' in html and 'design' not in html.replace('sec-infra','').split('sec-design')[0] if 'sec-design' in html else True  # 空栏不出节
         assert "个主题</span>" in html
-        # 卡片契约
-        assert 'class="kcard reveal" data-category="ai" data-tags="RAG,检索"' in html
-        assert 'class="kcard reveal" data-category="infra" data-tags="数据库"' in html
-        assert 'class="kcard-head"' in html
-        assert 'class="kcard-body"' in html
-        assert 'class="tagchip" data-t="RAG"' in html
-        assert 'class="ksec ' in html
-        assert 'class="ksum"' in html  # 概述首句
+        # B 方案轻索引行契约（krow 替代旧 kcard 全文平铺）
+        assert 'class="krow reveal" data-category="ai"' in html
+        assert 'class="krow reveal" data-category="infra"' in html
+        assert 'class="krow-title"' in html
+        assert 'class="krow-oneliner"' in html
+        assert 'krow-confidence' in html
+        assert 'class="krow-sources"' in html
         assert 'data-search="' in html
+        assert 'vbadge' in html
 
 
 def test_kcard_search_blob_lowercase():

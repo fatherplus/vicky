@@ -74,12 +74,15 @@ def test_backfill_payload_roundtrip():
     content = _extract_main_content(html)
     meta = _extract_meta(html)
 
-    # 构造 payload（同 backfill 逻辑）
+    # 构造 payload（同 backfill 逻辑：domain 语义已彻底删除，一次性映射为 category）
+    _BACKFILL_DOMAIN_TO_CATEGORY = {"tech": "research", "ephemeral": "brief",
+                                    "arch": "arch-doc", "design": "design"}
+    category = _BACKFILL_DOMAIN_TO_CATEGORY.get(meta.get("domain", "tech"), "research")
     payload = {
         "title": title, "slug": slug, "tag": meta.get("tag", "研究报告"),
         "content": content, "subtitle": meta.get("subtitle", ""),
         "series": meta.get("series", ""), "order": meta.get("series_order", 0),
-        "template": meta.get("template", "book"), "domain": meta.get("domain", "tech"),
+        "template": meta.get("template", "book"), "category": category,
     }
 
     # 写入临时目录
@@ -106,7 +109,7 @@ def test_backfill_payload_roundtrip():
         assert p["slug"] == slug
         assert len(p["content"]) > 0
         assert p["template"] in ("book", "brief")
-        assert p["domain"] in ("tech", "design", "ephemeral")
+        assert p["category"] in ("research", "brief", "tech-solution", "arch-doc", "design")
 
 
 def test_backfill_preserves_markup():
@@ -119,3 +122,33 @@ def test_backfill_preserves_markup():
     has_markup = any(tag in content for tag in
                      ["<table", "<img", "<a href", "<pre", "<code", "<figure", "<ul", "<ol", "<blockquote"])
     assert has_markup, f"{sample.name}: 反解内容应保留 HTML 标记"
+
+
+def test_backfill_domain_meta_maps_to_category_no_param_shift():
+    """回归测试：backfill 曾因位置参数错位导致 domain 值被误存进 template 列
+    （2026-08-12 修复）。走真实 cli.backfill()（tmp_env 隔离，不碰真实 data/），
+    验证存量 HTML 的 <meta name="domain"> 正确映射为 category，且其余字段各就其位。"""
+    from tests.util import load_server, tmp_env
+    from vicky import cli, store
+
+    server = load_server()
+    with tmp_env(server) as tmp:
+        html = ('<html><head><meta name="domain" content="ephemeral">'
+                '<meta name="template" content="brief"></head>'
+                '<body><main><div class="kicker">回归测试标签</div><h1>回归测试标题</h1>'
+                '<section class="opener">开场</section>'
+                '<p>正文内容</p></main></body></html>')
+        (tmp / "reports" / "2026-01-01-regress-slug.html").write_text(html, encoding="utf-8")
+        cli.backfill()
+
+        conn = store.get_db()
+        try:
+            row = conn.execute(
+                "SELECT slug, category, template, series FROM reports WHERE slug=?",
+                ("regress-slug",)).fetchone()
+        finally:
+            conn.close()
+        assert row is not None, "backfill 应成功入库"
+        assert row["category"] == "brief", "domain=ephemeral 应映射为 category=brief"
+        assert row["template"] == "brief", "template 不应被 domain 值顶替（曾因位置参数错位污染）"
+        assert row["series"] == "", "series 不应被污染"

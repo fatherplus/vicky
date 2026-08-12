@@ -52,20 +52,21 @@ tags:
 
 
 def _tmp_knowledge(tmp: Path, n_topics: int = 1, with_items_json: bool = True) -> None:
-    """tmp/knowledge 下建 n 个 tech 主题：overview.md（结论节）+ 可选 items.json。"""
-    (tmp / "knowledge" / "tech").mkdir(parents=True)
+    """tmp/knowledge 下建 n 个主题：overview.md（结论节）+ 可选 items.json。
+    B 阶段目录扁平化：knowledge/{topic}/（不再有 domain 子层）。"""
+    (tmp / "knowledge").mkdir(parents=True)
     for i in range(n_topics):
         topic = f"topic-{i}"
-        d = tmp / "knowledge" / "tech" / topic
+        d = tmp / "knowledge" / topic
         d.mkdir()
         ov = (dump_frontmatter({"id": topic, "title": f"主题{i}", "type": "Topic",
-                                "domain": "tech", "category": "ai",
+                                "category": "ai",
                                 "tags": ["RAG", "检索"]}) +
               f"\n## 概述\n\n这是主题{i}的概述。\n\n"
               f"## 结论\n\n- 结论{i} [来源: report-{i}]\n")
         (d / "overview.md").write_text(ov, encoding="utf-8")
         if with_items_json:
-            items = _extract_items(topic, "tech", ov)
+            items = _extract_items(topic, ov)
             (d / "items.json").write_text(
                 json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -75,7 +76,7 @@ def _tmp_knowledge(tmp: Path, n_topics: int = 1, with_items_json: bool = True) -
 # ============================================================
 def test_extract_items():
     """spec 节名 + [来源: xxx] 标记：三 kind 顺序、来源解析、anchors 空槽。"""
-    items = _extract_items("demo", "tech", SAMPLE_MD)
+    items = _extract_items("demo", SAMPLE_MD)
     assert [i["kind"] for i in items] == ["conclusion", "conclusion", "data", "trap"]
     assert items[0]["text"] == "结论一"
     assert items[0]["sources"] == ["report-a"]
@@ -86,7 +87,7 @@ def test_extract_items():
 
 def test_citation_id_format():
     """id = {topic}#{kind_short}{n}，n 按 kind 独立从 1 递增。"""
-    items = _extract_items("demo", "tech", SAMPLE_MD)
+    items = _extract_items("demo", SAMPLE_MD)
     assert [i["id"] for i in items] == ["demo#c1", "demo#c2", "demo#d1", "demo#t1"]
     import re as _re
     for it in items:
@@ -101,7 +102,7 @@ def test_extract_items_real_sections():
           "## 核心要点\n\n- HNSW 参数 M 决定图的连通性 [hnsw-algorithm]\n\n"
           "## 关键数据\n\n- L0 层每个节点的最大边数为 2×M [hnsw-algorithm]\n\n"
           "## 陷阱与反模式\n\n- 盲目增大 M 会内存膨胀 [hnsw-algorithm]\n")
-    items = _extract_items("hnsw-algorithm", "tech", md)
+    items = _extract_items("hnsw-algorithm", md)
     assert [i["id"] for i in items] == ["hnsw-algorithm#c1", "hnsw-algorithm#d1", "hnsw-algorithm#t1"]
     assert items[0]["sources"] == ["hnsw-algorithm"]
     assert items[0]["text"] == "HNSW 参数 M 决定图的连通性"
@@ -114,7 +115,7 @@ def test_extract_items_skips_non_kind_sections():
           "## 结论\n\n- 结论甲 [来源: a]\n\n一段落形式的结论 [来源: b]\n\n"
           "## 综合\n\n- 综合注记 [2026-08-01]\n\n"
           "## 来源\n\n- 报告 [a]\n")
-    items = _extract_items("x", "tech", md)
+    items = _extract_items("x", md)
     assert [i["kind"] for i in items] == ["conclusion", "conclusion"]
     assert items[1]["text"] == "一段落形式的结论"
 
@@ -124,11 +125,11 @@ def test_write_items_json_writes_sibling():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         _tmp_knowledge(tmp, n_topics=1)
-        ovf = tmp / "knowledge" / "tech" / "topic-0" / "overview.md"
+        ovf = tmp / "knowledge" / "topic-0" / "overview.md"
         orig = ovf.read_text(encoding="utf-8")
         with patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp / "knowledge"):
-            out = _write_items_json("topic-0", "tech", orig)
-        assert out == tmp / "knowledge" / "tech" / "topic-0" / "items.json"
+            out = _write_items_json("topic-0", orig)
+        assert out == tmp / "knowledge" / "topic-0" / "items.json"
         assert out.exists()
         assert ovf.read_text(encoding="utf-8") == orig  # overview.md 未动
         items = json.loads(out.read_text(encoding="utf-8"))
@@ -218,7 +219,7 @@ def test_cli_index_knowledge_end_to_end():
              patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp / "knowledge"):
             cli.index_knowledge()
         # items.json 已补全
-        items_path = tmp / "knowledge" / "tech" / "topic-0" / "items.json"
+        items_path = tmp / "knowledge" / "topic-0" / "items.json"
         assert items_path.exists()
         items = json.loads(items_path.read_text(encoding="utf-8"))
         assert items[0]["id"] == "topic-0#c1"
@@ -247,8 +248,8 @@ def test_cli_index_knowledge_topic_filter():
              patch("vicky.config.KNOWLEDGE_DIR", tmp / "knowledge"), \
              patch("vicky.l2_distill.KNOWLEDGE_DIR", tmp / "knowledge"):
             cli.index_knowledge(topic="topic-0")
-        assert (tmp / "knowledge" / "tech" / "topic-0" / "items.json").exists()
-        assert not (tmp / "knowledge" / "tech" / "topic-1" / "items.json").exists()
+        assert (tmp / "knowledge" / "topic-0" / "items.json").exists()
+        assert not (tmp / "knowledge" / "topic-1" / "items.json").exists()
 
 
 if __name__ == "__main__":

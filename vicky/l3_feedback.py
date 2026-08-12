@@ -29,18 +29,9 @@ def _now() -> str:
 # ============================================================
 # 写回校验与提交
 # ============================================================
-def find_topic_domain(topic: str, domain: str = "") -> str:
-    """topic 必须已存在：knowledge/{domain}/{topic}/overview.md。
-    domain 给了就定点查；不给则扫全部 domain 目录。返回实际 domain，不存在返回 ""。"""
-    kdir = config.KNOWLEDGE_DIR
-    if domain:
-        return domain if (kdir / domain / topic / "overview.md").exists() else ""
-    if not kdir.exists():
-        return ""
-    for d in sorted(kdir.iterdir()):
-        if d.is_dir() and (d / topic / "overview.md").exists():
-            return d.name
-    return ""
+def topic_exists(topic: str) -> bool:
+    """topic 必须已存在：knowledge/{topic}/overview.md（B 阶段扁平化，domain 语义已删除）。"""
+    return (config.KNOWLEDGE_DIR / topic / "overview.md").exists()
 
 
 def submit_feedback(data: dict):
@@ -51,7 +42,6 @@ def submit_feedback(data: dict):
     evidence = str(data.get("evidence") or "").strip()
     opinion = str(data.get("opinion") or "").strip()
     cited = str(data.get("cited") or "").strip()
-    domain = str(data.get("domain") or "").strip()
 
     if not topic:
         return None, "topic 必填"
@@ -61,19 +51,13 @@ def submit_feedback(data: dict):
         return None, "evidence 必填——没有真实证据的意见不进循环"
     if not opinion:
         return None, "opinion 必填"
-    if domain and domain not in config.DOMAINS:
-        return None, f"domain 非法: {domain}（可选 {sorted(config.DOMAINS)}）"
 
-    found = find_topic_domain(topic, domain)
-    if not found:
+    if not topic_exists(topic):
         return None, f"topic '{topic}' 不存在——先蒸馏出知识主题，再写回使用反馈"
-    # domain 给了但与主题实际所在 domain 不符：以主题实际位置为准的前提是别撒谎，直接拒
-    if domain and domain != found:
-        return None, f"topic '{topic}' 实际在 domain '{found}'，不是 '{domain}'"
 
     conn = store.get_db()
     try:
-        fid = store.insert_feedback(conn, topic=topic, domain=found, agent=agent,
+        fid = store.insert_feedback(conn, topic=topic, agent=agent,
                                     evidence=evidence, opinion=opinion, cited=cited,
                                     created_at=_now())
         conn.commit()
@@ -170,7 +154,7 @@ def judge_pending_with_llm() -> dict:
 
     judged = failed = 0
     for fb in pendings:
-        ov_path = config.KNOWLEDGE_DIR / fb["domain"] / fb["topic"] / "overview.md"
+        ov_path = config.KNOWLEDGE_DIR / fb["topic"] / "overview.md"
         ov_text = ov_path.read_text(encoding="utf-8") if ov_path.exists() else "（该主题暂无 overview）"
         prompt = (
             f"你是知识库仲裁员。下面是 agent 对知识主题『{fb['topic']}』的一条使用写回反馈，"

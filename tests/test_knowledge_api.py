@@ -25,9 +25,9 @@ def _get(server, path):
 
 
 def _write_topic(tmp: Path, topic: str, category: str = "", tags=None):
-    d = tmp / "knowledge" / "tech" / topic
+    d = tmp / "knowledge" / topic
     d.mkdir(parents=True, exist_ok=True)
-    fm = ["---", f"id: {topic}", f"title: 主题 {topic}", "domain: tech", "status: stable",
+    fm = ["---", f"id: {topic}", f"title: 主题 {topic}", "status: stable",
           "verified: unverified", "sources_count: 1", "stale_after: 2026-12-01",
           "confidence: medium"]
     if category:
@@ -88,11 +88,10 @@ class TestKnowledgeApi(unittest.TestCase):
         tmp = self._tmp_repo()
         _write_topic(tmp, "topic-a", category="ops", tags=["成本"])
 
-        status, body = _get(server, "/api/knowledge?domain=tech&topic=topic-a")
+        status, body = _get(server, "/api/knowledge?topic=topic-a")
         self.assertEqual(status, 200)
         data = json.loads(body)
         self.assertTrue(data["ok"])
-        self.assertEqual(data["domain"], "tech")
         self.assertEqual(data["topic"], "topic-a")
         self.assertIn("content", data)
         self.assertIn("feedback_count", data)

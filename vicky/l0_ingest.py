@@ -21,13 +21,11 @@ from . import store
 # 本地引用（方便访问，测试 monkey-patch 走 _config.XXX）
 IMG_EXTENSIONS = _config.IMG_EXTENSIONS
 IMG_MAX_BYTES = _config.IMG_MAX_BYTES
-DOMAINS = _config.DOMAINS
-
 SCHEMA_VERSION = "1.0"
 
 
 # ============================================================
-# slug / domain 校验（从 P0 保留，行为不变）
+# slug 校验（domain 校验已随二次重构删除，全面改用 category-only）
 # ============================================================
 def clean_slug(slug: str) -> str:
     return re.sub(r"[^a-z0-9-]", "-", slug.lower()).strip("-")
@@ -37,13 +35,6 @@ def validate_slug_not_empty(slug: str) -> str | None:
     cleaned = clean_slug(slug)
     if not cleaned:
         return "slug 清理后为空：至少包含一个字母或数字"
-    return None
-
-
-def validate_domain(domain: str) -> str | None:
-    domain = (domain or "tech").strip()
-    if domain not in DOMAINS:
-        return f"domain 必须是 {sorted(DOMAINS)} 之一"
     return None
 
 

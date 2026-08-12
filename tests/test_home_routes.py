@@ -45,13 +45,13 @@ def raw_status(port: int, path: str) -> int:
     return int(data.split(b"\r\n", 1)[0].split()[1])
 
 
-def _mk_report(domain="tech", slug=None):
+def _mk_report(category="research", slug=None):
     """建一篇合法报告（走真实 create_report，含 L0 快照 + DB upsert + 重建索引/首页）。"""
-    title = f"{domain} 主题报告 {slug or ''}"
+    title = f"{category} 主题报告 {slug or ''}"
     return server.create_report(
-        title, slug or f"p2-{domain}-{abs(hash(title)) % 100000}", "研究报告",
+        title, slug or f"p2-{category}-{abs(hash(title)) % 100000}", "研究报告",
         '<section><div class="wrap"><p>P2 集成测试内容。</p></div></section>',
-        domain=domain)
+        category=category)
 
 
 class TestHomeRoutes(unittest.TestCase):
@@ -88,7 +88,7 @@ class TestHomeRoutes(unittest.TestCase):
                 self.assertIn("首页门户", body.decode("utf-8"))
                 status, body, _ = _get(server, "/index.html")
                 self.assertEqual(status, 200)
-                self.assertIn("目录 · CONTENTS", body.decode("utf-8"))
+                self.assertIn("阅读 · READ", body.decode("utf-8"))  # 2026-08-12 二次重构：index.html 精简门面，与首页 header 统一调性
             finally:
                 cfg.PUBLIC_DIR = orig_public
 
@@ -115,15 +115,16 @@ class TestHomeRoutes(unittest.TestCase):
             orig_public, orig_knowledge = cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR
             cfg.PUBLIC_DIR, cfg.KNOWLEDGE_DIR = tmp, tmp / "knowledge"
             try:
-                # 知识库：两个主题（其中一个跨 domain），一个空目录不算
-                (tmp / "knowledge" / "tech" / "topic-a").mkdir(parents=True)
-                (tmp / "knowledge" / "tech" / "topic-a" / "overview.md").write_text("# A", encoding="utf-8")
-                (tmp / "knowledge" / "design" / "topic-b").mkdir(parents=True)
-                (tmp / "knowledge" / "design" / "topic-b" / "overview.md").write_text("# B", encoding="utf-8")
-                (tmp / "knowledge" / "tech" / "empty").mkdir(parents=True)
+                # 知识库：两个主题，目录扁平 knowledge/{topic}/（domain 语义已彻底删除）；
+                # 一个空目录不算
+                (tmp / "knowledge" / "topic-a").mkdir(parents=True)
+                (tmp / "knowledge" / "topic-a" / "overview.md").write_text("# A", encoding="utf-8")
+                (tmp / "knowledge" / "topic-b").mkdir(parents=True)
+                (tmp / "knowledge" / "topic-b" / "overview.md").write_text("# B", encoding="utf-8")
+                (tmp / "knowledge" / "empty").mkdir(parents=True)
 
-                _mk_report(domain="tech", slug="p2-tech")
-                _mk_report(domain="design", slug="p2-design")
+                _mk_report(category="research", slug="p2-research")
+                _mk_report(category="brief", slug="p2-brief")
                 # create_report 已触发 refresh_home；再显式 rebuild 验证同触发点
                 server.rebuild_index()
 
@@ -131,7 +132,7 @@ class TestHomeRoutes(unittest.TestCase):
                 self.assertTrue(home.exists())
                 html = home.read_text(encoding="utf-8")
                 self.assertIn("共 2 篇报告", html)
-                self.assertIn("<b>1</b> 篇", html)  # 技术文库计数（design 为 legacy，不入四区）
+                self.assertIn("<b>1</b> 篇", html)  # 技术文库计数（brief 不入技术文库区）
                 self.assertIn("<b>2</b> 主题", html)
                 self.assertNotIn("__TOTAL_", html)
                 # 与真实 GET / 同内容

@@ -23,12 +23,14 @@ class TestNewEndpoints(unittest.TestCase):
                 "category": "tech-solution", "narrative": "对比擂台",
                 "project": "冒烟项目", "content": CONTENT})
             self.assertEqual(status, 201)
-            # 项目空间清单含该项目
+            # 项目空间清单含该项目（D 阶段：返回 slug 为主键，非 project 名）
             status, body, _ = http_get("/api/projects")
             self.assertEqual(status, 200)
             import json
             projects = json.loads(body)["projects"]
-            self.assertIn("冒烟项目", [p["project"] for p in projects])
+            # "冒烟项目" 作为 name→slug 的聚合项出现（slug 或 name）
+            found = any("冒烟" in (p.get("name") or p.get("slug") or "") for p in projects)
+            self.assertTrue(found, f"项目清单应含冒烟项目，实际: {projects}")
 
     def test_submit_invalid_category_rejected(self):
         with tmp_env(server):
@@ -38,7 +40,8 @@ class TestNewEndpoints(unittest.TestCase):
             self.assertEqual(status, 400)
             self.assertIn("category", data.get("error", ""))
 
-    def test_legacy_domain_maps_category(self):
+    def test_domain_field_ignored_defaults_research(self):
+        """domain 语义已彻底删除：传 domain 字段不再影响 category，未传 category 默认 research。"""
         with tmp_env(server):
             status, data = http_post("/api/reports", {
                 "title": "旧协议", "slug": "legacy-eph", "tag": "x",
@@ -48,7 +51,7 @@ class TestNewEndpoints(unittest.TestCase):
             status, body, _ = http_get("/api/reports")
             rows = json.loads(body)["reports"]
             row = next(r for r in rows if r["slug"] == "legacy-eph")
-            self.assertEqual(row.get("category"), "brief")
+            self.assertEqual(row.get("category"), "research")
 
     def test_hide_restore_roundtrip(self):
         with tmp_env(server):

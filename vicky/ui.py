@@ -12,6 +12,12 @@ from datetime import datetime
 
 from . import config
 
+
+def _clean_title(title: str) -> str:
+    """标题展示兜底：排除混进标题字段的字面 HTML 标签残留（如 <br>）。
+    不动数据/存档，仅在展示层 escape 前 strip 掉标签，避免转义后字面显示。"""
+    return re.sub(r"<[^>]+>", " ", title or "").strip()
+
 # ============================================================
 # 知识卡片常量（从 l2_distill 迁出，避免跨层导入 l2）
 # ============================================================
@@ -36,8 +42,8 @@ def load_view(name: str) -> str:
 
 # ============================================================
 # 重构蓝图（2026-08-12）：四区索引 + 项目空间片段
-# 分类徽章：复用现有 .row-domain.{modifier} 色块（不新增 CSS class），
-# modifier 映射到既有 domain 色（research/tech-solution→蓝、brief→灰、arch-doc→红）。
+# 分类徽章：.row-cat.{modifier} 色块，modifier 映射到 category 色
+# （research/tech-solution→蓝、brief→灰、arch-doc→红）。domain 语义已彻底删除。
 # ============================================================
 CATEGORY_LABEL = {"research": "技术", "brief": "简报", "tech-solution": "方案",
                   "arch-doc": "架构", "design": "设计"}
@@ -72,10 +78,9 @@ def toc_row(r: dict, num: int) -> str:
     cat = r["_category"]
     label = CATEGORY_LABEL.get(cat, cat)
     mod = CATEGORY_MOD_CLS.get(cat, "tech")
-    dom = r["_domain"]
     esc_proj = html_mod.escape(r.get("_project") or "", quote=True)
     search = html_mod.escape(_row_search(r), quote=True)
-    badges = (f'<span class="row-domain {mod}" data-type="domain" data-f="{dom}">'
+    badges = (f'<span class="row-cat {mod}" data-type="category" data-f="{cat}">'
               f'{html_mod.escape(label, quote=True)}</span> '
               f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>')
     if r["_series"]:
@@ -85,41 +90,53 @@ def toc_row(r: dict, num: int) -> str:
            if r.get("subtitle") else "")
     updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
     return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/reports/{r["file"]}"'
-            f' data-tag="{esc_tag}" data-series="{esc_series}" data-domain="{dom}"'
+            f' data-tag="{esc_tag}" data-series="{esc_series}"'
             f' data-category="{cat}" data-project="{esc_proj}" data-search="{search}"'
             f' x-show="visible($el)">'
             f'<span class="toc-num">{num:02d}</span>'
             f'<span class="toc-main"><span class="toc-line">'
-            f'<span class="toc-title">{html_mod.escape(r["title"])}</span>{badges}</span>{sub}</span>'
+            f'<span class="toc-title">{html_mod.escape(_clean_title(r["title"]))}</span>{badges}</span>{sub}</span>'
             f'<span class="toc-dots"></span>'
             f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
 
 
 def index_chips(total: int, research_n: int, brief_n: int, project_n: int,
                 tag_counts: list, projects: list) -> list[str]:
-    """四区索引筹码——分类（全部/技术文库/项目空间/简报）+ 标签 + 项目，Alpine 绑定。
-    tag_counts: [(tag, n)] 按计数倒序；projects: [(项目名, 篇数)]。
-    分类筹码带 data-type="all"/"category" 供测试/深链识别；标签筹码保留 data-f 兼容旧筛选。"""
-    chips = [
-        f'<span class="chip on" data-type="all" @click="cat=\'all\'"'
+    """四区索引筹码（旧接口，向后兼容）：现拆成分类组 + 筛选组两次调用拼接。"""
+    return (category_chips_html(total, research_n, brief_n, project_n)
+            + filter_chips_html(tag_counts, projects))
+
+
+def category_chips_html(total: int, research_n: int, brief_n: int, project_n: int) -> list[str]:
+    """第一组筹码——分类（全部/技术文库/项目空间/简报）。
+    切分类时同时清空 tag/proj（修复：跨分类残留的标签/项目筛选会在 AND 语义下
+    把新分类的全部内容过滤掉，表现为"点了分类却是空的"）。"""
+    return [
+        f'<span class="chip on" data-type="all" @click="cat=\'all\';tag=\'\';proj=\'\'"'
         f' :class="cat===\'all\'&&\'on\'">全部<span class="n">{total}</span></span>',
-        f'<span class="chip" data-type="category" @click="cat=\'research\'"'
+        f'<span class="chip" data-type="category" @click="cat=\'research\';tag=\'\';proj=\'\'"'
         f' :class="cat===\'research\'&&\'on\'">技术文库<span class="n">{research_n}</span></span>',
-        f'<span class="chip" data-type="category" @click="cat=\'project\'"'
+        f'<span class="chip" data-type="category" @click="cat=\'project\';tag=\'\';proj=\'\'"'
         f' :class="cat===\'project\'&&\'on\'">项目空间<span class="n">{project_n}</span></span>',
-        f'<span class="chip" data-type="category" @click="cat=\'brief\'"'
+        f'<span class="chip" data-type="category" @click="cat=\'brief\';tag=\'\';proj=\'\'"'
         f' :class="cat===\'brief\'&&\'on\'">简报<span class="n">{brief_n}</span></span>',
     ]
+
+
+def filter_chips_html(tag_counts: list, projects: list) -> list[str]:
+    """第二组筹码——标签 + 项目（细粒度叠加筛选，与分类组视觉隔开：chip-f 类）。
+    tag_counts: [(tag, n)] 按计数倒序；projects: [(项目名, 篇数)]。"""
+    chips = []
     for tag, n in tag_counts:
         esc = html_mod.escape(tag, quote=True)
         chips.append(
-            f'<span class="chip" data-type="tag" @click="toggleTag(\'{esc}\')"'
+            f'<span class="chip chip-f" data-type="tag" @click="toggleTag(\'{esc}\')"'
             f' :class="tag===\'{esc}\'&&\'on\'" data-f="{esc}">'
             f'{html_mod.escape(tag)}<span class="n">{n}</span></span>')
     for name, n in projects:
         esc = html_mod.escape(name, quote=True)
         chips.append(
-            f'<span class="chip" data-type="project" @click="toggleProj(\'{esc}\')"'
+            f'<span class="chip chip-f" data-type="project" @click="toggleProj(\'{esc}\')"'
             f' :class="proj===\'{esc}\'&&\'on\'">'
             f'{html_mod.escape(name)}<span class="n">{n}</span></span>')
     return chips
@@ -158,8 +175,8 @@ def project_doc_row(r: dict, num: int) -> str:
             f' data-project="{html_mod.escape(r.get("_project") or "", quote=True)}">'
             f'<span class="toc-num">{num:02d}</span>'
             f'<span class="toc-main"><span class="toc-line">'
-            f'<span class="toc-title">{html_mod.escape(r["title"])}</span>'
-            f'<span class="row-domain {mod}">{html_mod.escape(label, quote=True)}</span> '
+            f'<span class="toc-title">{html_mod.escape(_clean_title(r["title"]))}</span>'
+            f'<span class="row-cat {mod}">{html_mod.escape(label, quote=True)}</span> '
             f'<span class="row-tag" data-f="{esc_tag}">{esc_tag}</span></span>{sub}</span>'
             f'<span class="toc-dots"></span>'
             f'<span class="toc-date">{r["date_display"]}{updated}</span></a>')
@@ -187,7 +204,7 @@ def frontmatter_html(front: list[dict]) -> str:
     fm = [
         f'<a class="fm-item reveal" href="/reports/{r["file"]}">'
         f'<span class="fm-seal" aria-hidden="true">序</span>'
-        f'<span class="fm-body"><span class="fm-title">{html_mod.escape(r["title"])}</span>'
+        f'<span class="fm-body"><span class="fm-title">{html_mod.escape(_clean_title(r["title"]))}</span>'
         f'<span class="fm-desc">{html_mod.escape(r.get("subtitle") or "关于这个平台本身的设计说明。")}</span></span>'
         f'<span class="fm-arrow">→</span></a>'
         for r in front
@@ -202,42 +219,11 @@ def volume_nav_html(series: str, order: int, siblings: list) -> str:
     next_r = next((r for r in siblings if r["series_order"] == order + 1), None)
     links = ""
     if prev_r:
-        links += f'<a class="vol prev" href="{prev_r["file"]}">← 上一卷 · {html_mod.escape(prev_r["title"])}</a>'
+        links += f'<a class="vol prev" href="{prev_r["file"]}">← 上一卷 · {html_mod.escape(_clean_title(prev_r["title"]))}</a>'
     if next_r:
-        links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html_mod.escape(next_r["title"])} →</a>'
+        links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html_mod.escape(_clean_title(next_r["title"]))} →</a>'
     safe_series = html_mod.escape(re.sub(r"\s+", " ", (series or "").strip()))
     return f'<nav class="volume-nav" data-series="{safe_series}">{links}</nav>'
-
-
-# ============================================================
-# L1 卡片墙片段（spec §3）——design 报告聚合页
-# ============================================================
-def _card_cover(slug: str) -> str:
-    """封面图：assets/img/{slug}/ 按名排序第一张；无图给占位样式。"""
-    img_dir = config.IMG_DIR / slug
-    imgs = (sorted(p.name for p in img_dir.iterdir()
-                   if p.suffix.lower() in config.IMG_EXTENSIONS)
-            if img_dir.exists() else [])
-    if imgs:
-        name = html_mod.escape(imgs[0], quote=True)
-        return (f'<img class="cwall-cover" src="/assets/img/{slug}/{name}" '
-                f'alt="{html_mod.escape(slug)} 封面" loading="lazy">')
-    return ('<div class="cwall-cover" style="display:flex;align-items:center;'
-            'justify-content:center;color:var(--sub);font-family:var(--serif);font-size:14px">'
-            '暂无封面</div>')
-
-
-def card_wall_item(r: dict) -> str:
-    """卡片墙条目——一产品一卡，链到报告页。slug 从文件名反推（date-slug.html）。"""
-    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", r["file"]).removesuffix(".html")
-    cover = _card_cover(slug)
-    title = html_mod.escape(r["title"])
-    sub = r.get("subtitle") or r.get("tag") or ""
-    esc_sub = html_mod.escape(sub, quote=True)
-    href = html_mod.escape(r["file"], quote=True)
-    return (f'<a class="cwall-card reveal" href="/reports/{href}">{cover}'
-            f'<div class="cwall-body"><span class="cwall-title">{title}</span>'
-            f'<span class="cwall-sub">{esc_sub}</span></div></a>')
 
 
 # ============================================================
@@ -258,9 +244,9 @@ def _src_link(src: str) -> str:
 
 def render_knowledge_card(category: str, topic: str, ov: dict, title_suffix: str = "",
                           fb_count: int = 0) -> str:
-    """藏书楼知识卡——P4 分类规格 §3 契约：
-    article.kcard data-category / data-tags / data-search；
-    .kcard-head（标题 + 元信息 + .tagchip 行 + .ksum 概述首句）+ .kcard-body（全文各节，沿用 .ksec）。"""
+    """藏书楼知识卡——完整 kcard 格式（含各节全文）。
+    保留供 B 阶段词条全文页（public/knowledge/{topic}.html）使用。
+    索引页已改为轻量行格式（knowledge_index_row）。"""
     conf_label, conf_cls = CONF_SEAL.get(ov["confidence"], ("存疑", "lo"))
     # OKF 信任徽章
     vlabel, vcls = VER_LABEL.get(ov.get("verified", "unverified"), ("未验证", "v-unv"))
@@ -332,26 +318,72 @@ def render_knowledge_card(category: str, topic: str, ov: dict, title_suffix: str
             f'{head}{body}</article>')
 
 
-def knowledge_pavilion_html(category: str, topics: list, title_count: dict,
-                            fb_counts: dict) -> str:
-    """藏书楼专栏分区（pavilion）→ cards——P4 分类规格 §3 契约：
-    <section class="pavilion" data-category="{key}"> 含 .pav-head（h2 专栏名 + .pav-count）+ .cards。"""
-    cat_name = config.CATEGORIES.get(category, category)
-    cards = "\n".join(
-        render_knowledge_card(category, t, ov,
-                              f' · {ov["sources"]}源' if title_count.get(ov["title"], 0) > 1 else "",
-                              fb_count=fb_counts.get(t, 0))
-        for t, ov in topics)
-    return (f'<section class="pavilion" data-category="{category}">'
+# ============================================================
+# L2 藏书楼轻索引片段（B 方案：每主题一行，按专栏分组）
+# ============================================================
+def knowledge_index_row(topic: dict) -> str:
+    """轻索引行——每主题一行：标题（链到词条页 entry_url）+ 一句话结论 + 来源数 + 信任徽章。
+    topic 约定字段（B 阶段 collect_topics() 产出同形结构）：
+    {slug, title, one_liner, sources, confidence, verified, category, entry_url}"""
+    entry = html_mod.escape(topic.get("entry_url", f"/knowledge/{topic['slug']}.html"), quote=True)
+    title = html_mod.escape(topic["title"])
+    one_liner = html_mod.escape(topic.get("one_liner") or "")
+    sources = topic.get("sources", 0)
+    confidence = topic.get("confidence", "low")
+    conf_label, conf_cls = CONF_SEAL.get(confidence, ("存疑", "lo"))
+    verified = topic.get("verified", "unverified")
+    vlabel, vcls = VER_LABEL.get(verified, ("未验证", "v-unv"))
+    search = html_mod.escape(
+        (topic["title"] + " " + (topic.get("one_liner") or "")).lower(), quote=True)
+    cat = topic.get("category", "ai")
+    return (f'<div class="krow reveal" data-category="{cat}" data-search="{search}">'
+            f'<div class="krow-main">'
+            f'<a class="krow-title" href="{entry}">{title}</a>'
+            f'<p class="krow-oneliner">{one_liner}</p>'
+            f'</div>'
+            f'<div class="krow-meta">'
+            f'<span class="krow-sources"><strong>{sources}</strong> 来源</span>'
+            f'<span class="krow-confidence {conf_cls}" title="可信度：{conf_label}">{conf_label}</span>'
+            f'<span class="vbadge {vcls}" title="验证层级：{vlabel}">{vlabel}</span>'
+            f'</div>'
+            f'</div>')
+
+
+def knowledge_index_section(cat: str, cat_name: str, topics: list) -> str:
+    """轻索引专栏分区——h2 锚点 + 该专栏全部主题行。
+    topics 为 [{slug,title,one_liner,sources,confidence,verified,category,entry_url}, ...]。"""
+    if not topics:
+        return ""
+    rows = "\n".join(knowledge_index_row(t) for t in topics)
+    return (f'<section class="pavilion" id="sec-{cat}" data-category="{cat}">'
             f'<div class="pav-head reveal"><h2>{html_mod.escape(cat_name)}</h2>'
             f'<span class="pav-count">{len(topics)} 个主题</span></div>'
-            f'<div class="cards">{cards}</div></section>')
+            f'{rows}'
+            f'</section>')
+
+
+def knowledge_pavilion_html(category: str, topics: list, title_count: dict | None = None,
+                            fb_counts: dict | None = None) -> str:
+    """藏书楼专栏分区——轻索引行格式（B 方案），每主题一行，替代旧 kcard 全文平铺。
+    签名保持与旧版兼容（title_count / fb_counts 不再使用，但保留参数避免调用方报错）。"""
+    cat_name = config.CATEGORIES.get(category, category)
+    return knowledge_index_section(category, cat_name, topics)
+
+
+def knowledge_anchors_html(topics_by_cat: dict) -> list[str]:
+    """轻索引锚点导航——每专栏一个锚点链接，点击滚动到对应分区。"""
+    anchors = []
+    for k, name in config.CATEGORIES.items():
+        n = len(topics_by_cat.get(k, []))
+        if n > 0:
+            anchors.append(
+                f'<span class="k-anchor on" data-c="{k}"'
+                f'>{html_mod.escape(name)}<span class="n">{n}</span></span>')
+    return anchors
 
 
 def knowledge_chips_html(topics_by_cat: dict) -> list[str]:
-    """藏书楼专栏 chips——P4 分类规格 §3 契约：
-    <span class="chip" data-c="{key|all}">{名}<span class="n">{数量}</span></span>。
-    全部 + 五专栏（含 0 计数，筛选态稳定）。"""
+    """藏书楼专栏 chips——全部 + 五专栏（含 0 计数，筛选态稳定）。"""
     ntopics = sum(len(v) for v in topics_by_cat.values())
     chips = [f'<span class="chip on" data-c="all">全部<span class="n">{ntopics}</span></span>']
     for k, name in config.CATEGORIES.items():

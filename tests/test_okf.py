@@ -12,11 +12,10 @@ from vicky.l2_distill import (dump_frontmatter, parse_frontmatter, parse_overvie
 
 
 def _tmp_knowledge_dir():
-    """为 write_knowledge_compiled 创建临时 knowledge 目录（P5 安全修复：不碰真实 knowledge/）。"""
+    """为 write_knowledge_compiled 创建临时 knowledge 目录（P5 安全修复：不碰真实 knowledge/）。
+    B 阶段重构：扁平知识目录，不再需要 domain 子目录。"""
     from pathlib import Path
-    tmp = Path(tempfile.mkdtemp(prefix="test_okf_"))
-    (tmp / "tech").mkdir(parents=True, exist_ok=True)
-    return tmp
+    return Path(tempfile.mkdtemp(prefix="test_okf_"))
 
 
 def test_frontmatter_roundtrip():
@@ -98,8 +97,8 @@ def test_norm_clusters_id_resolution():
 
 def test_load_existing_concepts_compat():
     tmp = _tmp_knowledge_dir()
-    d1 = os.path.join(tmp, "tech", "vec--1")
-    d2 = os.path.join(tmp, "tech", "oldone")
+    d1 = os.path.join(tmp, "vec--1")
+    d2 = os.path.join(tmp, "oldone")
     try:
         os.makedirs(d1, exist_ok=True)
         with open(os.path.join(d1, "overview.md"), "w", encoding="utf-8") as f:

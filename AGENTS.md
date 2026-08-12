@@ -24,7 +24,7 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | 层 | 职责 | 存储 |
 |----|------|------|
 | L0 原始数据层 | 提交快照（不可变档案） | `data/l0/{slug}/{rev}/submission.json` + sqlite submissions 表 |
-| L1 表述层 | 门禁→模板→HTML+MD 孪生报告 + 索引页 + 首页门户 + 卡片墙 | `public/reports/` + sqlite reports 表 |
+| L1 表述层 | 门禁→模板→HTML+MD 孪生报告 + 索引页 + 首页门户 + 项目页 | `public/reports/` + sqlite reports 表 |
 | L2 知识层 | knowledge Wiki（LLM 编译，输入 .md + adopted 反馈） | `knowledge/{domain}/{topic}/overview.md` |
 | L3 回写层 | 使用账本 + 仲裁 → 采纳反馈回灌 L2 | sqlite feedbacks 表 |
 
@@ -39,7 +39,7 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `vicky/config.py` | 路径、常量、端口/绑定地址（argv[1]/[2]）、REPORT_CATEGORIES / LEGACY_DOMAIN_TO_CATEGORY / NARRATIVES、DESIGN_DOC_SLUG | — |
 | `vicky/store.py` | sqlite3 唯一 DB 出口（建表、连接、查询封装） | — |
 | `vicky/l0_ingest.py` | 收提交 → 快照存档 + 入库登记 | L0 |
-| `vicky/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 卡片墙 + 丛书 | L1 |
+| `vicky/l1_publish.py` | 快照 → 门禁 → 模板 → HTML+MD + 索引 + 首页门户 + 项目页 + 丛书 | L1 |
 | `vicky/l2_distill.py` | .md → knowledge Wiki（LLM 编译 / 规则兜底） | L2 |
 | `vicky/l3_feedback.py` | 使用回写账本 + 仲裁 + 采纳进 L2 的来源组装 | L3 |
 | `vicky/ui.py` | HTML 片段构建器（目录行/知识卡等循环标记的唯一出处） | — |
@@ -66,7 +66,6 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `public/assets/` | 设计系统：`book-style.css`（唯一 CSS 来源）、`index.css`、`knowledge.css`、`components/`（mermaid / arch-flow 等按需注入） |
 | `public/home.html` | 首页门户（server 自动生成：人读五入口 + Agent 提交区 + 计数，不要手改） |
 | `public/index.html` | 索引页（server 自动生成，不要手改） |
-| `public/design.html` | 前端卡片墙页（server 自动生成，domain=design 卡片聚合，不要手改） |
 | `templates/{book,brief,arch-overview,arch-node,card}/` | 注册制报告模板（template.html + manifest.json） |
 | `views/` | 平台整页模板（`home.html`、`index.html`、`knowledge.html`、`design.html`），纯 HTML + `__占位符__` |
 
@@ -115,7 +114,8 @@ POST /api/knowledge/items/{id}/status  单条知识 active/hidden
 POST /api/reports/{slug}/hide        软下架/恢复（body {"hidden": bool}，级联知识条目）
 POST /api/reports/{slug}/delete      硬删除（L0+文件+DB+知识条目级联，不可逆）
 GET  /api/narratives                 叙事方式选型库（markdown）
-GET  /api/projects                   项目空间清单（项目名/篇数/最新日期）
+GET  /api/projects                   项目空间清单（已建项目元信息 + 报告聚合计数/最新日期）
+POST /api/projects                   先建项目（body {name, slug?, description?}；slug 缺省由 name 生成；重复拒收）
 GET  /api/knowledge/feedback         账本可查（?topic=&status=）
 GET  /api/guide                      写作指南（markdown）
 GET  /api/skill                      下载写作指南（.md 附件）
@@ -146,7 +146,11 @@ agent 触发 `skill/vicky-writer/SKILL.md` 后直接打 HTTP 端点，无常驻�
 
 **报告李生 .md**：`POST /api/reports` 写 `reports/{slug}.html` 同时生成 `reports/{slug}.md`（`html_to_md.py` 确定性转换，体积约 1/4）。人读 `.html`，AI 消费给 `.md` 链接（省 token ~70%）。存量补生成：`python3 scripts/backfill_md.py`。
 
-**category 骨架（2026-08-12 重构）**：`category` 枚举 `research`（技术调研长读，唯一进知识库蒸馏）/`brief`（决策简报/汇报，用完即弃）/`tech-solution`（技术方案，归项目区）/`arch-doc`（项目架构详情，归项目区）。`narrative` 为叙事方式（自由文本，选型见 `/api/narratives`），`project` 为归档项目名（tech-solution/arch-doc 必填，聚合成 `public/projects/{name}.html` 项目页）。存量 `domain` 仍被接受并映射：tech→research / ephemeral→brief / arch→arch-doc / design→legacy（不再开放新提交）。`tech-solution` 内容出现超过约 15 行代码块给 warning「方案不应包含实施代码」。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
+**category 骨架（2026-08-12 重构 v2：domain 语义已彻底删除）**：`category` 枚举 `research`（技术调研长读，唯一进知识库蒸馏）/`brief`（决策简报/汇报，用完即弃）/`tech-solution`（技术方案，归项目区）/`arch-doc`（项目架构详情，归项目区）。旧 `domain` 字段与 `LEGACY_DOMAIN_TO_CATEGORY` 映射已从代码/schema 全部删除（破坏性清理，需代码定案后重蒸馏）。`narrative` 为叙事方式（自由文本，选型见 `/api/narratives`），`project` 关联「先建项目」的 slug（见下）。`tech-solution` 内容出现超过约 15 行代码块给 warning「方案不应包含实施代码」。`images: [{name, b64}]` 随报告上传截图，落盘 `public/assets/img/{slug}/`，HTML 里只留链接。
+
+**先建项目 + `.vicky` 联动（2026-08-12 v2）**：项目是一等公民——先 `POST /api/projects`（或 CLI `python3 -m vicky.cli project --create`）建项目（`projects` 表：slug/name/description/created_at），再让报告 `project=<slug>` 归档进去。本地 agent 在项目仓库根目录放 `.vicky` 文件（两行：`project=<slug>` / `endpoint=http://192.168.12.15:9093`），`skill/vicky-writer` 读它自动带 project 投稿。投稿带未注册 project 返回 warning（不拒收）。
+
+**知识库呈现（2026-08-12 v2：B 方案 Wiki 词条 + 轻索引）**：`knowledge/{topic}/overview.md` 扁平存储（专栏 category 存 overview.md 内，不做专栏目录层级）。蒸馏时每 topic 静态生成词条全文页 `public/knowledge/{topic}.html`；知识库首页 `public/knowledge/index.html` 是轻索引（每 topic 一行：标题+一句话结论+来源数+信任徽章，按专栏 ai/infra/eng/ops/design 分组锚点），点标题进词条页。蒸馏提取只抽提炼后的结论/关键数据/陷阱，不搬运整段。
 
 **审核治理**：报告两级操作——软下架（`hidden`，索引/项目页/蒸馏全部隐藏，可恢复）与硬删除（L0 快照 + 文件 + DB 行 + 关联知识条目级联物理删，不可逆）。知识条目独立状态 active/hidden，审核视图 `GET /api/knowledge/audit`。CLI：`python3 -m vicky.cli hide/delete/audit`。
 
@@ -218,6 +222,8 @@ python3 -m vicky.cli judge                  # LLM 批量初裁 pending 反馈
 python3 -m vicky.cli hide --slug X          # 软下架（restore 恢复）
 python3 -m vicky.cli delete --slug X --yes  # 硬删除（级联，不可逆）
 python3 -m vicky.cli audit [--topic X]      # 知识条目审核视图
+python3 -m vicky.cli project --create --name X [--slug Y] [--desc Z]  # 先建项目
+python3 -m vicky.cli project --list         # 列项目（元信息 + 报告聚合计数）
 
 # 测试
 python3 -m pytest tests/ -q

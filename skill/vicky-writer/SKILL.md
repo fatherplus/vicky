@@ -53,7 +53,7 @@ curl -s -X POST http://192.168.12.15:9093/api/validate \
 完整字段：`title` / `slug` / `category` / `content`（HTML 片段）+ 可选
 `narrative` / `project` / `tag` / `template` / `subtitle` / `series` / `order` / `images`。
 
-- `category` 必填（research / brief / tech-solution / arch-doc）
+- `category` 强烈建议显式指定（research / brief / tech-solution / arch-doc）——不填默认落 `research`，容易和真实意图不符
 - `narrative` 选填，不填走默认；取值见 `GET /api/narratives`（如 `黄金五章` / `对比擂台` / `场景演练`）
 - `project` 选填——**项目文档必填**，用于归入项目区聚合（如 `"project": "vicky"`）
 - `template` 选填，不填按分类默认（research→book、brief→brief、tech-solution→book、arch-doc→arch-overview）
@@ -100,7 +100,7 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 ## 平台无 MCP，一切走 HTTP
 
 Vicky **没有 MCP 服务器**。不要尝试连接 `mcp://` 或调用 `submit_report` 等工具——
-用上面的直接 HTTP 请求即可。写作规范类资源也走 HTTP：
+用下面的直接 HTTP 请求即可。写作规范类资源也走 HTTP：
 
 | 端点 | 说明 |
 |------|------|
@@ -108,8 +108,54 @@ Vicky **没有 MCP 服务器**。不要尝试连接 `mcp://` 或调用 `submit_r
 | `GET /api/narratives` | 叙事方式选型库（7 种） |
 | `GET /api/templates` | 模板目录与 manifest |
 | `GET /api/principles` | 叙事宪法（9 条契约不变量） |
+| `GET /api/projects` | 已建项目清单（用于选择 project 字段值） |
+| `POST /api/projects` | 新建项目（投稿前先注册，body: `{name, slug?, description?}`） |
 | `POST /api/validate` | dry 预检（violations / warnings / components） |
 | `POST /api/reports` | 提交 / 修订报告 |
+
+## .vicky 文件约定（先建项目联动）
+
+在项目仓库根目录放置 `.vicky` 文件，agent 投稿前读它自动获取 `project` 与 `endpoint`，
+无需每次手动传：
+
+```
+# 格式（两行 key=value，顺序固定）：
+project=<项目slug>
+endpoint=http://192.168.12.15:9093
+```
+
+- `project`：项目 slug（需先 `POST /api/projects` 注册；`GET /api/projects` 查看已建项目）
+- `endpoint`：Vicky 服务器地址（默认 `http://192.168.12.15:9093`）
+
+agent 投稿流程：
+
+```bash
+# 1. 读 .vicky 拿 project 与 endpoint
+PROJECT=$(grep -s '^project=' .vicky 2>/dev/null | cut -d= -f2-)
+ENDPOINT=$(grep -s '^endpoint=' .vicky 2>/dev/null | cut -d= -f2-)
+ENDPOINT=${ENDPOINT:-http://192.168.12.15:9093}
+
+# 2. 预检（可选）
+curl -s -X POST "$ENDPOINT/api/validate" \
+  -H 'Content-Type: application/json' \
+  -d "{\"title\": \"...\", \"slug\": \"...\", \"category\": \"tech-solution\", \"content\": \"...\"}"
+
+# 3. 投稿（自动带 project）
+curl -X POST "$ENDPOINT/api/reports" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"title\": \"...\",
+    \"slug\": \"...\",
+    \"category\": \"tech-solution\",
+    \"project\": \"$PROJECT\",
+    \"content\": \"...\"
+  }"
+```
+
+`.vicky` 不存在的处理：缺省 endpoint 用 `http://192.168.12.15:9093`，project 留空
+（`research` / `brief` 类投稿 project 非必填，仅 `tech-solution` / `arch-doc` 建议带）。
+未建项目的 slug 投稿时 server 会返回 warning 提醒「项目未注册，建议先 POST /api/projects」，
+不拒收——agent 可补建项目后再修订报告。
 
 ## 反模式提醒（血泪教训）
 

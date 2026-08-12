@@ -7,9 +7,9 @@ L2 知识层（P0 包化：从 distill.py 搬迁，行为零变化）。
 
 流程（对应治理链路 关2-3）：
   1. 扫描 public/reports/*.html，对比 log.md 已处理列表
-  2. 按 domain 路由：只蒸 tech（ephemeral / design / arch 跳过）
+  2. 只蒸 category==research 的报告（brief / tech-solution / arch-doc 跳过）
   3. 提取知识条目（结论/被否假设/陷阱/数据），每条标来源
-  4. AGREE 追加到 knowledge/{domain}/{topic}/overview.md
+  4. AGREE 追加到 knowledge/{topic}/overview.md（B 阶段：目录扁平，不再按 domain 分层）
   5. 更新 index.md、追加 log.md
 
 # ponytail: 阶段2 提取器是规则存根版，证明管线跑通；阶段3 换 LLM prompt
@@ -182,10 +182,9 @@ def _md_tables(md_content: str) -> list[str]:
     return results
 
 
-EXTRACTORS = {"tech": extract_tech_md}  # P2: 输入换 .md 孪生；只蒸 tech（design 退出自动蒸馏）
-
-# 不参与蒸馏的 domain（spec §1：design 卡片靠人工维护 token，arch/ephemeral 不进知识库）
-SKIP_DOMAINS = {"ephemeral", "design", "arch"}
+# B 阶段重构：蒸馏只进 research 分类（brief/tech-solution/arch-doc 不进知识库）
+# 统一走 extract_tech_md 一个提取器（不再按 domain 分发）
+_DISTILL_CATEGORY = "research"
 
 
 # ============================================================
@@ -264,44 +263,41 @@ def llm_chat(messages: list, max_tokens: int = 2000, timeout: int = 150):
 
 
 def _norm_clusters(data, reports: list, anchors: list | None = None) -> list:
-    """宽容归一化 LLM 聚类输出，并解析概念 id（命中锚点才认，防幻觉 id）。"""
+    """宽容归一化 LLM 聚类输出，并解析概念 id（命中锚点才认，防幻觉 id）。
+    B 阶段重构：不再按 domain 回填，统一 category=research。"""
     anchors = anchors or []
     anchor_by_id = {a["id"]: a for a in anchors if a.get("id")}
-    slug_domain = {r["slug"]: r["domain"] for r in reports}
     slug_title = {r["slug"]: r["title"] for r in reports}
-    valid = set(slug_domain)
-    groups = []  # (cid, topic, [slugs], domain|None)
+    valid = {r["slug"] for r in reports}
+    groups = []  # (cid, topic, [slugs])
     if isinstance(data, dict):
         for k, v in data.items():
             if isinstance(v, list):
-                groups.append(("", str(k), [x for x in v if isinstance(x, str)], None))
+                groups.append(("", str(k), [x for x in v if isinstance(x, str)]))
             elif isinstance(v, dict):
-                groups.append(("", str(k), [x for x in v.get("members", []) if isinstance(x, str)], v.get("domain")))
+                groups.append(("", str(k), [x for x in v.get("members", []) if isinstance(x, str)]))
     elif isinstance(data, list):
         for c in data:
             if isinstance(c, dict):
                 ms = c.get("members") or c.get("slugs") or []
                 groups.append((str(c.get("id", "") or ""), str(c.get("topic", "")),
-                               [x for x in ms if isinstance(x, str)], c.get("domain")))
+                               [x for x in ms if isinstance(x, str)]))
             elif isinstance(c, list):
-                groups.append(("", "", [x for x in c if isinstance(x, str)], None))
+                groups.append(("", "", [x for x in c if isinstance(x, str)]))
     out, seen = [], set()
-    for cid, topic, slugs, dom in groups:
+    for cid, topic, slugs in groups:
         members = [s for s in slugs if s in valid and s not in seen]
         if not members:
             continue
         seen.update(members)
-        if dom not in ("tech",):
-            from collections import Counter
-            dom = Counter(slug_domain[s] for s in members).most_common(1)[0][0]
         rid = cid if cid in anchor_by_id else ""  # 只认锚点里的 id，其余当新概念
         if not topic.strip():
             topic = (anchor_by_id[rid]["title"] if rid else
                      "、".join(slug_title[s] for s in members[:2]) + (" 等" if len(members) > 2 else ""))
-        out.append({"id": rid, "topic": topic.strip(), "domain": dom, "members": members})
+        out.append({"id": rid, "topic": topic.strip(), "members": members})
     for r in reports:
         if r["slug"] not in seen:
-            out.append({"id": "", "topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+            out.append({"id": "", "topic": r["title"], "members": [r["slug"]]})
     return out
 
 
@@ -325,10 +321,10 @@ def _cluster_one_batch(batch: list, anchors: list | None = None) -> list:
     prompt = (
         "你是知识库编辑。" + (anchor_block or "") + "【待归类报告】（slug + 标题）：\n" + catalog + "\n"
         + extra + "规则：members 必须是待归类报告里的 slug 原样字符串；每个 slug 恰好归一处；"
-        "domain 只能是 tech；" + id_rule +
-        "只输出 JSON 数组，不要任何解释。每个元素是含 id/topic/domain/members 的对象，禁止只输出 slug 数组。形如："
-        '[{"id":"","topic":"向量检索","domain":"tech","members":["hnsw-algorithm"]},'
-        '{"id":"usage--abc","topic":"用量分析","domain":"tech","members":["aws-claude-usage"]}]\n\n')
+        + id_rule +
+        "只输出 JSON 数组，不要任何解释。每个元素是含 id/topic/members 的对象，禁止只输出 slug 数组。形如："
+        '[{"id":"","topic":"向量检索","members":["hnsw-algorithm"]},'
+        '{"id":"usage--abc","topic":"用量分析","members":["aws-claude-usage"]}]\n\n')
     raw = llm_chat([{"role": "user", "content": prompt}], max_tokens=6000, timeout=200)
     if not raw:
         return []
@@ -339,31 +335,31 @@ def _cluster_one_batch(batch: list, anchors: list | None = None) -> list:
 
 
 def _load_existing_concepts() -> list:
-    """读现有 knowledge 概念作增量聚类锚点（id + title + members）。兼容新旧格式。"""
+    """读现有 knowledge 概念作增量聚类锚点（id + title + members）。
+    B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录（不再按 domain 分层）。"""
     anchors = []
-    for domain in ("tech",):
-        ddir = KNOWLEDGE_DIR / domain
-        if not ddir.exists():
+    if not KNOWLEDGE_DIR.exists():
+        return anchors
+    for tdir in sorted(KNOWLEDGE_DIR.iterdir()):
+        ovf = tdir / "overview.md"
+        if not tdir.is_dir() or not ovf.exists() or tdir.name.startswith("."):
             continue
-        for tdir in sorted(ddir.iterdir()):
-            ovf = tdir / "overview.md"
-            if not tdir.is_dir() or not ovf.exists():
-                continue
-            ov = parse_overview(ovf.read_text(encoding="utf-8"))
-            if not ov["title"]:
-                continue
-            cid = ov.get("id") or tdir.name
-            members = ov.get("source_reports") or []
-            if not members:  # 旧散文格式回退：从「来源」节抠 slug
-                for s in ov["sections"]:
-                    if s["label"] == "来源":
-                        members = [it["source"] for it in s["items"] if it["source"]]
-            anchors.append({"id": cid, "title": ov["title"], "members": members})
+        ov = parse_overview(ovf.read_text(encoding="utf-8"))
+        if not ov["title"]:
+            continue
+        cid = ov.get("id") or tdir.name
+        members = ov.get("source_reports") or []
+        if not members:  # 旧散文格式回退：从「来源」节抠 slug
+            for s in ov["sections"]:
+                if s["label"] == "来源":
+                    members = [it["source"] for it in s["items"] if it["source"]]
+        anchors.append({"id": cid, "title": ov["title"], "members": members})
     return anchors
 
 
 def llm_cluster(reports: list, anchors: list | None = None) -> list:
-    """全局语义聚类：分批（每批 12 篇）+ 跨批合并（id 优先，其次 topic 名）。失败返回 None。"""
+    """全局语义聚类：分批（每批 12 篇）+ 跨批合并（id 优先，其次 topic 名）。失败返回 None。
+    B 阶段重构：cluster 不再带 domain 字段。"""
     BATCH = 12
     all_clusters = []
     for i in range(0, len(reports), BATCH):
@@ -374,7 +370,7 @@ def llm_cluster(reports: list, anchors: list | None = None) -> list:
     for c in all_clusters:
         key = c["id"] if c["id"] else ("T:" + (re.sub(r"\s+", "", c["topic"]).lower() or c["topic"]))
         if key not in merged:
-            merged[key] = {"id": c["id"], "topic": c["topic"], "domain": c["domain"], "members": list(c["members"])}
+            merged[key] = {"id": c["id"], "topic": c["topic"], "members": list(c["members"])}
             order.append(key)
         else:
             seen = set(merged[key]["members"])
@@ -385,31 +381,35 @@ def llm_cluster(reports: list, anchors: list | None = None) -> list:
     seen = {m for c in out for m in c["members"]}
     for r in reports:
         if r["slug"] not in seen:
-            out.append({"id": "", "topic": r["title"], "domain": r["domain"], "members": [r["slug"]]})
+            out.append({"id": "", "topic": r["title"], "members": [r["slug"]]})
     return out
 
 
 def _heuristic_cluster(catalog: list) -> list:
     """启发式兆底聚类：网关不可用时按关键词把报告聚成多源主题。
-    不完美但保证多源分组成立，比 1:1 垃圾强；网关恢复后 LLM 聚类会覆盖它。"""
-    BUCKETS = [  # (主题名, domain, 关键词)
-        ("向量检索与 RAG", "tech", ["rag", "retrieval", "top-k", "topk", "hnsw", "向量", "检索", "lightrag", "embed"]),
-        ("Agent 记忆与上下文", "tech", ["memory", "hindsight", "记忆", "weaver", "上下文"]),
-        ("图谱与知识库基础设施", "tech", ["pggraph", "pgcontext", "图谱", "graph", "gamekb", "知识库"]),
-        ("用量与成本治理", "tech", ["用量", "usage", "cost", "成本", "aimeter", "治理", "token"]),
-        ("Agent 工程工具链", "tech", ["codegraph", "ponytail", "context7", "skill", "工具链"]),
-        ("知识数据源配置", "tech", ["knowledge-sources", "数据源", "知识源"]),
+    不完美但保证多源分组成立，比 1:1 垃圾强；网关恢复后 LLM 聚类会覆盖它。
+    B 阶段重构：不再带 domain 字段。"""
+    BUCKETS = [  # (主题名, 关键词)
+        ("向量检索与 RAG", ["rag", "retrieval", "top-k", "topk", "hnsw", "向量", "检索", "lightrag", "embed"]),
+        ("Agent 记忆与上下文", ["memory", "hindsight", "记忆", "weaver", "上下文"]),
+        ("图谱与知识库基础设施", ["pggraph", "pgcontext", "图谱", "graph", "gamekb", "知识库"]),
+        ("用量与成本治理", ["用量", "usage", "cost", "成本", "aimeter", "治理", "token"]),
+        ("Agent 工程工具链", ["codegraph", "ponytail", "context7", "skill", "工具链"]),
+        ("知识数据源配置", ["knowledge-sources", "数据源", "知识源"]),
     ]
-    groups = {name: {"topic": name, "domain": dom, "members": []} for name, dom, _ in BUCKETS}
+    groups = {name: {"topic": name, "members": []} for name, _, in BUCKETS}
     used = set()
     for r in catalog:
         hay = (r["slug"] + " " + r["title"]).lower()
         placed = False
-        for name, dom, kws in BUCKETS:
+        for name, kws in BUCKETS:
             if any(k in hay for k in kws):
-                groups[name]["members"].append(r["slug"]); used.add(r["slug"]); placed = True; break
+                groups[name]["members"].append(r["slug"])
+                used.add(r["slug"])
+                placed = True
+                break
         if not placed:
-            groups[r["title"]] = {"topic": r["title"], "domain": r["domain"], "members": [r["slug"]]}
+            groups[r["title"]] = {"topic": r["title"], "members": [r["slug"]]}
             used.add(r["slug"])
     out = [g for g in groups.values() if g["members"]]
     return out or None
@@ -424,21 +424,21 @@ def _read_md_excerpt(report_file: str, maxlen: int = 2000) -> str:
     return t[:maxlen] + ("…[截断]" if len(t) > maxlen else "")
 def existing_tags() -> list[str]:
     """收集全库已有标签清单（frontmatter tags 字段，去重保序），供编译/classify prompt 优先复用。
-    分类规格 §1：小标签无治理流程，靠 prompt 收敛，不做标签注册表。"""
+    分类规格 §1：小标签无治理流程，靠 prompt 收敛，不做标签注册表。
+    B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录。"""
     tags, seen = [], set()
     if KNOWLEDGE_DIR.exists():
-        for domain_dir in sorted(p for p in KNOWLEDGE_DIR.iterdir()
-                                 if p.is_dir() and not p.name.startswith(".")):
-            for tdir in sorted(domain_dir.iterdir()):
-                ovf = tdir / "overview.md"
-                if not tdir.is_dir() or not ovf.exists():
-                    continue
-                meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
-                for t in (meta.get("tags") or []):
-                    t = str(t).strip()
-                    if t and t not in seen:
-                        seen.add(t)
-                        tags.append(t)
+        for tdir in sorted(p for p in KNOWLEDGE_DIR.iterdir()
+                           if p.is_dir() and not p.name.startswith(".")):
+            ovf = tdir / "overview.md"
+            if not tdir.is_dir() or not ovf.exists():
+                continue
+            meta, _ = parse_frontmatter(ovf.read_text(encoding="utf-8"))
+            for t in (meta.get("tags") or []):
+                t = str(t).strip()
+                if t and t not in seen:
+                    seen.add(t)
+                    tags.append(t)
     return tags
 
 
@@ -562,11 +562,10 @@ def _read_meta(html_content: str, name: str) -> str:
 
 
 def scan_reports() -> list[dict]:
-    """扫描 reports/，返回 [{file, domain, slug, title, content}]。
+    """扫描 reports/，返回 [{file, category, slug, title, content}]。
     审核治理：reports 表 hidden=1 的报告直接跳过（软下架不参与蒸馏，两路径统一生效）。
-    P2（规格 §2/§9-P2）：蒸馏输入从 .html 换成 .md 孪生文件——content 读 .md；
-    元数据（domain）查 L1 reports 表（元数据单一真相源，正则刮 HTML 退休），
-    title 从 md 首个 # 标题取；DB 无登记时 domain 兜底 tech。
+    B 阶段重构：只蒸 category==research 的报告；元数据读 category（不再读 domain）；
+    content 读 .md 孪生文件；title 从 DB 取（元数据真相源），md 标题兜底。
     file 字段仍记 .html 名——log.md 存量条目按 .html 名记，保持 processed_files 兼容。"""
     if not REPORTS_DIR.exists():
         return []
@@ -581,11 +580,11 @@ def scan_reports() -> list[dict]:
             title = title_m.group(1).strip() if title_m else slug
             row = store.get_report_by_slug(conn, slug)
             if row and row.get("hidden"):
-                continue  # 审核治理：软下架报告不参与蒸馏（规则/LLM 两路径统一过滤）
-            domain = (row or {}).get("domain") or "tech"
+                continue  # 审核治理：软下架报告不参与蒸馏
+            category = (row or {}).get("category") or "research"
             if row and row.get("title"):
                 title = row["title"]  # DB 是元数据真相源，md 标题只是兜底
-            out.append({"file": f.name[:-3] + ".html", "path": f, "domain": domain,
+            out.append({"file": f.name[:-3] + ".html", "path": f, "category": category,
                         "slug": slug, "title": title, "content": content})
         return out
     finally:
@@ -650,9 +649,9 @@ def _detect_contradiction(new_text: str, existing_texts: list[str]) -> str | Non
     return None
 
 
-def _topic_dir(domain: str, slug: str) -> Path:
-    """知识目录：knowledge/{domain}/{slug}/"""
-    return KNOWLEDGE_DIR / domain / slug
+def _topic_dir(slug: str) -> Path:
+    """知识目录（B 阶段扁平化）：knowledge/{slug}/"""
+    return KNOWLEDGE_DIR / slug
 
 
 def _read_existing_items(overview_path: Path) -> dict[str, list[str]]:
@@ -678,10 +677,11 @@ def _read_existing_items(overview_path: Path) -> dict[str, list[str]]:
     return items
 
 
-def write_knowledge(domain: str, slug: str, title: str,
+def write_knowledge(slug: str, title: str,
                     items: list[dict], source: str) -> Path:
-    """KSI 进化：AGREE 追加 / DISAGREE 标记分歧 / SYNTHESIZE 综合"""
-    tdir = _topic_dir(domain, slug)
+    """KSI 进化：AGREE 追加 / DISAGREE 标记分歧 / SYNTHESIZE 综合
+    B 阶段重构：目录扁平 knowledge/{slug}/，不再按 domain 分层。"""
+    tdir = _topic_dir(slug)
     tdir.mkdir(parents=True, exist_ok=True)
     overview = tdir / "overview.md"
 
@@ -752,16 +752,17 @@ def write_knowledge(domain: str, slug: str, title: str,
 
     overview.write_text("\n".join(lines), encoding="utf-8")
     # P3：知识条目原子化——items.json 孪生（只加新文件，不碰 overview.md）
-    _write_items_json(slug, domain, "\n".join(lines))
+    _write_items_json(slug, "\n".join(lines))
     return overview
 
 
 def write_knowledge_compiled(cluster: dict, members_data: dict,
                              compiled: dict | None, feedbacks: list | None = None) -> Path:
     """LLM 编译路径：写一个语义主题的 overview.md（多源聚合 + 交叉引用）。
+    B 阶段重构：目录扁平 knowledge/{slug}/；frontmatter 不再记 domain，只记 category。
     P2：feedbacks 为本轮消费的 adopted 写回——frontmatter 记 feedback_sources: N（信任元数据，规格 §6③）。"""
     feedbacks = feedbacks or []
-    topic, domain, member_slugs = cluster["topic"], cluster["domain"], cluster["members"]
+    topic, member_slugs = cluster["topic"], cluster["members"]
     n = len(member_slugs)
     conf = "high" if n >= 3 else "medium" if n >= 2 else "low"
     today = datetime.now().strftime("%Y-%m-%d")
@@ -780,7 +781,7 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
     verified = "machine-confirmed" if n >= 2 else "unverified"
     stale_after = (datetime.now() + timedelta(days=STALE_DAYS)).strftime("%Y-%m-%d")
     meta = {
-        "id": slug, "title": topic, "type": "Topic", "domain": domain,
+        "id": slug, "title": topic, "type": "Topic",
         "category": compiled.get("category", "ai"),  # 分类规格 §1：枚举 key，编译校验兜底 ai
         "status": "stable",
         "generated": {"by": f"agent:{model_tag}", "at": today},
@@ -817,13 +818,13 @@ def write_knowledge_compiled(cluster: dict, members_data: dict,
         lines.append(f"- 使用写回（{fb['agent']}）：{fb['opinion']} [feedback#{fb['id']}]")
     lines.append("")
 
-    tdir = _topic_dir(domain, slug)
+    tdir = _topic_dir(slug)
     tdir.mkdir(parents=True, exist_ok=True)
     overview = tdir / "overview.md"
     md_text = dump_frontmatter(meta) + "\n".join(lines)
     overview.write_text(md_text, encoding="utf-8")
     # P3：知识条目原子化——items.json 孪生（只加新文件，不碰 overview.md）
-    _write_items_json(slug, domain, md_text)
+    _write_items_json(slug, md_text)
     return overview
 
 
@@ -846,16 +847,14 @@ def _safe_slug(topic: str, member_slugs: list, existing_id: str = "") -> str:
 # ============================================================
 
 def update_index():
-    """重建 index.md：每个知识页一行"""
+    """重建 index.md：每个知识页一行。
+    B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录。"""
     lines = ["# 知识索引", "",
              f"> Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ""]
     count = 0
-    for domain_dir in sorted(KNOWLEDGE_DIR.iterdir()):
-        if not domain_dir.is_dir() or domain_dir.name.startswith("."):
-            continue
-        domain = domain_dir.name
-        for topic_dir in sorted(domain_dir.iterdir()):
-            if not topic_dir.is_dir():
+    if KNOWLEDGE_DIR.exists():
+        for topic_dir in sorted(KNOWLEDGE_DIR.iterdir()):
+            if not topic_dir.is_dir() or topic_dir.name.startswith("."):
                 continue
             overview = topic_dir / "overview.md"
             if not overview.exists():
@@ -864,7 +863,7 @@ def update_index():
             title = first_line.lstrip("# ").strip()
             src_m = re.search(r"Sources: (\d+)", overview.read_text(encoding="utf-8"))
             src = src_m.group(1) if src_m else "?"
-            lines.append(f"- **[{domain}]** {title} — {src} source(s) → `{domain}/{topic_dir.name}/`")
+            lines.append(f"- {title} — {src} source(s) → `{topic_dir.name}/`")
             count += 1
     lines.insert(3, f"共 {count} 个知识页。")
     INDEX_PATH.write_text("\n".join(lines), encoding="utf-8")
@@ -902,35 +901,34 @@ def _sweep_feedbacks() -> list:
     """规则（无 LLM）路径的反馈回灌：把每个主题的 overview 对齐到当前 adopted 集合。
     - 新采纳 → 追加证据行；翻案（adopted→rejected）→ 删对应行，下轮即生效（规格 §6③）
     - 幂等：与 log 里最后消费集一致的主题跳过；变更后记 [fb] 日志防重复。
-    - 外科式改文本（不走 write_knowledge 重建）：编译式/规则式 overview 都不破坏原结构。"""
+    - 外科式改文本（不走 write_knowledge 重建）：编译式/规则式 overview 都不破坏原结构。
+    B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录。"""
     consumed = _last_consumed_sets()
     log_entries = []
     conn = store.get_db()
     try:
-        for domain in ("tech",):
-            ddir = KNOWLEDGE_DIR / domain
-            if not ddir.exists():
+        if not KNOWLEDGE_DIR.exists():
+            return log_entries
+        for tdir in sorted(KNOWLEDGE_DIR.iterdir()):
+            ovf = tdir / "overview.md"
+            if not tdir.is_dir() or not ovf.exists() or tdir.name.startswith("."):
                 continue
-            for tdir in sorted(ddir.iterdir()):
-                ovf = tdir / "overview.md"
-                if not tdir.is_dir() or not ovf.exists():
-                    continue
-                topic = tdir.name
-                adopted = store.adopted_feedbacks(conn, topic)
-                adopted_ids = {fb["id"] for fb in adopted}
-                if adopted_ids == consumed.get(topic, set()):
-                    continue  # 无变化（含「无反馈」主题），不碰文件
-                text = ovf.read_text(encoding="utf-8")
-                # 先清旧反馈行与旧「使用写回」整节（翻案即在这里生效）
-                text = FEEDBACK_LINE_RE.sub("", text)
-                text = re.sub(r"\n## 使用写回\s*\n(?:(?!## )[\s\S]*?)(?=\n## |\Z)", "\n", text)
-                if adopted:
-                    lines = [f"- {fb['evidence']}——意见：{fb['opinion']}（{fb['agent']}） [feedback#{fb['id']}]"
-                             for fb in adopted]
-                    text = text.rstrip() + "\n\n## 使用写回\n\n" + "\n".join(lines) + "\n"
-                ovf.write_text(text, encoding="utf-8")
-                ids = ",".join(str(i) for i in sorted(adopted_ids))
-                log_entries.append(f"[fb] {topic} consumed: {ids}")
+            topic = tdir.name
+            adopted = store.adopted_feedbacks(conn, topic)
+            adopted_ids = {fb["id"] for fb in adopted}
+            if adopted_ids == consumed.get(topic, set()):
+                continue  # 无变化（含「无反馈」主题），不碰文件
+            text = ovf.read_text(encoding="utf-8")
+            # 先清旧反馈行与旧「使用写回」整节（翻案即在这里生效）
+            text = FEEDBACK_LINE_RE.sub("", text)
+            text = re.sub(r"\n## 使用写回\s*\n(?:(?!## )[\s\S]*?)(?=\n## |\Z)", "\n", text)
+            if adopted:
+                lines = [f"- {fb['evidence']}——意见：{fb['opinion']}（{fb['agent']}） [feedback#{fb['id']}]"
+                         for fb in adopted]
+                text = text.rstrip() + "\n\n## 使用写回\n\n" + "\n".join(lines) + "\n"
+            ovf.write_text(text, encoding="utf-8")
+            ids = ",".join(str(i) for i in sorted(adopted_ids))
+            log_entries.append(f"[fb] {topic} consumed: {ids}")
     finally:
         conn.close()
     return log_entries
@@ -950,6 +948,145 @@ _src_link = ui._src_link
 
 # _KNOWLEDGE_TPL 已迁出到 views/knowledge.html，通过 ui.load_view("knowledge.html") 加载
 _KNOWLEDGE_TPL = None  # P3 前端抢救
+
+
+# ============================================================
+# B 阶段词条页生成（决策 2-a：每 topic 静态生成 public/knowledge/{topic}.html）
+# ============================================================
+
+def _trust_badge(ov: dict) -> tuple[str, str]:
+    """信任徽章：返回 (label, css_class)。
+    high→可信(hi) / medium→可参(mid) / low→存疑(lo)。"""
+    conf = ov.get("confidence", "low")
+    badges = {"high": ("可信", "trust-hi"), "medium": ("可参", "trust-mid"), "low": ("存疑", "trust-lo")}
+    return badges.get(conf, ("存疑", "trust-lo"))
+
+
+def _entry_sections_html(ov: dict) -> str:
+    """词条页正文分节 HTML：概述摘要 + 核心要点 + 关键数据 + 陷阱与反模式 + 分歧 + 来源。"""
+    parts = []
+    # 概述（摘要段）
+    for s in ov["sections"]:
+        if s["label"] in ("概述", "一句话结论") and s["items"]:
+            text = html.escape(s["items"][0]["text"])
+            parts.append(f'<div class="entry-summary">{text}</div>')
+            break
+    # 各知识节
+    for s in ov["sections"]:
+        if not s["items"] or s["label"] in ("概述", "一句话结论", "来源"):
+            continue
+        label = html.escape(s["label"])
+        lis = ""
+        for it in s["items"]:
+            src_html = _src_link(it["source"]) if it.get("source") else ""
+            lis += f'<li>{html.escape(it["text"])}{src_html}</li>'
+        if lis:
+            parts.append(f'<section><h2>{label}</h2><ul>{lis}</ul></section>')
+    # 来源节
+    src_labels = []
+    for s in ov["sections"]:
+        if s["label"] == "来源":
+            for it in s["items"]:
+                src_html = _src_link(it["source"]) if it.get("source") else ""
+                src_labels.append(f'<li>{html.escape(it["text"])}{src_html}</li>')
+    if src_labels:
+        parts.append(f'<section><h2>来源</h2><ul>{"".join(src_labels)}</ul></section>')
+    return "\n".join(parts)
+
+
+def collect_topics() -> list[dict]:
+    """扫描 knowledge/ 下所有 topic 目录，返回供 C 阶段索引用的话题摘要列表。
+    每个 dict：{topic, title, summary, category, category_label, sources, confidence,
+                trust_label, trust_cls, tags, updated, stale, stale_after, entry_url}。
+    - topic: 目录名（slug）
+    - summary: 概述首句（≤120 字），供轻索引用
+    - entry_url: 词条页链接 /knowledge/{topic}.html
+    本函数只读不写，不依赖 DB。"""
+    topics = []
+    if not KNOWLEDGE_DIR.exists():
+        return topics
+    for tdir in sorted(KNOWLEDGE_DIR.iterdir()):
+        if not tdir.is_dir() or tdir.name.startswith("."):
+            continue
+        ovf = tdir / "overview.md"
+        if not ovf.exists():
+            continue
+        ov = parse_overview(ovf.read_text(encoding="utf-8"))
+        topic = tdir.name
+        # 概述首句
+        summary = ""
+        for s in ov["sections"]:
+            if s["label"] in ("概述", "一句话结论") and s["items"]:
+                summary = s["items"][0]["text"][:120]
+                break
+        trust_label, trust_cls = _trust_badge(ov)
+        stale = False
+        sa = ov.get("stale_after", "")
+        if sa:
+            try:
+                if datetime.strptime(sa, "%Y-%m-%d") < datetime.now():
+                    stale = True
+            except ValueError:
+                pass
+        topics.append({
+            "topic": topic,
+            "title": ov["title"],
+            "summary": summary,
+            "category": ov.get("category", "ai"),
+            "category_label": CATEGORIES.get(ov.get("category", "ai"), ov.get("category", "ai")),
+            "sources": ov["sources"],
+            "confidence": ov.get("confidence", "low"),
+            "trust_label": trust_label,
+            "trust_cls": trust_cls,
+            "tags": ov.get("tags") or [],
+            "updated": ov.get("updated", ""),
+            "stale": stale,
+            "stale_after": sa,
+            "entry_url": f"/knowledge/{topic}.html",
+        })
+    return topics
+
+
+def build_entry_pages(topics: list[dict] | None = None) -> list[Path]:
+    """为每个 topic 生成 public/knowledge/{topic}.html 全文词条页。
+    topics 可选（传 collect_topics() 返回值节省一次扫描）；不传则自动扫描。
+    返回生成的 Path 列表。模板：views/knowledge-entry.html。"""
+    if topics is None:
+        topics = collect_topics()
+    out_dir = PUBLIC_DIR / "knowledge"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tpl = ui.load_view("knowledge-entry.html")
+    gen_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+    paths = []
+    for t in topics:
+        stale_html = '<span class="badge trust-lo">已过期</span>' if t["stale"] else ""
+        summary_html = ""
+        if t["summary"]:
+            summary_html = f'<div class="entry-summary">{html.escape(t["summary"])}</div>'
+        # 读完整 overview 渲染分节
+        ovf = KNOWLEDGE_DIR / t["topic"] / "overview.md"
+        if ovf.exists():
+            ov = parse_overview(ovf.read_text(encoding="utf-8"))
+            sections_html = _entry_sections_html(ov)
+        else:
+            sections_html = ""
+        out = (tpl
+               .replace("__TITLE__", html.escape(t["title"]))
+               .replace("__CAT_LABEL__", html.escape(t["category_label"]))
+               .replace("__SRC_COUNT__", str(t["sources"]))
+               .replace("__TRUST_CLS__", t["trust_cls"])
+               .replace("__TRUST_LABEL__", t["trust_label"])
+               .replace("__STALE_HTML__", stale_html)
+               .replace("__UPDATED__", html.escape(t["updated"]))
+               .replace("__SUMMARY_HTML__", summary_html)
+               .replace("__SECTIONS_HTML__", sections_html)
+               .replace("__TOPIC_ID__", html.escape(t["topic"]))
+               .replace("__GEN_TIME__", gen_time))
+        out_path = out_dir / f"{t['topic']}.html"
+        out_path.write_text(out, encoding="utf-8")
+        paths.append(out_path)
+    return paths
+
 
 # ============================================================
 # OKF 风格 frontmatter（自写解析/序列化，纯 stdlib，不引 PyYAML）
@@ -1138,10 +1275,11 @@ def _item_sources(text: str) -> list[str]:
     return []
 
 
-def _extract_items(topic: str, domain: str, md_text: str) -> list[dict]:
+def _extract_items(topic: str, md_text: str) -> list[dict]:
     """overview.md → 知识条目列表 [{id, kind, text, sources, anchors}]。
+    B 阶段重构：不再需要 domain 参数。
 
-    - kind: conclusion / data / trap，按节识别（## 结论 / ## 关键数据 / ## 常见陷阱，含旧节名别名）
+    - kind: conclusion / data / trap，按节识别（## 结论 / ## 关键数据 / ## 常见陷阱）
     - id: {topic}#{kind_short}{n}，n 按 kind 独立从 1 递增（conclusion→c, data→d, trap→t）
     - sources: 条目里的 [来源: xxx] 或行尾 [slug] 标记解析出的报告名数组
     - anchors: 空数组（升级槽位）
@@ -1177,30 +1315,53 @@ def _extract_items(topic: str, domain: str, md_text: str) -> list[dict]:
     return items
 
 
-def _write_items_json(topic: str, domain: str, md_text: str) -> Path:
-    """overview.md 内容 → 同目录 items.json（P3 原子化；只加孪生文件，不碰 overview.md）。"""
-    items = _extract_items(topic, domain, md_text)
-    out = _topic_dir(domain, topic) / "items.json"
+def _write_items_json(topic: str, md_text: str) -> Path:
+    """overview.md 内容 → 同目录 items.json（P3 原子化；只加孪生文件，不碰 overview.md）。
+    B 阶段重构：_topic_dir 不再需要 domain 参数。"""
+    items = _extract_items(topic, md_text)
+    out = _topic_dir(topic) / "items.json"
     out.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
     return out
 
 
-# P3 前端抢救：_src_link 与 _render_card 已迁入 ui.py，此处保留别名
+# P3 前端抢救：_src_link 已迁入 ui.py，此处保留别名
 def _src_link(src: str) -> str:
     return ui._src_link(src)
 
 
-def _render_card(domain: str, topic: str, ov: dict, title_suffix: str = "",
-                 fb_count: int = 0) -> str:
-    return ui.render_knowledge_card(domain, topic, ov, title_suffix, fb_count)
+def _ingest_topic(name: str, ov: dict,
+                  topics_by_cat: dict[str, list],
+                  topics_flat: dict[str, list[dict]]) -> None:
+    """将一个主题加入 topics_by_cat 与 topics_flat，供 build_knowledge_page 索引页拼装。"""
+    cat = ov.get("category", "ai")
+    topics_by_cat[cat].append((name, ov))
+    # 展平为轻索引行所需字段
+    one_liner = ""
+    for s in ov.get("sections", []):
+        if s.get("label") in ("一句话结论", "概述") and s.get("items"):
+            one_liner = s["items"][0].get("text", "")
+            break
+    topics_flat[cat].append({
+        "slug": name,
+        "title": ov.get("title", name),
+        "one_liner": one_liner,
+        "sources": ov.get("sources", 1),
+        "confidence": ov.get("confidence", "low"),
+        "verified": ov.get("verified", "unverified"),
+        "category": cat,
+        "entry_url": f"/knowledge/{name}.html",
+    })
 
 
 def build_knowledge_page() -> Path:
     """汇总 knowledge/ 全部主题，渲染藏书楼单页 → public/knowledge/index.html。
     P3 前端抢救：模板从 views/knowledge.html 加载，卡片片段用 ui.py。
-    P4 分类规格 §3：分区键从 domain 换成 category（专栏枚举）；chips 走 data-c 契约，
-    分节走 data-category 契约；统计数照旧。"""
+    P4 分类规格 §3：分区键 category（专栏枚举）；chips 走 data-c 契约。
+    B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录（不再按 domain 分层）。
+    B 方案轻索引：主题行格式（标题+一句话结论+来源数+信任徽章），替代旧 kcard 全文平铺。
+    每 topic 展平为 {slug,title,one_liner,sources,confidence,verified,category,entry_url}。"""
     topics_by_cat: dict[str, list] = {k: [] for k in CATEGORIES}
+    topics_flat: dict[str, list[dict]] = {k: [] for k in CATEGORIES}  # B 方案：展平 dict 列表
     total_sources = total_disag = total_synth = 0
     # P2：写回次数批量查（一次查完，卡片渲染用；循环可见，规格 §6④）
     conn = store.get_db()
@@ -1208,34 +1369,46 @@ def build_knowledge_page() -> Path:
         fb_counts = store.feedback_counts(conn)
     finally:
         conn.close()
-    for domain in ("tech",):
-        ddir = KNOWLEDGE_DIR / domain
-        if not ddir.exists():
-            continue
-        for tdir in sorted(ddir.iterdir()):
+    if KNOWLEDGE_DIR.exists():
+        for tdir in sorted(KNOWLEDGE_DIR.iterdir()):
+            if not tdir.is_dir() or tdir.name.startswith("."):
+                continue
             ovf = tdir / "overview.md"
+            # 兼容旧 domain 子目录（tech/topic/overview.md）：若 tdir 不含 overview.md，
+            # 且是目录，则深入一层找子 topic 目录（B 阶段扁平化前过渡）
             if not ovf.exists():
+                subtopics = [sd for sd in sorted(tdir.iterdir())
+                             if sd.is_dir() and not sd.name.startswith(".")]
+                for tdir2 in subtopics:
+                    ovf2 = tdir2 / "overview.md"
+                    if not ovf2.exists():
+                        continue
+                    ov = parse_overview(ovf2.read_text(encoding="utf-8"))
+                    _ingest_topic(tdir2.name, ov, topics_by_cat, topics_flat)
+                    total_sources += ov["sources"]
+                    for s in ov["sections"]:
+                        if s["label"] == "分歧": total_disag += len(s["items"])
+                    if ov["sources"] >= 2:
+                        total_synth += 1
                 continue
             ov = parse_overview(ovf.read_text(encoding="utf-8"))
-            # 分区键 = category（parse_overview 已兜底 ai，全库主题必落一栏）
-            topics_by_cat[ov["category"]].append((tdir.name, ov))
+            _ingest_topic(tdir.name, ov, topics_by_cat, topics_flat)
             total_sources += ov["sources"]
             for s in ov["sections"]:
                 if s["label"] == "分歧": total_disag += len(s["items"])
-            if ov["sources"] >= 2:  # 多源 = 经过 LLM 交叉综合
+            if ov["sources"] >= 2:
                 total_synth += 1
     ntopics = sum(len(v) for v in topics_by_cat.values())
-    # 同名主题（LLM 聚类随机性导致同名不同成员）加来源数后缀，便于区分
-    from collections import Counter
-    title_count = Counter(ov["title"] for cat in topics_by_cat.values() for _, ov in cat)
 
     # 专栏 chips（全部 + 五专栏，data-c 契约；含 0 计数，筛选态稳定）
     chips_html = "\n".join(ui.knowledge_chips_html(topics_by_cat))
+    # B 方案：锚点导航
+    anchors_html = "\n".join(ui.knowledge_anchors_html(topics_by_cat))
     sections_html = []
-    for cat, topics in topics_by_cat.items():
+    for cat, topics in topics_flat.items():
         if not topics:
             continue
-        sections_html.append(ui.knowledge_pavilion_html(cat, topics, title_count, fb_counts))
+        sections_html.append(ui.knowledge_pavilion_html(cat, topics))
     if not sections_html:
         sections_html.append('<p class="none reveal">知识库还是空的——提交报告后跑 <code>python3 distill.py</code>。</p>')
 
@@ -1246,8 +1419,8 @@ def build_knowledge_page() -> Path:
            .replace("__DISAGREE__", str(total_disag))
            .replace("__SYNTH__", str(total_synth))
            .replace("__CHIPS__", chips_html)
+           .replace("__ANCHORS__", anchors_html)
            .replace("__SECTIONS__", "\n".join(sections_html))
-           .replace("__NTECH__", str(len(topics_by_cat["ai"])))  # 过渡期兼容旧模板占位符（新模板无此占位，no-op）
            .replace("__GEN__", datetime.now().strftime("%Y-%m-%d %H:%M")))
     out_dir = PUBLIC_DIR / "knowledge"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -1263,13 +1436,12 @@ def build_knowledge_page() -> Path:
 def distill():
     KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
     if CLEAN:
-        for d in ("tech",):
-            ddir = KNOWLEDGE_DIR / d
-            if ddir.exists():
-                for sub in ddir.iterdir():
-                    if sub.is_dir():
-                        shutil.rmtree(sub)
-        print("[clean] 已清空 knowledge/tech")
+        # B 阶段重构：清空 knowledge/ 下所有 topic 目录（扁平结构）
+        if KNOWLEDGE_DIR.exists():
+            for sub in KNOWLEDGE_DIR.iterdir():
+                if sub.is_dir() and not sub.name.startswith("."):
+                    shutil.rmtree(sub)
+        print("[clean] 已清空 knowledge/")
     reports = scan_reports()
     if LLM_ON:
         print(f"[LLM 编译模式] model={DISTILL_MODEL}")
@@ -1280,6 +1452,8 @@ def distill():
     if not DRY_RUN:
         page = build_knowledge_page()
         print(f"藏书楼视图: {page.relative_to(REPO_DIR)}")
+        entry_paths = build_entry_pages()
+        print(f"词条页: {len(entry_paths)} 篇")
 
 
 def _md_tag(md_content: str) -> str:
@@ -1290,24 +1464,27 @@ def _md_tag(md_content: str) -> str:
 
 def _run_incremental(reports: list):
     """规则路径：增量，1 报告 = 1 主题（无 key 时的兑底，保留原行为）。
+    B 阶段重构：只蒸 category==research 的报告；统一用 extract_tech_md。
     P2：报告循环后追加反馈 sweep——adopted 写回进 overview，翻案即删（规格 §6③）。"""
     done = processed_files()
     log_entries, stats = [], {"skipped": 0, "processed": 0, "items": 0}
     for r in reports:
-        fname, domain, source = r["file"], r["domain"], r["file"]
+        fname, category, source = r["file"], r["category"], r["file"]
         if fname in done:
             continue
-        if domain in SKIP_DOMAINS:
-            log_entries.append(f"[x] {fname} — skipped ({domain})"); stats["skipped"] += 1; continue
-        extractor = EXTRACTORS.get(domain)
-        if not extractor:
-            log_entries.append(f"[x] {fname} — skipped (unknown domain)"); stats["skipped"] += 1; continue
-        items = extractor(r["content"], source)
+        if category != _DISTILL_CATEGORY:
+            log_entries.append(f"[x] {fname} — skipped (category={category})")
+            stats["skipped"] += 1
+            continue
+        items = extract_tech_md(r["content"], source)
         if not items:
-            log_entries.append(f"[x] {fname} — processed, 0 items extracted"); stats["processed"] += 1; continue
-        write_knowledge(domain, r["slug"], r["title"], items, source)
-        log_entries.append(f"[x] {fname} — {domain}/{r['slug']}/ → {len(items)} items")
-        stats["processed"] += 1; stats["items"] += len(items)
+            log_entries.append(f"[x] {fname} — processed, 0 items extracted")
+            stats["processed"] += 1
+            continue
+        write_knowledge(r["slug"], r["title"], items, source)
+        log_entries.append(f"[x] {fname} — {r['slug']}/ → {len(items)} items")
+        stats["processed"] += 1
+        stats["items"] += len(items)
     # P2：反馈回灌（新报告已处理/无新报告都要跑——反馈状态随时会变）
     fb_entries = _sweep_feedbacks()
     log_entries += fb_entries
@@ -1325,24 +1502,25 @@ def _run_incremental(reports: list):
 
 def _run_compiled(reports: list):
     """LLM 路径：规则抽骨架 → LLM 语义聚类 → 每主题综合+矛盾 → 全量重编译。
+    B 阶段重构：只蒸 category==research 的报告；cluster 不再带 domain 字段。
     P2（规格 §6③）：每主题编译输入 += 该主题 adopted 反馈（直查 store，防环）；
     消费的 id 记 [fb] 日志；全量重编译天然覆盖翻案（adopted→rejected 下轮自动生效）。"""
     members_data = {}
     for r in reports:
-        d = r["domain"]
+        category = r["category"]
         tag = _md_tag(r["content"])  # P2：输入换 .md 后从 md kicker 读 tag
-        if d in SKIP_DOMAINS or d not in EXTRACTORS:
+        if category != _DISTILL_CATEGORY:
             continue
         if tag.upper().startswith("META"):
             continue  # 卷首/关于本书，非知识，不蒸馏
-        items = EXTRACTORS[d](r["content"], r["file"])
+        items = extract_tech_md(r["content"], r["file"])
         if not items:
             continue  # 抽不到骨架的不进编译
-        members_data[r["slug"]] = {"title": r["title"], "domain": d, "items": items, "file": r["file"]}
+        members_data[r["slug"]] = {"title": r["title"], "category": category, "items": items, "file": r["file"]}
     if not members_data:
         print("无可编译报告"); return
 
-    catalog = [{"slug": s, "title": m["title"], "items": m["items"], "domain": m["domain"]}
+    catalog = [{"slug": s, "title": m["title"], "items": m["items"], "category": m["category"]}
                for s, m in members_data.items()]
     anchors = _load_existing_concepts()  # 增量聚类：读现有概念作锚点（CLEAN 后为空→全量）
     if anchors:

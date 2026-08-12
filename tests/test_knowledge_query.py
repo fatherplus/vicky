@@ -52,17 +52,17 @@ GRAPH_MD = """## 概述
 
 
 def _write_topic(tmp: Path, topic: str, category: str, tags: list, md_text: str) -> None:
-    """tmp/knowledge/tech/{topic}/overview.md + items.json（P3 原子化孪生）。"""
-    d = tmp / "knowledge" / "tech" / topic
+    """tmp/knowledge/{topic}/overview.md + items.json（P3 原子化孪生）。"""
+    d = tmp / "knowledge" / topic
     d.mkdir(parents=True, exist_ok=True)
-    meta = {"id": topic, "title": topic, "type": "Topic", "domain": "tech",
+    meta = {"id": topic, "title": topic, "type": "Topic",
             "category": category}
     if tags:
         meta["tags"] = tags
     ov = dump_frontmatter(meta) + "\n" + md_text
     (d / "overview.md").write_text(ov, encoding="utf-8")
     (d / "items.json").write_text(
-        json.dumps(_extract_items(topic, "tech", ov), ensure_ascii=False, indent=2),
+        json.dumps(_extract_items(topic, ov), ensure_ascii=False, indent=2),
         encoding="utf-8")
 
 

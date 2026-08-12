@@ -226,7 +226,7 @@ def test_distill_skips_hidden():
         _make_report(tmp, "待下架报告", "hidden-slug")
         curate.hide_report("hidden-slug", True)
         l2.distill()
-        topics = sorted(p.name for p in (tmp / "knowledge" / "tech").iterdir()
+        topics = sorted(p.name for p in (tmp / "knowledge").iterdir()
                         if p.is_dir())
         assert topics == ["visible-slug"]
         # scan_reports 直接不含 hidden

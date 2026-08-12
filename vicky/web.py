@@ -10,7 +10,7 @@ Web 路由层——FastAPI 薄路由 + 静态自伺服（重构蓝图 2026-08-12
 - GET  /api/knowledge/audit       知识条目审核视图（curate.knowledge_audit）
 - POST /api/knowledge/items/{id}/status  单条知识 active/hidden
 - GET  /api/knowledge?q=…         FTS 三阶段检索（原 MCP knowledge_query 的 HTTP 化）
-- POST /api/reports 增受 category / narrative / project 三字段（未传按 legacy domain 映射）
+- POST /api/reports 增受 category / narrative / project 三字段（domain 语义已彻底删除，未传 category 默认 research）
 
 MCP 已删除（2026-08-12 重构）：agent 交互走 skill/vicky-writer + 直接 HTTP。
 
@@ -34,7 +34,8 @@ from . import l1_publish
 from . import l2_distill  # /api/knowledge 列表条目读 frontmatter 补 category/tags
 from . import l3_feedback
 from . import store
-from .l0_ingest import clean_slug, validate_slug_not_empty, validate_domain, save_images, validate_series_params
+from . import ui  # D 阶段：project_slug 用于 POST /api/projects slug 生成
+from .l0_ingest import clean_slug, validate_slug_not_empty, save_images, validate_series_params
 
 app = FastAPI(title="Vicky", version="2.0", docs_url="/docs", redoc_url=None)
 
@@ -123,13 +124,44 @@ def api_principles():
 
 @app.get("/api/projects")
 def api_projects():
-    """项目空间清单：项目名 + 篇数 + 最新日期（排除 hidden）。"""
+    """项目空间清单：已建项目元信息（projects 表）+ 报告聚合计数（reports 表）。
+    合并逻辑：以 projects 表为主，补充 reports 聚合的 count/latest；
+    仅有报告聚合、无元信息的项目也列出（count/latest 来自报告，其余字段空）。"""
     conn = store.get_db()
     try:
-        rows = store.list_projects(conn)
+        metas = store.list_projects_meta(conn)  # 已建项目元信息
+        agg_rows = store.list_projects(conn)     # 报告聚合计数
     finally:
         conn.close()
-    return _json({"ok": True, "projects": rows})
+    # 报告聚合 → {project_slug: {count, latest}} 索引
+    agg_map = {a["project"]: {"count": a["count"], "latest": a["latest"]} for a in agg_rows}
+    # 以 projects 表为主干，补充报告计数
+    result = []
+    seen = set()
+    for m in metas:
+        slug = m["slug"]
+        seen.add(slug)
+        agg = agg_map.get(slug, {})
+        result.append({
+            "slug": slug,
+            "name": m["name"],
+            "description": m.get("description") or "",
+            "count": agg.get("count", 0),
+            "latest": agg.get("latest", ""),
+            "created_at": m.get("created_at", ""),
+        })
+    # 仅有报告聚合、无 projects 元信息的也列出（向后兼容）
+    for slug, agg in agg_map.items():
+        if slug not in seen:
+            result.append({
+                "slug": slug,
+                "name": slug,
+                "description": "",
+                "count": agg["count"],
+                "latest": agg["latest"],
+                "created_at": "",
+            })
+    return _json({"ok": True, "projects": result})
 
 
 @app.get("/api/knowledge/feedback")
@@ -148,53 +180,42 @@ def api_knowledge_audit(topic: str = ""):
 
 
 @app.get("/api/knowledge")
-def api_knowledge(domain: str = "", topic: str = "", q: str = "",
+def api_knowledge(topic: str = "", q: str = "",
                   budget: str = "", category: str = "", tag: str = ""):
     """知识库：q 非空 → FTS 三阶段检索（原 MCP knowledge_query 的 HTTP 化）；
-    无参列全部页；domain/topic 查单页。"""
+    无参列全部页；topic 查单页。目录扁平 knowledge/{topic}/（domain 语义已彻底删除）。"""
     if q.strip():
         result = knowledge_query.query({"q": q, "budget": budget,
                                         "category": category, "tag": tag})
         return _json({"ok": True, **result})
 
     kdir = config.REPO_DIR / "knowledge"
-    if not domain and not topic:
+    if not topic:
         pages = []
         if kdir.exists():
-            for dd in sorted(kdir.iterdir()):
-                if not dd.is_dir() or dd.name.startswith("."):
+            for td in sorted(kdir.iterdir()):
+                if not td.is_dir() or td.name.startswith("."):
                     continue
-                for td in sorted(dd.iterdir()):
-                    ov = td / "overview.md"
-                    if ov.exists():
-                        text = ov.read_text(encoding="utf-8")
-                        parsed = l2_distill.parse_overview(text)
-                        pages.append({"domain": dd.name, "topic": td.name,
-                                      "content": text,
-                                      "category": parsed["category"],
-                                      "category_label": parsed["category_label"],
-                                      "tags": parsed["tags"]})
+                ov = td / "overview.md"
+                if ov.exists():
+                    text = ov.read_text(encoding="utf-8")
+                    parsed = l2_distill.parse_overview(text)
+                    pages.append({"topic": td.name, "content": text,
+                                  "category": parsed["category"],
+                                  "category_label": parsed["category_label"],
+                                  "tags": parsed["tags"]})
         return _json({"ok": True, "pages": pages})
 
-    # 单页：支持只给 topic（目录名全库唯一）——扫各 domain 定位
-    if domain and topic:
-        ov = kdir / domain / topic / "overview.md"
-        ov = ov if ov.exists() else None
-    else:
-        ov = None
-        if kdir.exists():
-            for dd in sorted(kdir.iterdir()):
-                cand = kdir / dd.name / topic / "overview.md"
-                if cand.exists():
-                    domain, ov = dd.name, cand
-                    break
+    # 单页：topic 目录名全库唯一，直接定点查
+    ov = kdir / topic / "overview.md"
+    ov = ov if ov.exists() else None
     if ov is not None:
         stats = l3_feedback.feedback_stats(topic)
-        return _json({"ok": True, "domain": domain, "topic": topic,
+        return _json({"ok": True, "topic": topic,
                       "content": ov.read_text(encoding="utf-8"),
                       "feedback_count": stats["feedback_count"],
                       "feedback_last_used": stats["feedback_last_used"]})
-    return _json({"ok": True, "domain": domain, "topic": topic, "content": None})
+    return _json({"ok": True, "topic": topic, "content": None})
 
 
 @app.get("/api/design.css")
@@ -319,7 +340,6 @@ async def api_validate(request: Request):
     content = data.get("content", "")
     template = (data.get("template") or "").strip()
     category = (data.get("category") or "").strip()
-    domain = (data.get("domain") or "tech").strip()
     violations, warnings = l1_publish.validate_content(content, title, template, category)
     # 可选字段：给了就检
     slug = data.get("slug", "").strip()
@@ -327,11 +347,8 @@ async def api_validate(request: Request):
         e = validate_slug_not_empty(slug)
         if e:
             violations.append(e)
-    e = validate_domain(domain)
-    if e:
-        violations.append(e)
     if category:
-        ce = l1_publish.validate_category(category, domain)
+        ce = l1_publish.validate_category(category)
         if ce:
             violations.append(ce)
     series, order = data.get("series"), data.get("order")
@@ -352,6 +369,40 @@ async def api_validate(request: Request):
                   "warnings": warnings, "components": hits})
 
 
+@app.post("/api/projects")
+async def api_project_create(request: Request):
+    """新建项目（决策3：先建项目 + .vicky 联动）。
+    body: {slug?, name, description?}；slug 缺省由 name 生成。
+    重复 slug 返回 {"ok":false,"error":...}；成功返回 {"ok":true, project:{...}}。"""
+    data, err = await _read_json(request)
+    if err:
+        return _json({"ok": False, "error": err}, 400)
+    name = (data.get("name") or "").strip()
+    if not name:
+        return _json({"ok": False, "error": "name 必填"}, 400)
+    slug = (data.get("slug") or "").strip()
+    if not slug:
+        # slug 缺省由 name 生成（与 ui.project_slug 口径一致）
+        slug = ui.project_slug(name)
+    if not slug:
+        return _json({"ok": False, "error": "slug 不可为空"}, 400)
+    description = (data.get("description") or "").strip()
+    try:
+        store.create_project(slug, name, description)
+    except Exception as e:
+        # IntegrityError → 重复 slug
+        err_msg = str(e).lower()
+        if "unique" in err_msg or "primary key" in err_msg or "duplicate" in err_msg:
+            return _json({"ok": False, "error": f"项目 '{slug}' 已存在"}, 409)
+        return _json({"ok": False, "error": str(e)}, 500)
+    conn = store.get_db()
+    try:
+        proj = store.get_project(slug, conn)
+    finally:
+        conn.close()
+    return _json({"ok": True, "project": proj}, 201)
+
+
 @app.post("/api/reports")
 async def api_report_submit(request: Request):
     data, err = await _read_json(request)
@@ -363,12 +414,11 @@ async def api_report_submit(request: Request):
     tag = data.get("tag", "研究报告")
     content = data.get("content", "")
     subtitle = data.get("subtitle", "").strip()
-    # 重构蓝图 §02：category/narrative/project 显式指定；category 缺省由 create_report
-    # 按 legacy domain 映射兜底（tech→research / ephemeral→brief / arch→arch-doc / design→design）
+    # category/narrative/project 显式指定；category 缺省由 create_report 落 research
+    # （domain 语义已彻底删除，不再有 legacy 映射兜底）
     category = (data.get("category") or "").strip()
     narrative = (data.get("narrative") or "").strip()
     project = (data.get("project") or "").strip()
-    domain = (data.get("domain") or "tech").strip()
 
     if not title or not slug or not content:
         return _json({"ok": False, "error": "title, slug, content 都是必填"}, 400)
@@ -379,9 +429,9 @@ async def api_report_submit(request: Request):
     if violations:
         return _json({"ok": False, "error": "内容不符合表述规范", "violations": violations}, 400)
 
-    # category 门禁（非法拒收；design 仅 legacy 映射放行）
-    derived = category or config.LEGACY_DOMAIN_TO_CATEGORY.get(domain, "research")
-    cat_err = l1_publish.validate_category(derived, domain)
+    # category 门禁（非法拒收；缺省落 research）
+    derived = category or "research"
+    cat_err = l1_publish.validate_category(derived)
     if cat_err:
         return _json({"ok": False, "error": cat_err}, 400)
 
@@ -403,9 +453,22 @@ async def api_report_submit(request: Request):
         if conflict:
             return _json({"ok": False, "error": conflict}, 400)
 
-    e = validate_domain(domain)
-    if e:
-        return _json({"ok": False, "error": e}, 400)
+    # D 阶段：project 字段校验——若传了 project，检查是否为已建项目（宽松匹配：先 slug 再 name）。
+    # 未建项目不拒收，追加 warning 提示「建议先 POST /api/projects」。
+    if project:
+        conn_proj = store.get_db()
+        try:
+            p = store.get_project(project, conn_proj)  # 先按 slug 精确匹配
+            if p is None:
+                # 再按 name 宽松匹配
+                for m in store.list_projects_meta(conn_proj):
+                    if m["name"] == project:
+                        p = m
+                        break
+            if p is None:
+                warnings.append(f"项目 '{project}' 未注册，建议先 POST /api/projects")
+        finally:
+            conn_proj.close()
 
     # 图片落盘（设计报告截图等）：base64 只在传输瞬间存在，HTML 里只留链接
     images = data.get("images") or []
@@ -417,7 +480,7 @@ async def api_report_submit(request: Request):
         host = request.headers.get("host", f"127.0.0.1:{config.PORT}")
         result = l1_publish.create_report(title, slug, tag, content, subtitle,
                                           series=series, order=order_int or 0, template=template,
-                                          base_url=f"http://{host}", domain=domain,
+                                          base_url=f"http://{host}",
                                           category=category, narrative=narrative, project=project)
         result.setdefault("warnings", []).extend(warnings)
         if saved_images:

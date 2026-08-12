@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__TITLE__ · 知识库 — Vicky</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/knowledge.css">
+<link rel="stylesheet" href="/assets/book-style.css">
+<style>
+/* 词条页专用微调（只扩不改：不重定义任何 :root token） */
+.entry-wrap { max-width: 900px; margin: 0 auto; padding: 0 40px; }
+.entry-head { padding: 60px 0 36px; border-bottom: 2px solid var(--ink); position: relative; }
+.entry-head::after { content:""; position:absolute; left:0; right:0; bottom:-6px; height:1px; background:var(--hairline); }
+.entry-head .kicker { font-family:var(--mono); font-size:11px; letter-spacing:2.5px; color:var(--seal); text-transform:uppercase; font-weight:600; margin-bottom:10px; }
+.entry-head h1 { font-family:var(--serif); font-size:44px; font-weight:900; letter-spacing:3px; line-height:1.2; margin-bottom:16px; }
+.entry-meta { display:flex; gap:20px; align-items:center; flex-wrap:wrap; font-size:13px; color:var(--sub); }
+.entry-meta .badge { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border:1px solid var(--hairline); border-radius:2px; font-family:var(--mono); font-size:11px; }
+.entry-meta .badge.trust-hi { border-color:var(--green); color:var(--green); }
+.entry-meta .badge.trust-mid { border-color:var(--amber); color:var(--amber); }
+.entry-meta .badge.trust-lo { border-color:var(--seal); color:var(--seal); }
+.entry-meta .cat-chip { background:var(--accent); color:var(--paper); padding:4px 12px; border-radius:2px; font-size:12px; }
+.entry-body { padding: 40px 0 80px; }
+.entry-body section { padding: 28px 0; }
+.entry-body section + section { border-top: 1px solid var(--hairline); }
+.entry-body h2 { font-family:var(--serif); font-weight:700; font-size:22px; margin-bottom:14px; letter-spacing:1px; }
+.entry-body p, .entry-body li { font-size:16px; line-height:1.85; color:var(--ink); margin-bottom:10px; }
+.entry-body ul { padding-left:20px; margin-bottom:16px; }
+.entry-body .src { font-size:11px; color:var(--sub); font-family:var(--mono); margin-left:6px; white-space:nowrap; }
+.entry-body .src a { color:var(--accent); text-decoration:none; }
+.entry-body .src a:hover { text-decoration:underline; }
+.entry-summary { font-size:17px; color:var(--sub); line-height:1.9; padding:16px 20px; border-left:3px solid var(--accent); background:rgba(12,74,110,.03); margin-bottom:8px; }
+.entry-back { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:12px; color:var(--accent); text-decoration:none; border:1px solid rgba(12,74,110,.32); padding:6px 14px; border-radius:2px; transition:all .2s; margin-bottom:32px; }
+.entry-back:hover { background:var(--accent); color:var(--paper); }
+.entry-footer { padding: 40px 0; border-top:1px solid var(--hairline); font-size:12px; color:var(--sub); }
+.entry-footer a { color:var(--accent); text-decoration:none; }
+.entry-footer a:hover { text-decoration:underline; }
+@media(max-width:640px){ .entry-wrap { padding:0 22px; } .entry-head h1 { font-size:30px; } }
+</style>
+</head>
+<body>
+<div class="entry-wrap">
+  <a class="entry-back" href="/knowledge/">← 返回藏书楼</a>
+
+  <header class="entry-head reveal">
+    <div class="kicker">__CAT_LABEL__ · __SRC_COUNT__ 篇来源</div>
+    <h1>__TITLE__</h1>
+    <div class="entry-meta">
+      <span class="cat-chip">__CAT_LABEL__</span>
+      <span class="badge __TRUST_CLS__">__TRUST_LABEL__</span>
+      __STALE_HTML__
+      <span>更新于 __UPDATED__</span>
+    </div>
+  </header>
+
+  <main class="entry-body reveal">
+__SUMMARY_HTML__
+__SECTIONS_HTML__
+  </main>
+
+  <footer class="entry-footer">
+    <p>词条 ID：<code>__TOPIC_ID__</code> · 生成于 __GEN_TIME__ · <a href="/knowledge/">返回藏书楼</a></p>
+  </footer>
+</div>
+</body>
+</html>

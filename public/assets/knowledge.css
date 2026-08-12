@@ -173,6 +173,35 @@ h1{font-family:var(--serif);font-size:56px;font-weight:900;letter-spacing:6px;li
 #empty{display:none;text-align:center;color:var(--sub);padding:60px 0;font-size:14px}
 #empty.show{display:block}
 .empty-hint{display:block;font-size:12px;margin-top:8px;color:rgba(110,114,120,.75)}
+
+/* ===== 轻索引：锚点导航 ===== */
+.k-anchors{display:flex;gap:8px;flex-wrap:wrap;padding:6px 0 14px;border-bottom:1px dashed var(--hairline);margin-bottom:8px}
+.k-anchor{font-size:12px;padding:5px 12px;border-radius:2px;color:var(--sub);text-decoration:none;
+  border:1px solid transparent;transition:all .2s;cursor:pointer}
+.k-anchor:hover{color:var(--accent);border-color:var(--hairline)}
+.k-anchor.on{color:var(--accent);font-weight:600;border-color:rgba(12,74,110,.2);background:rgba(12,74,110,.04)}
+
+/* ===== 轻索引：主题行（一行 = 标题 + 一句话结论 + 来源数 + 信任徽章）===== */
+.krow{display:grid;grid-template-columns:1fr auto;gap:10px 20px;align-items:baseline;
+  padding:16px 0;border-bottom:1px dashed var(--hairline);transition:opacity .25s}
+.krow:last-child{border-bottom:none}
+.krow.hide{display:none}
+.krow:hover{background:rgba(12,74,110,.02)}
+.krow-main{min-width:0}
+.krow-title{font-family:var(--serif);font-size:17px;font-weight:700;color:var(--ink);
+  text-decoration:none;border-bottom:1px solid transparent;transition:color .2s,border-color .2s;
+  line-height:1.5;display:inline}
+.krow-title:hover{color:var(--accent);border-bottom-color:rgba(12,74,110,.3)}
+.krow-oneliner{font-size:13px;color:var(--sub);line-height:1.6;margin-top:3px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.krow-meta{display:flex;align-items:center;gap:10px;flex-shrink:0;white-space:nowrap}
+.krow-sources{font-family:var(--mono);font-size:11px;color:var(--sub)}
+.krow-sources strong{color:var(--ink);font-weight:600}
+.krow-confidence{font-size:10px;font-weight:600;letter-spacing:.5px;padding:2px 7px;border-radius:2px;border:1px solid}
+.krow-confidence.hi{color:var(--green);border-color:rgba(46,125,79,.45);background:rgba(46,125,79,.06)}
+.krow-confidence.mid{color:var(--amber);border-color:rgba(176,141,87,.5);background:rgba(176,141,87,.08)}
+.krow-confidence.lo{color:var(--sub);border-color:var(--sub);opacity:.8}
+@media(max-width:640px){.krow{grid-template-columns:1fr}.krow-meta{justify-content:flex-start}}
 .colophon{margin-top:60px;padding:28px 0 44px;border-top:2px solid var(--ink);display:flex;
   justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--sub)}
 .colophon a{color:var(--accent);text-decoration:none;border-bottom:1px solid rgba(12,74,110,.3);transition:border-color .2s}

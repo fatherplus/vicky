@@ -40,7 +40,6 @@ CREATE TABLE IF NOT EXISTS reports (
   title TEXT NOT NULL,
   tag TEXT,
   subtitle TEXT,
-  domain TEXT NOT NULL DEFAULT 'tech',
   template TEXT NOT NULL DEFAULT 'book',
   series TEXT,
   series_order INTEGER,
@@ -51,6 +50,12 @@ CREATE TABLE IF NOT EXISTS reports (
   narrative TEXT,
   project TEXT,
   hidden INTEGER NOT NULL DEFAULT 0);
+
+CREATE TABLE IF NOT EXISTS projects (
+  slug TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL);
 
 CREATE TABLE IF NOT EXISTS feedbacks (
   id INTEGER PRIMARY KEY,
@@ -85,10 +90,10 @@ def get_db() -> sqlite3.Connection:
 
 
 # ============================================================
-# schema 迁移（重构蓝图 2026-08-12：category/narrative/project/hidden + 知识条目 status）
+# schema 迁移（A 阶段重构：domain 列已从 reports DDL 删除；
+# 保留探列补列机制供未来扩展，但不再做 domain→category 回填）。
 # sqlite 的 ALTER TABLE 不支持 IF NOT EXISTS，用 PRAGMA table_info 探测列再补。
-# 幂等：重复执行不炸；回填条件（category='research' 即默认/未设置）天然幂等，
-# 迁移过一轮后不再命中，不会重复覆盖。
+# 幂等：重复执行不炸。
 # ============================================================
 _REPORT_MIGRATION_COLUMNS = [
     ("category", "TEXT NOT NULL DEFAULT 'research'"),
@@ -98,6 +103,7 @@ _REPORT_MIGRATION_COLUMNS = [
 ]
 _KNOWLEDGE_ITEM_MIGRATION_COLUMNS = [
     ("status", "TEXT NOT NULL DEFAULT 'active'"),
+    ("category", "TEXT NOT NULL DEFAULT 'ai'"),
 ]
 
 
@@ -113,9 +119,9 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> bool:
-    """幂等 schema 迁移：探测缺失列 → ALTER 补列 → 存量 domain 回填 category。
-    返回本次是否做过结构性变更（测试断言幂等用）。ALTER 自动提交；
-    回填 UPDATE 是 DML 会开隐式事务，若改过结构需显式 commit 落盘。"""
+    """幂等 schema 迁移：探测缺失列 → ALTER 补列。
+    A 阶段重构：domain 回填逻辑已删除；旧库 domain 列仍存在但不再使用。
+    返回本次是否做过结构性变更（测试断言幂等用）。ALTER 自动提交。"""
     changed = False
     if _table_exists(conn, "reports"):
         cols = _table_columns(conn, "reports")
@@ -124,11 +130,6 @@ def _migrate_schema(conn: sqlite3.Connection) -> bool:
             conn.execute(f"ALTER TABLE reports ADD COLUMN {name} {ddl}")
         if missing:
             changed = True
-            # 存量回填：仅当 category 仍是默认值（= 未设置）且 domain 有映射时迁移
-            for domain, cat in _config.LEGACY_DOMAIN_TO_CATEGORY.items():
-                conn.execute(
-                    "UPDATE reports SET category=? WHERE domain=? AND category='research'",
-                    (cat, domain))
     if _table_exists(conn, "knowledge_items"):
         cols = _table_columns(conn, "knowledge_items")
         for name, ddl in _KNOWLEDGE_ITEM_MIGRATION_COLUMNS:
@@ -179,35 +180,35 @@ def slug_has_submissions(conn: sqlite3.Connection, slug: str) -> bool:
 # reports 表操作
 # ============================================================
 def upsert_report(conn: sqlite3.Connection, slug: str, file: str, title: str,
-                  tag: str = "", subtitle: str = "", domain: str = "tech",
+                  tag: str = "", subtitle: str = "",
                   template: str = "book", series: str = "", series_order: int = 0,
                   created_date: str = "", updated_date: str = "",
                   current_rev: int = 0, category: str = "research",
                   narrative: str = "", project: str = ""):
     """插入或更新 reports 表一行。slug 为主键，存在则 UPDATE。
-    重构蓝图（2026-08-12）：category（四分类骨架）/ narrative（叙事方式）/
-    project（归档维度）三字段与模板正交，一并落库；旧调用方不传则用默认值。"""
+    A 阶段重构：domain 参数已删除；category（四分类骨架）/ narrative（叙事方式）/
+    project（归档维度）三字段与模板正交，一并落库。"""
     conn.execute(
-        """INSERT INTO reports (slug, file, title, tag, subtitle, domain, template,
+        """INSERT INTO reports (slug, file, title, tag, subtitle, template,
            series, series_order, created_date, updated_date, current_rev,
            category, narrative, project)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(slug) DO UPDATE SET
            file=excluded.file, title=excluded.title, tag=excluded.tag,
-           subtitle=excluded.subtitle, domain=excluded.domain,
+           subtitle=excluded.subtitle,
            template=excluded.template, series=excluded.series,
            series_order=excluded.series_order, updated_date=excluded.updated_date,
            current_rev=excluded.current_rev,
            category=excluded.category, narrative=excluded.narrative,
            project=excluded.project""",
-        (slug, file, title, tag, subtitle, domain, template,
+        (slug, file, title, tag, subtitle, template,
          series, series_order, created_date, updated_date, current_rev,
          category, narrative, project))
 
 
 def _report_row_dict(r: sqlite3.Row) -> dict:
-    """reports 行 → 对外 dict：兼容旧 list_reports 返回的字段名与形状，
-    另附 category / narrative / project / hidden（hidden 归一为 bool）。"""
+    """reports 行 → 对外 dict。domain 键已彻底删除；category / narrative / project / hidden
+    四字段保留。全部调用方已核实不再读 domain（2026-08-12 二次重构清理完成）。"""
     d = dict(r)
     date = d.get("created_date", "")
     return {
@@ -223,7 +224,6 @@ def _report_row_dict(r: sqlite3.Row) -> dict:
         "series_order": d.get("series_order") or 0,
         "series_total": 0,      # 丛书总数由 maintain_series_siblings 维护
         "template": d.get("template") or "book",
-        "domain": d.get("domain") or "tech",
         "category": d.get("category") or "research",
         "narrative": d.get("narrative") or "",
         "project": d.get("project") or "",
@@ -311,10 +311,11 @@ def get_report_by_slug(conn: sqlite3.Connection, slug: str) -> dict | None:
 # feedbacks 表操作（L3 账本，P2）
 # 账本 append-only：插入后只有裁决会 UPDATE 状态列（可翻案，最新生效）。
 # ============================================================
-def insert_feedback(conn: sqlite3.Connection, topic: str, domain: str, agent: str,
+def insert_feedback(conn: sqlite3.Connection, topic: str, agent: str,
                     evidence: str, opinion: str, cited: str = "",
-                    created_at: str = "") -> int:
-    """写回一条反馈（初始 status=pending），返回 feedbacks.id。"""
+                    created_at: str = "", domain: str = "") -> int:
+    """写回一条反馈（初始 status=pending），返回 feedbacks.id。
+    domain 参数已随 domain 语义删除失去业务意义，仅为兼容旧 schema 列保留，默认空字符串。"""
     cur = conn.execute(
         """INSERT INTO feedbacks (topic, domain, agent, cited, evidence, opinion,
            status, created_at) VALUES (?,?,?,?,?,?, 'pending', ?)""",
@@ -382,10 +383,10 @@ KNOWLEDGE_ITEMS_DDL = """
 CREATE TABLE IF NOT EXISTS knowledge_items (
   id TEXT PRIMARY KEY,
   topic TEXT,
-  domain TEXT,
   kind TEXT,
   text TEXT,
   sources TEXT,
+  category TEXT NOT NULL DEFAULT 'ai',
   created_at TEXT,
   status TEXT NOT NULL DEFAULT 'active');
 
@@ -440,7 +441,9 @@ def create_knowledge_items_table(conn: sqlite3.Connection | None = None) -> None
 
 
 def rebuild_items_index(topics_by_domain: dict) -> int:
-    """清空两表，按 knowledge/{domain}/{topic}/items.json 重建检索索引。
+    """清空两表，按 knowledge/{topic}/items.json 重建检索索引。
+    B 阶段重构：目录扁平 knowledge/{topic}/，不再按 domain 分层；
+    topics_by_domain 参数保留兼容（忽略 domain 键，扁平取值）。
     幂等：结果与调用次数无关。返回入库条目数。
     审核治理：重建前先记存量 status——hidden 条目保留 hidden 且不进 FTS
     （查询只返回 active；审核视图仍可见，可恢复），重建不吞掉人工下架。"""
@@ -452,35 +455,41 @@ def rebuild_items_index(topics_by_domain: dict) -> int:
         conn.execute("DELETE FROM knowledge_items")
         conn.execute("DELETE FROM knowledge_items_fts")
         count = 0
-        for domain, topics in topics_by_domain.items():
-            for topic in topics:
-                items_path = _config.KNOWLEDGE_DIR / domain / topic / "items.json"
-                if not items_path.exists():
+        # B 阶段：扁平遍历——topics_by_domain 可能仍是 {domain: [topics]}，提取所有 topic 名再查文件
+        all_topics = set()
+        for topics in topics_by_domain.values():
+            for t in (topics or []):
+                all_topics.add(t if isinstance(t, str) else (t.get("topic") or t.get("slug") or ""))
+        for topic in sorted(all_topics):
+            if not topic:
+                continue
+            items_path = _config.KNOWLEDGE_DIR / topic / "items.json"
+            if not items_path.exists():
+                continue
+            try:
+                items = json.loads(items_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            cat, tags = _topic_category_tags(
+                _config.KNOWLEDGE_DIR / topic / "overview.md")
+            tag_str = " ".join(tags)
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for it in items:
+                if not isinstance(it, dict) or "id" not in it or "text" not in it:
                     continue
-                try:
-                    items = json.loads(items_path.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                cat, tags = _topic_category_tags(
-                    _config.KNOWLEDGE_DIR / domain / topic / "overview.md")
-                tag_str = " ".join(tags)
-                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                for it in items:
-                    if not isinstance(it, dict) or "id" not in it or "text" not in it:
-                        continue
-                    status = old_status.get(it["id"], "active")
+                status = old_status.get(it["id"], "active")
+                conn.execute(
+                    "INSERT INTO knowledge_items"
+                    " (id, topic, kind, text, sources, created_at, status)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (it["id"], topic, it.get("kind", ""), it["text"],
+                     json.dumps(it.get("sources") or [], ensure_ascii=False), now, status))
+                if status == "active":
                     conn.execute(
-                        "INSERT INTO knowledge_items"
-                        " (id, topic, domain, kind, text, sources, created_at, status)"
-                        " VALUES (?,?,?,?,?,?,?,?)",
-                        (it["id"], topic, domain, it.get("kind", ""), it["text"],
-                         json.dumps(it.get("sources") or [], ensure_ascii=False), now, status))
-                    if status == "active":
-                        conn.execute(
-                            "INSERT INTO knowledge_items_fts (id, topic, text, kind, category, tag)"
-                            " VALUES (?,?,?,?,?,?)",
-                            (it["id"], topic, it["text"], it.get("kind", ""), cat, tag_str))
-                    count += 1
+                        "INSERT INTO knowledge_items_fts (id, topic, text, kind, category, tag)"
+                        " VALUES (?,?,?,?,?,?)",
+                        (it["id"], topic, it["text"], it.get("kind", ""), cat, tag_str))
+                count += 1
         conn.commit()
         return count
     finally:
@@ -678,6 +687,7 @@ def sync_item_fts(item_id: str, status: str,
     hidden → 从 knowledge_items_fts 删行（search_items / 知识查询查不到）；
     active → 重新插入 FTS（category/tag 从该主题 overview frontmatter 现取，与重建口径一致）。
     knowledge_items 行本身由 set_knowledge_item_status 管理，本函数只动 FTS。
+    B 阶段重构：路径扁平 knowledge/{topic}/overview.md。
     conn 省略时自动开连接并 commit；传入 conn 则由调用方负责 commit。"""
     own = conn is None
     if own:
@@ -689,7 +699,7 @@ def sync_item_fts(item_id: str, status: str,
         conn.execute("DELETE FROM knowledge_items_fts WHERE id=?", (item_id,))
         if status == "active":
             cat, tags = _topic_category_tags(
-                _config.KNOWLEDGE_DIR / row["domain"] / row["topic"] / "overview.md")
+                _config.KNOWLEDGE_DIR / row["topic"] / "overview.md")
             conn.execute(
                 "INSERT INTO knowledge_items_fts (id, topic, text, kind, category, tag)"
                 " VALUES (?,?,?,?,?,?)",
@@ -728,6 +738,61 @@ def delete_report_row(slug: str, conn: sqlite3.Connection | None = None) -> bool
         if own:
             conn.commit()
         return cur.rowcount > 0
+    finally:
+        if own:
+            conn.close()
+
+
+# ============================================================
+# projects 表操作（A 阶段重构：
+# 「先建项目」API 与 .vicky 联动）
+# ============================================================
+def create_project(slug: str, name: str, description: str = "",
+                   conn: sqlite3.Connection | None = None) -> None:
+    """新建项目元信息。slug 为主键，重复插入触发 IntegrityError（调用方处理）。
+    conn 省略时自动开连接并 commit。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO projects (slug, name, description, created_at)"
+            " VALUES (?,?,?,?)",
+            (slug, name, description, now))
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def get_project(slug: str, conn: sqlite3.Connection | None = None) -> dict | None:
+    """按 slug 查单个项目元信息。返回 None 表示不存在。
+    conn 省略时自动开/关。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM projects WHERE slug=?", (slug,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        if own:
+            conn.close()
+
+
+def list_projects_meta(conn: sqlite3.Connection | None = None) -> list[dict]:
+    """列出全部项目元信息（projects 表），按创建时间倒序。
+    区别于 list_projects（按 reports.project 聚合，用于索引页项目卡片）；
+    本函数是「先建项目」API 的数据源——返回元信息版供 POST/GET /api/projects 使用。
+    conn 省略时自动开/关。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
     finally:
         if own:
             conn.close()

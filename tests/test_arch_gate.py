@@ -91,7 +91,7 @@ class TestArchGate(unittest.TestCase):
         with tmp_env(server) as tmp:
             with self.assertRaises(ValueError):
                 server.create_report("坏卷", "arch-node-direct", "架构",
-                                     "<h2>内部工作流</h2>", template="arch-node", domain="arch")
+                                     "<h2>内部工作流</h2>", template="arch-node", category="arch-doc")
 
 
 if __name__ == "__main__":

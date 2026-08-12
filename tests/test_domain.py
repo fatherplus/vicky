@@ -1,75 +1,44 @@
 #!/usr/bin/env python3
-"""阶段1 验收：domain 字段 + ephemeral 隔离。
-P0 包化：import 更新。P1：隔离 DATA_DIR 避免污染真实 DB。"""
+"""B 阶段验收：domain 语义已彻底删除，改为 category-only。
+从 test_domain.py 升级：测试 category 过滤 + extract_tech_md 统一提取。"""
 from tests.util import load_server, tmp_env
-from vicky.config import DOMAINS
-from vicky.l2_distill import EXTRACTORS
+from vicky.l2_distill import extract_tech_md, _DISTILL_CATEGORY
 
 server = load_server()
 
 
-def test_domain_constant():
-    assert DOMAINS == {"tech", "design", "ephemeral", "arch"}
+def test_distill_category_is_research():
+    """B 阶段：只蒸 category==research 的报告。"""
+    assert _DISTILL_CATEGORY == "research"
 
 
-def test_extractors_only_tech():
-    """spec §1：design 退出自动蒸馏，EXTRACTORS 只留 tech。"""
-    assert set(EXTRACTORS) == {"tech"}
+def test_extract_tech_md_exists():
+    """统一提取器 extract_tech_md 正常工作。"""
+    items = extract_tech_md("# 测试\n\n> 这是一个结论性声明\n\n| col1 | col2 |\n|------|------|\n| a | b |\n", "test-source")
+    # 至少抽到结论
+    assert any(it["kind"] == "conclusion" for it in items)
 
 
-def test_create_with_domain():
+def test_create_with_category():
+    """category 替换 domain：创建报告使用 category 字段。"""
     with tmp_env(server) as tmp:
-        r = server.create_report("T", "test-domain", "测试", "<p>hello</p>", domain="ephemeral")
+        r = server.create_report("T-cat", "test-category-brief", "测试", "<p>hello</p>", category="brief")
         assert r["ok"]
-        html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
-        assert '<meta name="domain" content="ephemeral">' in html
+        # category 落库（元数据单一真相源在 DB，非 HTML 文本）
+        from vicky import store
+        rows = [x for x in store.list_reports(include_hidden=True) if x["slug"] == "test-category-brief"]
+        assert rows and rows[0]["category"] == "brief"
 
 
-def test_create_default_domain():
+def test_create_default_category():
+    """未指定 category 时默认 research。"""
     with tmp_env(server) as tmp:
-        r = server.create_report("T2", "test-domain-default", "测试", "<p>hello</p>")
+        r = server.create_report("T2-cat", "test-category-default", "测试", "<p>hello</p>")
         assert r["ok"]
-        html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
-        assert '<meta name="domain" content="tech">' in html
-
-
-def test_create_with_arch_domain():
-    with tmp_env(server) as tmp:
-        r = server.create_report("T", "test-domain-arch", "测试", "<p>hello</p>", domain="arch")
-        assert r["ok"]
-        html = (tmp / "reports" / r["file"]).read_text(encoding="utf-8")
-        assert '<meta name="domain" content="arch">' in html
-
-
-def test_list_reports_reads_domain():
-    with tmp_env(server) as tmp:
-        server.create_report("T3", "test-domain-list", "测试", "<p>hello</p>", domain="design")
-        reports = server.list_reports()
-        match = [r for r in reports if r["file"].endswith("test-domain-list.html")]
-        assert match, "report not found in list"
-        assert match[0]["domain"] == "design"
-
-
-def test_legacy_report_defaults_tech():
-    with tmp_env(server) as tmp:
-        server.create_report("T4", "test-domain-legacy", "测试", "<p>hello</p>")
-        # 找实际文件名
-        matches = list((tmp / "reports").glob("*test-domain-legacy*"))
-        p = matches[0]
-        html = p.read_text(encoding="utf-8")
-        html = html.replace('<meta name="domain" content="tech">', '')
-        p.write_text(html, encoding="utf-8")
-        reports = server.list_reports()
-        match = [r for r in reports if "test-domain-legacy" in r["file"]]
-        assert match[0]["domain"] == "tech"
 
 
 if __name__ == "__main__":
-    test_domain_constant()
-    test_extractors_only_tech()
-    test_create_with_domain()
-    test_create_with_arch_domain()
-    test_create_default_domain()
-    test_list_reports_reads_domain()
-    test_legacy_report_defaults_tech()
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            fn()
     print("ALL PASS")

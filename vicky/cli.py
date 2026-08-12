@@ -138,16 +138,22 @@ def backfill(force: bool = False):
                 tag = meta.get("tag", "研究报告")
                 subtitle = meta.get("subtitle", "")
                 template = meta.get("template", "book")
-                domain = meta.get("domain", "tech")
                 series = meta.get("series", "")
                 series_order = meta.get("series_order", 0)
+                # 存量 HTML 的 <meta name="domain"> 一次性迁移映射为 category
+                # （domain 语义已彻底删除，仅 backfill 兼容老文件时借它推断分类归属）
+                _BACKFILL_DOMAIN_TO_CATEGORY = {
+                    "tech": "research", "ephemeral": "brief",
+                    "arch": "arch-doc", "design": "design",
+                }
+                category = _BACKFILL_DOMAIN_TO_CATEGORY.get(meta.get("domain", "tech"), "research")
 
                 # 构造 payload
                 payload = {
                     "title": title, "slug": slug, "tag": tag,
                     "content": content, "subtitle": subtitle,
                     "series": series, "order": series_order,
-                    "template": template, "domain": domain,
+                    "template": template, "category": category,
                 }
 
                 # 写 L0 快照（rev 0001）
@@ -169,11 +175,13 @@ def backfill(force: bool = False):
                 sub_id = store.insert_submission(
                     conn, slug, rev, received_at, str(l0_path / "submission.json"))
 
-                # 入库 reports 表
+                # 入库 reports 表（keyword 传参，避免位置错位）
                 updated_date = meta.get("updated", "")
                 store.upsert_report(
-                    conn, slug, name, title, tag, subtitle, domain,
-                    template, series, series_order, date_str, updated_date, sub_id)
+                    conn, slug, name, title, tag, subtitle=subtitle,
+                    template=template, series=series, series_order=series_order,
+                    created_date=date_str, updated_date=updated_date, current_rev=sub_id,
+                    category=category)
 
                 done += 1
                 print(f"  ✓ {name} → {slug} rev=0001")
@@ -206,28 +214,28 @@ def classify():
         return
     existing = l2_distill.existing_tags()
     done = skipped = failed = 0
-    for domain_dir in sorted(p_ for p_ in kdir.iterdir()
-                             if p_.is_dir() and not p_.name.startswith(".")):
-        for tdir in sorted(domain_dir.iterdir()):
-            ovf = tdir / "overview.md"
-            if not tdir.is_dir() or not ovf.exists():
-                continue
-            text = ovf.read_text(encoding="utf-8")
-            meta, body = l2_distill.parse_frontmatter(text)
-            if meta.get("category"):
-                skipped += 1
-                continue
-            result = l2_distill.llm_classify(tdir.name, body, existing)
-            if result is None:
-                failed += 1
-                continue  # LLM 失败，留白不误分（下轮可重试）
-            meta["category"] = result["category"]
-            if result["tags"]:
-                meta["tags"] = result["tags"]
-            ovf.write_text(l2_distill.dump_frontmatter(meta) + body, encoding="utf-8")
-            done += 1
-            tag_str = ", ".join(result["tags"]) if result["tags"] else "无标签"
-            print(f"  ✓ {domain_dir.name}/{tdir.name} → {result['category']} [{tag_str}]")
+    # 目录扁平 knowledge/{topic}/（B 阶段重构，domain 语义已彻底删除）
+    for tdir in sorted(p_ for p_ in kdir.iterdir()
+                       if p_.is_dir() and not p_.name.startswith(".")):
+        ovf = tdir / "overview.md"
+        if not ovf.exists():
+            continue
+        text = ovf.read_text(encoding="utf-8")
+        meta, body = l2_distill.parse_frontmatter(text)
+        if meta.get("category"):
+            skipped += 1
+            continue
+        result = l2_distill.llm_classify(tdir.name, body, existing)
+        if result is None:
+            failed += 1
+            continue  # LLM 失败，留白不误分（下轮可重试）
+        meta["category"] = result["category"]
+        if result["tags"]:
+            meta["tags"] = result["tags"]
+        ovf.write_text(l2_distill.dump_frontmatter(meta) + body, encoding="utf-8")
+        done += 1
+        tag_str = ", ".join(result["tags"]) if result["tags"] else "无标签"
+        print(f"  ✓ {tdir.name} → {result['category']} [{tag_str}]")
     print(f"\nclassify 完成：{done} 篇已分类，{skipped} 篇已有 category 跳过，{failed} 篇 LLM 失败留白")
     if existing:
         print(f"标签池（{len(existing)} 个）：{'、'.join(existing)}")
@@ -252,29 +260,70 @@ def index_knowledge(topic: str | None = None):
         return
     topics_by_domain: dict[str, list[str]] = {}
     extracted = 0
-    for domain_dir in sorted(p for p in kdir.iterdir()
-                             if p.is_dir() and not p.name.startswith(".")):
-        domain = domain_dir.name
-        for tdir in sorted(domain_dir.iterdir()):
-            if not tdir.is_dir():
-                continue
-            ovf = tdir / "overview.md"
-            if not ovf.exists():
-                continue
-            if topic and tdir.name != topic:
-                continue
-            topics_by_domain.setdefault(domain, []).append(tdir.name)
-            items_json = tdir / "items.json"
-            if not items_json.exists():
-                items = l2_distill._extract_items(
-                    tdir.name, domain, ovf.read_text(encoding="utf-8"))
-                items_json.write_text(
-                    json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
-                extracted += len(items)
-                print(f"  ✓ 提取 {domain}/{tdir.name}: {len(items)} 条")
+    # B 阶段重构：扁平扫描 knowledge/ 下所有 topic 目录
+    for tdir in sorted(p for p in kdir.iterdir()
+                       if p.is_dir() and not p.name.startswith(".")):
+        ovf = tdir / "overview.md"
+        if not ovf.exists():
+            continue
+        if topic and tdir.name != topic:
+            continue
+        topics_by_domain.setdefault("knowledge", []).append(tdir.name)
+        items_json = tdir / "items.json"
+        if not items_json.exists():
+            items = l2_distill._extract_items(
+                tdir.name, ovf.read_text(encoding="utf-8"))
+            items_json.write_text(
+                json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+            extracted += len(items)
+            print(f"  ✓ 提取 {tdir.name}: {len(items)} 条")
     count = store.rebuild_items_index(topics_by_domain)
     print(f"index-knowledge 完成: {count} 条条目入索引"
           + (f"（本次新提取 {extracted} 条）" if extracted else ""))
+
+
+# ============================================================
+# 项目管理（D 阶段：先建项目 + .vicky 联动，决策3）
+# ============================================================
+def _project_create(name: str, slug: str = None, description: str = ""):
+    """CLI 建项目：slug 缺省由 name 生成（与 ui.project_slug / POST /api/projects 口径一致）。
+    重复 slug → 报错退出。"""
+    from . import ui
+    if not slug:
+        slug = ui.project_slug(name)
+    try:
+        store.create_project(slug, name, description)
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "unique" in err_msg or "primary key" in err_msg or "duplicate" in err_msg:
+            print(f"✗ 项目 '{slug}' 已存在")
+        else:
+            print(f"✗ 创建失败：{e}")
+        sys.exit(1)
+    print(f"✓ 项目已创建：slug={slug} name={name}")
+
+
+def _project_list():
+    """列全部项目：projects 表元信息 + reports 聚合计数。"""
+    metas = store.list_projects_meta()
+    agg_map = {a["project"]: a for a in store.list_projects()}
+    if not metas and not agg_map:
+        print("（暂无项目——用 project --create 新建）")
+        return
+    # 以 projects 表为主
+    seen = set()
+    for m in metas:
+        slug = m["slug"]
+        seen.add(slug)
+        agg = agg_map.get(slug, {})
+        count = agg.get("count", 0)
+        latest = agg.get("latest", "")
+        desc = (m.get("description") or "")[:40]
+        print(f"  {slug:<20} {m['name']:<16} {count}篇  {latest}  {desc}")
+    # 仅有报告聚合、无 projects 元信息的
+    for slug, agg in agg_map.items():
+        if slug not in seen:
+            print(f"  {slug:<20} (未建项目)         {agg['count']}篇  {agg['latest']}")
 
 
 # ============================================================
@@ -371,6 +420,7 @@ def main():
     if len(sys.argv) < 2:
         print("用法: python3 -m vicky.cli <命令>")
         print("命令: backfill [--force] | render | distill | classify | judge | index-knowledge")
+        print("      | project --list | project --create --name X [--slug Y] [--desc Z]")
         print("      | hide --slug X | restore --slug X | delete --slug X [--yes] | audit [--topic X]")
         sys.exit(1)
 
@@ -437,6 +487,24 @@ def main():
                 sys.exit(1)
             topic = sys.argv[idx + 1]
         index_knowledge(topic=topic)
+    elif cmd == "project":
+        # D 阶段：先建项目 + .vicky 联动（决策3，只给 API+CLI，不做网页表单）
+        if "--list" in sys.argv:
+            _project_list()
+        elif "--create" in sys.argv:
+            name = _require_flag("--name", "用法: python3 -m vicky.cli project --create --name <name> [--slug <slug>] [--desc <desc>]")
+            slug = None
+            if "--slug" in sys.argv:
+                slug = _require_flag("--slug", "用法: python3 -m vicky.cli project --create --name <name> --slug <slug>")
+            desc = ""
+            if "--desc" in sys.argv:
+                idx = sys.argv.index("--desc")
+                if idx + 1 < len(sys.argv) and not sys.argv[idx + 1].startswith("--"):
+                    desc = sys.argv[idx + 1]
+            _project_create(name, slug=slug, description=desc)
+        else:
+            print("用法: python3 -m vicky.cli project --list | --create --name X [--slug Y] [--desc Z]")
+            sys.exit(1)
     elif cmd == "hide":
         # 审核治理：软下架（可逆）
         slug = _require_flag("--slug", "用法: python3 -m vicky.cli hide --slug <slug>")

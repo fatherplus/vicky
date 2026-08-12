@@ -28,9 +28,7 @@ INDEX_PATH = config.INDEX_PATH
 PUBLIC_DIR = config.PUBLIC_DIR
 IMG_DIR = config.IMG_DIR
 NARRATIVE_CONTRACTS = config.NARRATIVE_CONTRACTS
-DOMAINS = config.DOMAINS
 REPORT_CATEGORIES = config.REPORT_CATEGORIES
-LEGACY_DOMAIN_TO_CATEGORY = config.LEGACY_DOMAIN_TO_CATEGORY
 NARRATIVES = config.NARRATIVES
 COMPONENTS = config.COMPONENTS
 FIGURE_RE = config.FIGURE_RE
@@ -75,11 +73,10 @@ _INDEX_TPL = None  # P3 前端抢救：启动时由 _init_index_tpl() 填充
 
 
 def _annotate_rows(rows: list, default_tag: str) -> None:
-    """给目录行打 _tag/_series/_domain/_category/_project 供 ui 构建器使用。"""
+    """给目录行打 _tag/_series/_category/_project 供 ui 构建器使用。"""
     for r in rows:
         r["_tag"] = (r.get("tag") or default_tag).strip() or default_tag
         r["_series"] = normalize_series(r["series"]) if r.get("series") else ""
-        r["_domain"] = r.get("domain") or "tech"
         r["_category"] = r.get("category") or "research"
         r["_project"] = r.get("project") or ""
 
@@ -118,8 +115,8 @@ def build_index(reports: list[dict]) -> str:
     proj_chips = [(name, len(docs)) for name, docs in proj_sorted]
 
     zone_total = len(research) + len(briefs) + len(project_docs)
-    chips = ui.index_chips(zone_total, len(research), len(briefs), len(proj_map),
-                           tag_list, proj_chips)
+    cat_chips = ui.category_chips_html(zone_total, len(research), len(briefs), len(proj_map))
+    filter_chips = ui.filter_chips_html(tag_list, proj_chips)
     frontmatter = ui.frontmatter_html(front)
     research_rows = [ui.toc_row(r, i) for i, r in enumerate(research, 1)]
     brief_rows = [ui.toc_row(r, i) for i, r in enumerate(briefs, 1)]
@@ -129,7 +126,8 @@ def build_index(reports: list[dict]) -> str:
     tpl = ui.load_view("index.html")
     return (tpl
             .replace("__FRONTMATTER__", frontmatter)
-            .replace("__CHIPS__", "\n    ".join(chips))
+            .replace("__CAT_CHIPS__", "\n    ".join(cat_chips))
+            .replace("__FILTER_CHIPS__", "\n    ".join(filter_chips))
             .replace("__RESEARCH_ROWS__", "\n    ".join(research_rows))
             .replace("__BRIEF_ROWS__", "\n    ".join(brief_rows))
             .replace("__PROJECT_CARDS__", "\n    ".join(cards))
@@ -177,16 +175,13 @@ def component_head(content: str) -> tuple:
 # ============================================================
 # 骨架分类门禁 + tech-solution 代码块红线（重构蓝图 2026-08-12 §03）
 # ============================================================
-def validate_category(category: str, domain: str = "tech") -> str | None:
-    """骨架分类门禁：category 必须是四大分类之一；'design' 仅走 legacy domain 映射
-    （domain=design）放行，不再开放提交。非法返回错误文案，合法返回 None。"""
+def validate_category(category: str) -> str | None:
+    """骨架分类门禁：category 必须是四大分类之一（domain 语义已彻底删除，
+    不再有 legacy 映射兼容）。非法返回错误文案，合法返回 None。"""
     category = (category or "").strip() or "research"
     if category in REPORT_CATEGORIES:
         return None
-    if LEGACY_DOMAIN_TO_CATEGORY.get((domain or "tech").strip()) == category:
-        return None
-    return (f"category 必须是 {REPORT_CATEGORIES} 之一"
-            f"（design 仅 legacy domain 映射，不再开放提交）")
+    return f"category 必须是 {REPORT_CATEGORIES} 之一"
 
 
 # tech-solution 代码块红线：方案止步于架构与表结构示意，不出现大段实施代码
@@ -384,20 +379,19 @@ def _existing_for_slug(slug: str) -> list:
 # ============================================================
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
                   series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
-                  base_url: str = "", domain: str = "tech",
+                  base_url: str = "",
                   images: list | None = None, client_ip: str = "127.0.0.1",
                   category: str = "", narrative: str = "", project: str = "") -> dict:
     """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
-    重构蓝图（2026-08-12）：category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）
-    三字段显式指定，与模板正交；category 非法直接拒收（validate_category，design 仅 legacy 映射），
+    category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）三字段显式指定，
+    与模板正交；category 非法直接拒收（validate_category，domain 语义已彻底删除），
     tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。"""
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # ── 骨架分类推导 + 门禁（重构蓝图 §02）：显式 category 优先；未指定按 legacy domain
-    # 映射（tech→research / ephemeral→brief / arch→arch-doc / design→design legacy）。
+    # ── 骨架分类门禁（重构蓝图 §02）：未指定 category 时默认 research；
     # web.py 预检后可传 category；此处兜底直调方，防绕门禁 ──
-    category = (category or "").strip() or LEGACY_DOMAIN_TO_CATEGORY.get((domain or "tech").strip(), "research")
-    cat_err = validate_category(category, domain)
+    category = (category or "").strip() or "research"
+    cat_err = validate_category(category)
     if cat_err:
         raise ValueError(cat_err)
 
@@ -428,7 +422,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     payload = {
         "title": title, "slug": slug, "tag": tag, "content": content,
         "subtitle": subtitle, "series": series, "order": order,
-        "template": template, "domain": domain,
+        "template": template,
         "category": category, "narrative": narrative, "project": project,
     }
     if images:
@@ -445,7 +439,6 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
 
     meta_tags = []
     meta_tags.append(f'<meta name="template" content="{template}">')
-    meta_tags.append(f'<meta name="domain" content="{domain}">')
     if not created:
         meta_tags.append(f'<meta name="updated" content="{today}">')
     series = normalize_series(series)
@@ -481,8 +474,10 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         sub_id = sub_row[0] if sub_row else 0
         created_date = filename[:10] if len(filename) >= 10 else today
         updated_date = today if not created else ""
-        store.upsert_report(conn, slug, filename, title, tag, subtitle, domain,
-                            template, series, order, created_date, updated_date, sub_id,
+        store.upsert_report(conn, slug, filename, title, tag, subtitle,
+                            template=template, series=series, series_order=order,
+                            created_date=created_date, updated_date=updated_date,
+                            current_rev=sub_id,
                             category=category, narrative=narrative, project=project)
         conn.commit()
     finally:
@@ -492,7 +487,6 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     reports = list_reports()
     index_html = build_index(reports)
     INDEX_PATH.write_text(index_html, encoding="utf-8")
-    refresh_card_wall()
     refresh_home()
     refresh_projects()
 
@@ -523,12 +517,12 @@ def render_from_l0(slug: str) -> dict:
     try:
         # 查 reports 表获取当前文件名与 current_rev
         rep = conn.execute(
-            "SELECT file, title, tag, subtitle, domain, template, series, series_order, "
+            "SELECT file, title, tag, subtitle, template, series, series_order, "
             "current_rev FROM reports WHERE slug=?", (slug,)).fetchone()
         if not rep:
             return {"ok": False, "error": f"slug '{slug}' 不在 reports 表中——先 backfill"}
 
-        filename, title, tag, subtitle, domain, template, series, order, cur_rev = rep
+        filename, title, tag, subtitle, template, series, order, cur_rev = rep
 
         # 从 submissions 表取快照路径
         sub = conn.execute(
@@ -553,7 +547,6 @@ def render_from_l0(slug: str) -> dict:
 
     meta_tags = [
         f'<meta name="template" content="{template}">',
-        f'<meta name="domain" content="{domain}">',
     ]
     s = normalize_series(series)
     if s:
@@ -583,11 +576,10 @@ def render_from_l0(slug: str) -> dict:
 
 
 def rebuild_index():
-    """重建索引页 + 首页 + 卡片墙 + 项目页 + 丛书（render --all 后调用）。
+    """重建索引页 + 首页 + 项目页 + 丛书（render --all 后调用）。
     审核治理（curate 软下架/硬删除）也走此入口——项目页随之重算，hidden 文档自动消失。"""
     reports = list_reports()
     INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
-    refresh_card_wall()
     refresh_home()
     refresh_projects()
     # 全量丛书维护
@@ -598,36 +590,6 @@ def rebuild_index():
                 maintain_series_siblings(r[0])
     finally:
         conn.close()
-
-
-# ============================================================
-# 卡片墙（spec §3）——design 报告聚合页 public/design.html
-# ============================================================
-def design_reports() -> list:
-    """domain=design 的报告（按 created_date 倒序）。"""
-    conn = store.get_db()
-    try:
-        return [r for r in store.list_reports_from_db(conn) if r.get("domain") == "design"]
-    finally:
-        conn.close()
-
-
-def build_card_wall() -> str:
-    """生成卡片墙页：遍历 design 报告，卡片循环标记由 ui.card_wall_item 产出。"""
-    design = design_reports()
-    cards = [ui.card_wall_item(r) for r in design]
-    year = design[0]["date"][:4] if design else str(datetime.now().year)
-    tpl = ui.load_view("design.html")
-    return (tpl
-            .replace("__CARDS__", "\n    ".join(cards))
-            .replace("__TOTAL__", str(len(design)))
-            .replace("__YEAR__", year))
-
-
-def refresh_card_wall():
-    """刷新 public/design.html（与索引页同目录；随发布与 cli render 重渲染调用）。"""
-    wall = config.INDEX_PATH.parent / "design.html"
-    wall.write_text(build_card_wall(), encoding="utf-8")
 
 
 # ============================================================
@@ -680,7 +642,7 @@ def build_project_pages() -> int:
 
 
 def refresh_projects():
-    """刷新 public/projects/ 全部项目页（与索引/首页/卡片墙同触发点）。"""
+    """刷新 public/projects/ 全部项目页（与索引/首页同触发点）。"""
     build_project_pages()
 
 
@@ -689,16 +651,16 @@ def refresh_projects():
 # 占位符：__RESEARCH_N__ / __PROJECT_N__ / __BRIEF_N__ / __TOTAL_TOPICS__ / __YEAR__
 # ============================================================
 def count_knowledge_topics() -> int:
-    """knowledge/ 主题目录数：有 overview.md 的才算（与 GET /api/knowledge 列表口径一致）。"""
+    """knowledge/ 主题目录数：有 overview.md 的才算（与 GET /api/knowledge 列表口径一致）。
+    目录扁平 knowledge/{topic}/（B 阶段重构，domain 语义已彻底删除）。"""
     kdir = config.KNOWLEDGE_DIR
     total = 0
     if kdir.exists():
-        for dd in sorted(kdir.iterdir()):
-            if not dd.is_dir() or dd.name.startswith("."):
+        for td in sorted(kdir.iterdir()):
+            if not td.is_dir() or td.name.startswith("."):
                 continue
-            for td in sorted(dd.iterdir()):
-                if (td / "overview.md").exists():
-                    total += 1
+            if (td / "overview.md").exists():
+                total += 1
     return total
 
 
