@@ -1,6 +1,6 @@
 import json
 import unittest
-from tests.util import load_server, tmp_env, http_get, http_post
+from tests.util import load_server, tmp_env, http_get, http_post, http_put
 from vicky import store
 
 server = load_server()
@@ -80,6 +80,41 @@ class TestArchService(unittest.TestCase):
             self.assertTrue(ok, err)
             m = store.get_arch_module("vicky", "old")
             self.assertEqual(m["status"], "orphan")
+
+
+class TestArchAPI(unittest.TestCase):
+    def test_full_arch_lifecycle(self):
+        with tmp_env(server):
+            http_post("/api/projects", {"name": "demo"})
+            g = {"nodes": [{"id": "core", "kind": "module", "layer": 1,
+                            "label": "core", "summary": "枢纽"}],
+                 "edges": [], "layout": {}}
+            # PUT 骨架
+            st, r = http_put("/api/arch/demo", g)
+            self.assertTrue(r["ok"], r)
+            # GET 骨架
+            st, body, _ = http_get("/api/arch/demo")
+            data = json.loads(body)
+            self.assertEqual(data["graph"]["nodes"][0]["id"], "core")
+            # PUT 模块
+            st, r = http_put("/api/arch/demo/module/core",
+                             {"kind": "module", "body_md": "会话运行时枢纽"})
+            self.assertTrue(r["ok"], r)
+            # GET 模块
+            st, body, _ = http_get("/api/arch/demo/module/core")
+            data = json.loads(body)
+            self.assertEqual(data["body_md"], "会话运行时枢纽")
+            # search
+            st, body, _ = http_get("/api/arch/demo/search?q=会话运行时")
+            data = json.loads(body)
+            self.assertTrue(any(i["node_id"] == "core" for i in data["items"]))
+
+    def test_put_graph_unregistered_project_400(self):
+        with tmp_env(server):
+            st, r = http_put("/api/arch/ghost",
+                             {"nodes": [], "edges": [], "layout": {}})
+            self.assertEqual(st, 400)
+            self.assertFalse(r["ok"])
 
 
 if __name__ == "__main__":

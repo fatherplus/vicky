@@ -46,6 +46,15 @@ def http_patch(path: str, body: dict):
         return r.status_code, {"raw": r.text}
 
 
+def http_put(path: str, body: dict):
+    """PUT JSON → (status, parsed_json)。"""
+    r = client().put(path, json=body)
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"raw": r.text}
+
+
 def http_delete(path: str):
     """DELETE → (status, parsed_json)。"""
     r = client().delete(path)

@@ -35,6 +35,7 @@ from . import l2_distill  # /api/knowledge 列表条目读 frontmatter 补 categ
 from . import l3_feedback
 from . import store
 from . import ui  # D 阶段：project_slug 用于 POST /api/projects slug 生成
+from . import arch  # B2 阶段：架构导航器 API（骨架/模块读写 + 搜索）
 from .l0_ingest import (clean_slug, validate_slug_not_empty, save_images,
                         validate_series_params, load_report_payload)
 
@@ -409,6 +410,58 @@ def api_project_delete(slug: str):
     if not store.archive_project(slug):
         return _json({"ok": False, "error": f"项目 '{slug}' 不存在"}, 404)
     return _json({"ok": True, "slug": slug, "archived": True})
+
+
+# ============================================================
+# 架构导航器 API（骨架整体读写 / 模块单独读写 / 模块搜索）
+# ============================================================
+@app.get("/api/arch/{project}")
+def api_arch_get(project: str):
+    project = ui.project_slug(project)
+    g = arch.get_graph(project)
+    if g is None:
+        return _json({"ok": False, "error": f"项目 '{project}' 暂无架构"}, 404)
+    return _json({"ok": True, "graph": g})
+
+
+@app.put("/api/arch/{project}")
+async def api_arch_put(project: str, request: Request):
+    project = ui.project_slug(project)
+    data, err = await _read_json(request)
+    if err:
+        return _json({"ok": False, "error": err}, 400)
+    ok, verr = arch.put_graph(project, data)
+    if not ok:
+        return _json({"ok": False, "error": verr}, 400)
+    return _json({"ok": True, "project": project})
+
+
+@app.get("/api/arch/{project}/module/{node_id}")
+def api_arch_module_get(project: str, node_id: str):
+    project = ui.project_slug(project)
+    m = arch.get_module(project, node_id)
+    if m is None:
+        return _json({"ok": False, "error": "模块不存在"}, 404)
+    return _json({"ok": True, "kind": m["kind"], "body_md": m["body_md"],
+                  "status": m["status"]})
+
+
+@app.put("/api/arch/{project}/module/{node_id}")
+async def api_arch_module_put(project: str, node_id: str, request: Request):
+    project = ui.project_slug(project)
+    data, err = await _read_json(request)
+    if err:
+        return _json({"ok": False, "error": err}, 400)
+    res = arch.put_module(project, node_id,
+                          data.get("kind", "module"), data.get("body_md", ""))
+    return _json(res)
+
+
+@app.get("/api/arch/{project}/search")
+def api_arch_search(project: str, q: str = ""):
+    project = ui.project_slug(project)
+    return _json({"ok": True, "items": arch.search(project, q)})
+
 
 @app.post("/api/reports")
 async def api_report_submit(request: Request):
