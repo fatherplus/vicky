@@ -431,7 +431,7 @@ def api_arch_module_get(project: str, node_id: str):
     if m is None:
         return _json({"ok": False, "error": "模块不存在"}, 404)
     return _json({"ok": True, "kind": m["kind"], "body_md": m["body_md"],
-                  "status": m["status"]})
+                  "body_html": arch.render_md(m["body_md"]), "status": m["status"]})
 
 
 @app.put("/api/arch/{project}/module/{node_id}")

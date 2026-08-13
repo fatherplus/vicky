@@ -364,3 +364,17 @@ class TestArchMarkdownExtras(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArchModuleBodyHtml(unittest.TestCase):
+    def test_module_get_returns_body_html(self):
+        with tmp_env(server):
+            store.create_project("pi", "pi")
+            store.save_arch_graph("pi", {"nodes": [{"id": "r", "kind": "router",
+                "layer": 1, "label": "路由"}], "edges": []})
+            store.save_arch_module("pi", "r", "router",
+                                   "| 条件 | 走向 |\n|---|---|\n| 代码 | 代码组 |")
+            st, body, _ = http_get("/api/arch/pi/module/r")
+            data = json.loads(body)
+            self.assertEqual(st, 200)
+            self.assertIn('<table class="data-table">', data["body_html"])
