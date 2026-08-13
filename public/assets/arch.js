@@ -1,72 +1,64 @@
-/* Vicky 架构导航器共享脚本：极简 Markdown 渲染（抽屉用）+ SVG 连线落位。
-   导航页（views/arch.html）与模块子页（views/arch-module.html）复用。 */
-
-function _archEsc(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-function _archInline(s) {
-  return s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-          .replace(/`([^`]+)`/g, "<code>$1</code>");
-}
-
-/* 极简 Markdown → HTML（抽屉按需渲染 API 返回的 body_md）。
-   ponytail：不引入 marked 等依赖，够架构正文用即可。 */
-function archRenderMD(md) {
-  var lines = _archEsc(md || "").split("\n");
-  var html = [], inCode = false, codeBuf = [], listBuf = [];
-  function flushList() {
-    if (listBuf.length) {
-      html.push("<ul>" + listBuf.map(function (x) { return "<li>" + x + "</li>"; }).join("") + "</ul>");
-      listBuf = [];
-    }
-  }
-  for (var i = 0; i < lines.length; i++) {
-    var ln = lines[i];
-    if (/^```/.test(ln)) {
-      if (inCode) { html.push("<pre><code>" + codeBuf.join("\n") + "</code></pre>"); codeBuf = []; inCode = false; }
-      else { flushList(); inCode = true; }
-      continue;
-    }
-    if (inCode) { codeBuf.push(ln); continue; }
-    var h = ln.match(/^(#{1,4})\s+(.*)/);
-    if (h) { flushList(); var lvl = h[1].length + 1; html.push("<h" + lvl + ">" + _archInline(h[2]) + "</h" + lvl + ">"); continue; }
-    if (/^\s*[-*]\s+/.test(ln)) { listBuf.push(_archInline(ln.replace(/^\s*[-*]\s+/, ""))); continue; }
-    flushList();
-    if (ln.trim() === "") continue;
-    html.push("<p>" + _archInline(ln) + "</p>");
-  }
-  flushList();
-  if (inCode && codeBuf.length) html.push("<pre><code>" + codeBuf.join("\n") + "</code></pre>");
-  return html.join("\n");
-}
+/* Vicky 架构导航器共享脚本：画布 pan/zoom/focus + SVG 连线落位。
+   导航页（views/arch.html）复用；模块子页不加载 JS。 */
 
 /* 给服务端已生成的 <path class="arch-edge" data-from data-to> 与
-   <text class="arch-edge-cond"> 按节点实际 DOM 位置补 d/x/y。
-   源节点底部中心 → 目标节点顶部中心（分层纵向布局）。 */
-function archPositionEdges(wrap) {
-  if (!wrap) return;
-  var svg = wrap.querySelector("svg#edges") || document.getElementById("edges");
+   <text class="arch-edge-cond"> 按节点在 #world 内的 offset 坐标补 d/x/y。
+   用 offset 坐标（相对 #world），与缩放无关。 */
+function archPositionEdges(world) {
+  if (!world) return;
+  var svg = world.querySelector("svg#edges");
   if (!svg) return;
-  var wr = wrap.getBoundingClientRect();
-  svg.setAttribute("width", wr.width);
-  svg.setAttribute("height", wr.height);
   var byId = {};
-  wrap.querySelectorAll(".arch-node").forEach(function (n) { byId[n.dataset.id] = n; });
+  world.querySelectorAll(".arch-node").forEach(function (n) { byId[n.dataset.id] = n; });
   svg.querySelectorAll("path.arch-edge").forEach(function (p) {
     var a = byId[p.dataset.from], b = byId[p.dataset.to];
     if (!a || !b) return;
-    var ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
-    var x1 = ar.left + ar.width / 2 - wr.left, y1 = ar.top + ar.height - wr.top;
-    var x2 = br.left + br.width / 2 - wr.left, y2 = br.top - wr.top;
+    var x1 = a.offsetLeft + a.offsetWidth / 2, y1 = a.offsetTop + a.offsetHeight;
+    var x2 = b.offsetLeft + b.offsetWidth / 2, y2 = b.offsetTop;
     var my = (y1 + y2) / 2;
     p.setAttribute("d", "M" + x1 + "," + y1 + " C" + x1 + "," + my + " " + x2 + "," + my + " " + x2 + "," + y2);
   });
   svg.querySelectorAll("text.arch-edge-cond").forEach(function (t) {
     var a = byId[t.dataset.from], b = byId[t.dataset.to];
     if (!a || !b) return;
-    var ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
-    t.setAttribute("x", (ar.left + ar.width / 2 + br.left + br.width / 2) / 2 - wr.left);
-    t.setAttribute("y", (ar.top + ar.height + br.top) / 2 - wr.top - 4);
+    t.setAttribute("x", (a.offsetLeft + a.offsetWidth / 2 + b.offsetLeft + b.offsetWidth / 2) / 2);
+    t.setAttribute("y", (a.offsetTop + a.offsetHeight + b.offsetTop) / 2 - 4);
   });
+}
+
+/* 画布：滚轮朝光标缩放 + 拖拽平移 + 点节点聚焦。返回 {focusNode, zoomBy, reset}。 */
+function archInitCanvas(world, viewport) {
+  var MIN = 0.3, MAX = 2.5, scale = 1, tx = 0, ty = 0;
+  function apply() { world.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + scale + ")"; }
+  function focusNode(id, zoomTo) {
+    var el = world.querySelector('.arch-node[data-id="' + id + '"]');
+    if (!el) return;
+    world.querySelectorAll(".arch-node").forEach(function (n) { n.classList.toggle("focused", n === el); });
+    scale = zoomTo || Math.max(scale, 1);
+    var cx = el.offsetLeft + el.offsetWidth / 2, cy = el.offsetTop + el.offsetHeight / 2;
+    tx = viewport.clientWidth / 2 - cx * scale; ty = viewport.clientHeight / 2 - cy * scale;
+    world.style.transition = "transform .45s ease"; apply();
+    setTimeout(function () { world.style.transition = ""; }, 480);
+  }
+  viewport.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var r = viewport.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+    var old = scale; scale = Math.min(MAX, Math.max(MIN, scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
+    tx = cx - (cx - tx) * (scale / old); ty = cy - (cy - ty) * (scale / old); apply();
+  }, { passive: false });
+  var dragging = false, sx = 0, sy = 0;
+  viewport.addEventListener("pointerdown", function (e) {
+    if (e.target.closest && e.target.closest(".arch-node")) return;
+    dragging = true; sx = e.clientX - tx; sy = e.clientY - ty; viewport.classList.add("dragging");
+  });
+  window.addEventListener("pointermove", function (e) {
+    if (!dragging) return; tx = e.clientX - sx; ty = e.clientY - sy; apply();
+  });
+  window.addEventListener("pointerup", function () { dragging = false; viewport.classList.remove("dragging"); });
+  function zoomBy(f) {
+    var vw = viewport.clientWidth / 2, vh = viewport.clientHeight / 2, old = scale;
+    scale = Math.min(MAX, Math.max(MIN, scale * f)); tx = vw - (vw - tx) * (scale / old); ty = vh - (vh - ty) * (scale / old); apply();
+  }
+  apply();
+  return { focusNode: focusNode, zoomBy: zoomBy, reset: function () { scale = 1; tx = 0; ty = 0; apply(); } };
 }
