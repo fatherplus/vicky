@@ -60,5 +60,27 @@ class TestArchModule(unittest.TestCase):
             self.assertNotIn("old", ids)
 
 
+class TestArchService(unittest.TestCase):
+    def test_put_graph_requires_registered_project(self):
+        with tmp_env(server):
+            from vicky import arch
+            ok, err = arch.put_graph("ghost", {"nodes": [], "edges": [], "layout": {}})
+            self.assertFalse(ok)
+            self.assertIn("未注册", err)
+
+    def test_put_graph_marks_orphans(self):
+        with tmp_env(server):
+            from vicky import arch
+            store.create_project("vicky", "vicky")
+            store.save_arch_module("vicky", "old", "module", "旧内容")
+            g = {"nodes": [{"id": "core", "kind": "module", "layer": 1,
+                            "label": "core", "summary": ""}],
+                 "edges": [], "layout": {}}
+            ok, err = arch.put_graph("vicky", g)
+            self.assertTrue(ok, err)
+            m = store.get_arch_module("vicky", "old")
+            self.assertEqual(m["status"], "orphan")
+
+
 if __name__ == "__main__":
     unittest.main()
