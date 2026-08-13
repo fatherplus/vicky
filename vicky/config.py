@@ -19,6 +19,7 @@ REPORTS_DIR = REPO_DIR / "public" / "reports"
 INDEX_PATH = REPO_DIR / "public" / "index.html"
 PUBLIC_DIR = REPO_DIR / "public"
 GUIDE_PATH = REPO_DIR / "skill" / "AGENT-GUIDE.md"
+SKILL_PATH = REPO_DIR / "skill" / "vicky-writer" / "SKILL.md"  # 对外分发用的规范 skill（含 name+description）
 IMG_DIR = PUBLIC_DIR / "assets" / "img"
 KNOWLEDGE_DIR = REPO_DIR / "knowledge"
 

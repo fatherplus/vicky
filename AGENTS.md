@@ -87,7 +87,7 @@ agent 写 HTML 内容 → POST /api/reports → L0 不可变快照存档（data/
 | `skill/EXPRESSION-GRAMMAR.md` | 表述规范——这本书的「内容语法」 |
 | `skill/NARRATIVE-PRINCIPLES.md` | 叙事宪法——模板无关的不变量（`GET /api/principles`） |
 | `skill/NARRATIVES.md` | 叙事方式选型库——7 种叙事的章节骨骼与选型决策表（`GET /api/narratives`） |
-| `skill/vicky-writer/SKILL.md` | 外部 agent 投稿技能（2026-08-12 起替代 MCP：按需触发 + 直接 HTTP） |
+| `skill/vicky-writer/SKILL.md` | 外部 agent 投稿技能（`/api/skill` 分发；2026-08-12 起替代 MCP，按需触发 + 直接 HTTP） |
 | `scripts/nginx-research.conf` | 个人环境 Nginx 配置（纯反代） |
 | `scripts/nginx-xlab.conf` | xlab-test Nginx 配置（纯反代） |
 | `scripts/deploy.sh` | 个人环境部署（逐项内容级 rsync + backfill + Nginx 重载；macOS openrsync 目录级传输会静默跳过，勿改回批量） |
@@ -118,7 +118,7 @@ GET  /api/projects                   项目空间清单（已建项目元信息 
 POST /api/projects                   先建项目（body {name, slug?, description?}；slug 缺省由 name 生成；重复拒收）
 GET  /api/knowledge/feedback         账本可查（?topic=&status=）
 GET  /api/guide                      写作指南（markdown）
-GET  /api/skill                      下载写作指南（.md 附件）
+GET  /api/skill                      下载规范 skill（vicky-writer/SKILL.md，含 frontmatter，可被 skill 系统识别）
 GET  /api/template                   查看 HTML 模板（?name=，默认 book）
 GET  /api/templates                  模板目录
 GET  /api/design                     设计 token 总纲
@@ -130,7 +130,7 @@ GET  /research/*                     静态自伺服兼容入口
 
 ### Agent 接入（Skill + HTTP，2026-08-12 起替代 MCP）
 
-agent 触发 `skill/vicky-writer/SKILL.md` 后直接打 HTTP 端点，无常驻协议开销：
+agent 通过首页「复制安装提示词」自动安装 skill（`GET /api/skill` 下载 SKILL.md 到自己的 skills 目录），触发后直接打 HTTP 端点，无常驻协议开销：
 
 | 动作 | 端点 |
 |---|---|

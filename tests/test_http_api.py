@@ -90,3 +90,20 @@ class TestNewEndpoints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSkillEndpoint(unittest.TestCase):
+    def test_skill_returns_valid_frontmatter_skill(self):
+        """/api/skill 返回对外分发的规范 skill（含 name+description frontmatter），
+        不是裸的写作参考。文件名为 SKILL.md，可被 skill 系统识别。"""
+        status, body, headers = http_get("/api/skill")
+        self.assertEqual(status, 200)
+        text = body.decode("utf-8")
+        self.assertIn("name: vicky-writer", text)
+        self.assertIn("description:", text)
+        # 下载头：attachment + SKILL.md
+        self.assertIn("SKILL.md", headers.get("Content-Disposition", ""))
+        # 区别于 /api/guide（详细参考，无 frontmatter）
+        status2, body2, _ = http_get("/api/guide")
+        self.assertEqual(status2, 200)
+        self.assertNotIn("name: vicky-writer", body2.decode("utf-8"))

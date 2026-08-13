@@ -93,7 +93,9 @@ def api_guide():
 
 @app.get("/api/skill")
 def api_skill():
-    return _serve_file(config.GUIDE_PATH, "text/markdown; charset=utf-8", "vicky-skill.md")
+    """下载对外分发的规范 skill（vicky-writer/SKILL.md，含 name+description frontmatter）。
+    区别于 /api/guide（详细写作参考 AGENT-GUIDE.md）。"""
+    return _serve_file(config.SKILL_PATH, "text/markdown; charset=utf-8", "SKILL.md")
 
 
 @app.get("/api/narratives")
