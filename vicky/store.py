@@ -86,6 +86,7 @@ def get_db() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(DDL)
+    conn.executescript(ARCH_DDL)   # 新增：arch 两表 + FTS（幂等，IF NOT EXISTS）
     _migrate_schema(conn)
     return conn
 
@@ -403,6 +404,29 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
 
 CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_items_fts USING fts5(
   id, topic, text, kind, category, tag, tokenize = "trigram");
+"""
+
+# ============================================================
+# arch 两张表 + FTS5 检索索引（架构知识归档：project 级架构图 + 模块节点）。
+# 节点正文走 trigram 分词（支持中文子串检索，与 knowledge_items_fts 一致）。
+# ============================================================
+ARCH_DDL = """
+CREATE TABLE IF NOT EXISTS arch_graphs (
+  project    TEXT PRIMARY KEY,
+  graph      TEXT NOT NULL,
+  updated_at TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS arch_modules (
+  project    TEXT NOT NULL,
+  node_id    TEXT NOT NULL,
+  kind       TEXT NOT NULL DEFAULT 'module',
+  body_md    TEXT NOT NULL DEFAULT '',
+  status     TEXT NOT NULL DEFAULT 'active',
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (project, node_id));
+
+CREATE VIRTUAL TABLE IF NOT EXISTS arch_modules_fts USING fts5(
+  project, node_id, body_md, tokenize = "trigram");
 """
 
 # overview.md frontmatter 里 category / tags 的轻量提取（FTS 过滤列用；
