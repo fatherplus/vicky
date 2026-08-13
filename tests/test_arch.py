@@ -36,5 +36,29 @@ class TestArchGraph(unittest.TestCase):
             self.assertIsNone(store.get_arch_graph("nope"))
 
 
+class TestArchModule(unittest.TestCase):
+    def test_module_upsert_and_get(self):
+        with tmp_env(server):
+            store.save_arch_module("vicky", "core", "module", "枢纽正文")
+            m = store.get_arch_module("vicky", "core")
+            self.assertEqual(m["kind"], "module")
+            self.assertEqual(m["body_md"], "枢纽正文")
+            self.assertEqual(m["status"], "active")
+
+    def test_module_missing_returns_none(self):
+        with tmp_env(server):
+            self.assertIsNone(store.get_arch_module("vicky", "nope"))
+
+    def test_search_hits_active_only(self):
+        with tmp_env(server):
+            store.save_arch_module("vicky", "core", "module", "会话运行时枢纽")
+            store.save_arch_module("vicky", "old", "module", "会话运行时旧模块")
+            store.mark_arch_orphans("vicky", ["core"])  # old 变孤儿
+            hits = store.search_arch_modules("vicky", "会话运行时")
+            ids = {h["node_id"] for h in hits}
+            self.assertIn("core", ids)
+            self.assertNotIn("old", ids)
+
+
 if __name__ == "__main__":
     unittest.main()

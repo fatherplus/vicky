@@ -893,6 +893,100 @@ def get_arch_graph(project: str,
             conn.close()
 
 
+def save_arch_module(project: str, node_id: str, kind: str, body_md: str,
+                     conn: sqlite3.Connection | None = None) -> None:
+    """upsert 单个模块正文，并同步 FTS（active 才进索引）。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO arch_modules (project, node_id, kind, body_md, status, updated_at)"
+            " VALUES (?,?,?,?, 'active', ?)"
+            " ON CONFLICT(project, node_id) DO UPDATE SET kind=excluded.kind,"
+            " body_md=excluded.body_md, status='active', updated_at=excluded.updated_at",
+            (project, node_id, kind, body_md, now))
+        conn.execute("DELETE FROM arch_modules_fts WHERE project=? AND node_id=?",
+                     (project, node_id))
+        conn.execute("INSERT INTO arch_modules_fts (project, node_id, body_md)"
+                     " VALUES (?,?,?)", (project, node_id, body_md))
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def get_arch_module(project: str, node_id: str,
+                    conn: sqlite3.Connection | None = None) -> dict | None:
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT * FROM arch_modules WHERE project=? AND node_id=?",
+            (project, node_id)).fetchone()
+        return dict(row) if row else None
+    finally:
+        if own:
+            conn.close()
+
+
+def mark_arch_orphans(project: str, keep_ids: list[str],
+                      conn: sqlite3.Connection | None = None) -> int:
+    """骨架里已消失的模块 → status='orphan' 且移出 FTS。keep_ids=骨架现存节点。
+    返回被标记为孤儿的行数。软标记，不删正文（防误删）。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT node_id FROM arch_modules WHERE project=? AND status='active'",
+            (project,)).fetchall()
+        keep = set(keep_ids)
+        orphaned = 0
+        for r in rows:
+            nid = r["node_id"]
+            if nid not in keep:
+                conn.execute(
+                    "UPDATE arch_modules SET status='orphan' WHERE project=? AND node_id=?",
+                    (project, nid))
+                conn.execute("DELETE FROM arch_modules_fts WHERE project=? AND node_id=?",
+                             (project, nid))
+                orphaned += 1
+        if own:
+            conn.commit()
+        return orphaned
+    finally:
+        if own:
+            conn.close()
+
+
+def search_arch_modules(project: str, q: str, limit: int = 20,
+                        conn: sqlite3.Connection | None = None) -> list[dict]:
+    """FTS 搜某项目 active 模块。返回 [{node_id, snippet}]，按相关度升序。"""
+    q = (q or "").strip()
+    if not q:
+        return []
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        sql = ("SELECT node_id, body_md FROM arch_modules_fts"
+               " WHERE project=? AND arch_modules_fts MATCH ? LIMIT ?")
+        try:
+            rows = conn.execute(sql, (project, q, limit)).fetchall()
+        except sqlite3.OperationalError:
+            rows = conn.execute(sql, (project, '"' + q.replace('"', '""') + '"',
+                                      limit)).fetchall()
+        return [{"node_id": r["node_id"],
+                 "snippet": (r["body_md"] or "")[:160]} for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
 def count_submissions(conn: sqlite3.Connection, slug: str) -> int:
     """某 slug 的提交快照行数（审核清单展示用）。conn 必传。"""
     row = conn.execute(
