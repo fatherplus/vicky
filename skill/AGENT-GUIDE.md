@@ -21,8 +21,6 @@ curl -X POST http://192.168.12.15:9093/api/reports \
     "tag": "分类标签",
     "template": "book",
     "subtitle": "一行副标题（可选）",
-    "series": "丛书显示名（可选，与 order 同生共死）",
-    "order": 1,
     "content": "<section class=\"reveal\"><div class=\"wrap\">...</div></section>"
   }'
 ```
@@ -63,9 +61,9 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 | `research`（默认） | 技术调研长读——完整理解一个技术 | ✅ **进知识库**（L2 蒸馏成可查询条目） | `book` | 常规门禁 + 技术类必答三问 / 场景演练提醒 |
 | `brief` | 决策简报 / 汇报领导 | 用完即弃，不污染检索 | `brief` | 常规门禁 |
 | `tech-solution` | 技术方案——讲"做什么 / 为什么" | 归项目区聚合（建议带 `project`） | `book` | ⚠️ **止步示意层**：架构 + 表结构示意，**不含实施代码**（大段实施代码 server 给 warning） |
-| `arch-doc` | 项目架构详情——当前架构全貌 + 演进 | 归项目区聚合（建议带 `project`） | `arch-overview` | 丛书卷号唯一；`arch-node` 节点卷三段 h2 硬契约（400 拒收） |
 
-> **蒸馏只处理 `research`**——`brief` / `tech-solution` / `arch-doc` 不进知识库。
+> **蒸馏只处理 `research`**——`brief` / `tech-solution` 不进知识库。
+> **架构（arch）不是报告**——项目架构全貌 + 演进走「架构导航器」项目面板（见下），没有 arch-doc 分类。
 
 ### 技术方案（tech-solution）的边界
 
@@ -85,10 +83,10 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 
 ### project —— 归档去哪
 
-`project` 把报告归入**项目区**，同一项目的 tech-solution + arch-doc 聚合在一起，
+`project` 把报告归入**项目区**，同一项目的 tech-solution 聚合在一起，
 支持评审、回顾项目发展历程、通过 `.md` 给三方 agent 引用实现。
 
-- **项目文档（tech-solution / arch-doc）建议必填**，如 `"project": "vicky"`
+- **项目文档（tech-solution）建议必填**，如 `"project": "vicky"`
 - research / brief 一般不填——它们按时间线归档
 - **先建项目**：`POST /api/projects`（body `{"name": "..."}`，slug 由 name 规范化生成、统一 lowercase）
 - 同一项目 = 同一个 `project` slug；先 `GET /api/projects` 查已建项目，未注册的 project 投稿给 warning 不拒收
@@ -115,7 +113,6 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 | `research` | — | `场景演练` | 讲算法机制的长文 |
 | `brief` | — | `金字塔/结论先行` | 给领导的决策简报 |
 | `tech-solution` | `vicky` | `对比擂台` | 项目里的选型方案 |
-| `arch-doc` | `vicky` | `总分总/地图` | 项目架构总览卷 |
 
 ---
 
@@ -128,7 +125,7 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 **选叙事**：`GET /api/narratives`（`skill/NARRATIVES.md`）先看选型决策表——
 内容特征 → 推荐叙事。拿不定就黄金五章。
 **选模板**：`GET /api/templates` 看目录。默认按分类走（research→book、brief→brief、
-tech-solution→book、arch-doc→arch-overview）；都不适配时 `POST /api/templates` 创建
+tech-solution→book）；都不适配时 `POST /api/templates` 创建
 （必须附 rationale + narrative_contract——见宪法 §4）。
 **框架可以换，不变量不能丢；大标题顺序必须可从不变量推出。**
 
@@ -158,83 +155,44 @@ AI 调研自媒体/开源资料后，把成品按本指南规范直接提交，�
 - 叙事建议 `金字塔/结论先行`：结论 → 依据 → 风险 → 行动
 - 对外共享机制本期不做，按现有方式发链接即可
 
-### 工作流三 · 项目文档（category=tech-solution / arch-doc + project）
+### 工作流三 · 项目文档（category=tech-solution + project）
 
-一个项目的技术方案与架构详情，归入项目区，可评审、可回顾演进、可给三方 agent 引用。
+一个项目的技术方案归入项目区，可评审、可回顾演进、可给三方 agent 引用。
 
 **技术方案（tech-solution）**：讲"做什么 / 为什么"，止步示意层（见上「技术方案的边界」）。
 **其 `.md` 孪生就是给三方 agent 的实现契约**——三方 agent 拿 .md 当输入去写代码。
 - `category: "tech-solution"` + `project: "{项目名}"`，模板默认 `book`，叙事可选 `对比擂台` / `问题拆解` / `黄金五章`
 
-**架构详情（arch-doc）**：项目当前架构全貌 + 演进，走丛书机制（见下）。
-- `category: "arch-doc"` + `project: "{项目名}"`，总览卷模板 `arch-overview`，节点卷 `arch-node`
-- 叙事总览卷用 `总分总/地图`，演进章节用 `时间线/演进`
+### 架构导航器（架构 = 项目面板，走 /api/arch）
 
-#### 丛书机制（arch-doc 场景）
+项目当前架构全貌 + 演进是项目的**固有面板**，不再是 arch-doc 报告、也不再走丛书多卷。
+骨架用 JSON 整体提交，模块正文用 Markdown 按节点写，模块可 FTS 检索。先建项目（`POST /api/projects`）再写架构：
 
-一个项目 = 一个丛书的多页站：总览卷 + 每模块一卷。每卷一份 MD 孪生，**总览 md 就是地图**——AI 先读地图，再按需钻节点卷。
+| 端点 | 作用 |
+|------|------|
+| `PUT /api/arch/{project}` | 整体覆盖骨架 `{"nodes": [{id,label,kind,layer,summary}], "edges": [{from,to,condition}]}`；项目未注册 → 400；覆盖后骨架里消失的节点标孤儿 |
+| `PUT /api/arch/{project}/module/{node_id}` | 写单模块正文 `{"kind", "body_md"}`（骨架里无此节点 → warning 不拒收） |
+| `GET /api/arch/{project}/search?q=` | FTS 搜模块正文 |
+| `GET /api/arch/{project}` | 取骨架；提交骨架后自动渲染成项目面板 `public/arch/{project}.html` |
 
-丛书约定（复用 `series` + `order` 机制，仅 arch-doc 场景使用）：
-
-```
-{project}-arch-overview    series="{project}-arch"    order=1
-{project}-arch-{module}    series="{project}-arch"    order=2..n
-```
-
-总览卷（模板 `arch-overview`）内容顺序：**定位段 → 全局 mermaid 流程图 → 模块索引 `data-table`**（模块 / 一句话职责 / 链接）。
-
-##### 节点卷三段硬契约（门禁 400）
-
-节点卷（模板 `arch-node`）正文必须依序出现三个 h2，**缺段会被 `POST /api/reports` 拒收（400）**：
-
-1. **输入与输出** —— 模块的边界契约：吃什么、吐什么
-2. **内部工作流** —— 模块内部怎么流转
-3. **架构方案** —— 每个技术决策必答三问：解决什么？为什么是它？不这么做呢？
-
-```html
-<section class="reveal"><div class="wrap">
-  <p class="section-label">01 · 输入与输出</p>
-  <h2>输入与输出</h2>
-  <p>……</p>
-  <!-- 02 内部工作流 → 03 架构方案，依此类推 -->
-</div></section>
+```bash
+# 1. 先建项目
+curl -X POST http://192.168.12.15:9093/api/projects -H 'Content-Type: application/json' \
+  -d '{"name": "vicky"}'
+# 2. 提交骨架
+curl -X PUT http://192.168.12.15:9093/api/arch/vicky -H 'Content-Type: application/json' \
+  -d '{"nodes": [{"id": "gw", "label": "网关", "kind": "entry", "layer": 0}],
+       "edges": [{"from": "gw", "to": "auth"}]}'
+# 3. 写模块正文（Markdown，直接给三方 agent 当输入）
+curl -X PUT http://192.168.12.15:9093/api/arch/vicky/module/auth -H 'Content-Type: application/json' \
+  -d '{"kind": "process", "body_md": "## 输入与输出\n……"}'
+# 4. 搜模块
+curl "http://192.168.12.15:9093/api/arch/vicky/search?q=认证"
 ```
 
-##### 总览卷流程图（arch-flow 首选 · mermaid 兜底）
-
-全局流程图首选 `arch-flow` 组件（分层布局 + 判断器菱形 + 功能三色；契约与节点四类型 schema 见 `skill/EXPRESSION-GRAMMAR.md`「节点编排图 arch-flow」）。图形状简单时可继续用 mermaid `click`。无论哪种，**节点必须链到各节点卷**（canonical 相对路径 `reports/{file}`）：
-
-```html
-<figure class="figure">
-  <div class="arch-flow">
-    <script type="application/json">
-    { "layers": ["接入", "服务"],
-      "nodes": [ { "id": "gw", "kind": "entry", "layer": 0, "label": "网关" },
-                 { "id": "auth", "kind": "process", "layer": 1, "label": "认证模块",
-                   "href": "reports/{project}-arch-auth.html" } ],
-      "edges": [ { "from": "gw", "to": "auth", "label": "请求", "type": "main" } ],
-      "modules": { "auth": { "purpose": "…", "input": "…", "output": "…", "logic": ["…"] } } }
-    </script>
-  </div>
-  <figcaption class="fig-cap">图 1 · {project} 模块全景</figcaption>
-  <p class="fig-note">点节点直接跳到对应节点卷；总览 md 即地图，AI 先读地图再钻节点。</p>
-</figure>
-```
-
-`modules` 字段与节点卷三段硬契约同构（input/output ↔ 01 段，logic/decisions ↔ 02 段）——同一事实两处表述，提交时保持一致。mermaid 写法见下：
-
-```html
-<figure class="figure">
-  <pre class="mermaid">
-flowchart LR
-  A[网关] --> B[认证模块] --> C[订单模块]
-  click B "reports/{project}-arch-auth.html" "认证模块"
-  click C "reports/{project}-arch-order.html" "订单模块"
-  </pre>
-  <figcaption class="fig-cap">图 1 · {project} 模块全景</figcaption>
-  <p class="fig-note">点节点直接跳到对应节点卷；总览 md 即地图，AI 先读地图再钻节点。</p>
-</figure>
-```
+架构与报告互不干扰：**方案**走 `POST /api/reports`（tech-solution，`.md` 孪生做实现契约），
+**架构全貌**走 `PUT /api/arch/...`（骨架 + 模块正文）。模块正文沿用旧节点卷的三个必答段：
+输入与输出 / 内部工作流 / 架构方案（每个技术决策必答三问：解决什么？为什么是它？不这么做呢？）。
 
 ---
 
@@ -339,7 +297,7 @@ flowchart LR
 - **版式**：1100px 宽版心，大量留白
 - **页面框架**：书眉（返回索引 + 标题 + 藏书章）、章节 tab 导航、书签丝带（滚动进度）、页脚
 - **标准组件样式**：card / data-table / cmp-table / figure / blockquote / callout / pre / tag / steps
-- **提交门禁**：裸 `<table>`、无结论的 `cmp-table`、丛书卷号重复、arch-node 缺三段会被 `POST /api/reports` 拒收（400）
+- **提交门禁**：裸 `<table>`、无结论的 `cmp-table`、弃用类名（`.ladder-*` / `.quote-block` / `.concern-box` / `.phase`）会被 `POST /api/reports` 拒收（400）
 
 ## 什么是自由的（发挥空间）
 
@@ -385,6 +343,11 @@ flowchart LR
 | `PATCH /api/reports/{slug}` | 轻量更新元数据（project/tag/category/subtitle/narrative 等，不动 content） |
 | `POST /api/projects` | 新建项目（body `{name, description?}`，slug 由 name 生成） |
 | `GET /api/projects` | 项目清单（含已建项目 slug/name） |
+| `PUT /api/arch/{project}` | 提交 / 覆盖架构骨架（项目须先注册；覆盖后消失的节点标孤儿） |
+| `GET /api/arch/{project}` | 取架构骨架（404 = 尚无架构） |
+| `PUT /api/arch/{project}/module/{node_id}` | 写单模块正文（骨架里无此节点 → warning） |
+| `GET /api/arch/{project}/module/{node_id}` | 取模块正文 |
+| `GET /api/arch/{project}/search?q=` | FTS 搜模块正文 |
 | `DELETE /api/projects/{slug}` | 归档项目（软删除，可逆） |
 | `GET /api/health` | 健康检查 |
 

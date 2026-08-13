@@ -14,7 +14,7 @@ description: 当用户要求把 AI 调研结果发布到 Vicky 知识平台、�
 |--------|----------|----------|----------|
 | 技术调研长文 | `research` | 进知识库（L2 蒸馏） | `book` |
 | 临时简报 | `brief` | 用完即弃 | `brief` |
-| 项目文档 | `tech-solution` / `arch-doc` | 归项目区（+`project`） | `book` / `arch-overview` |
+| 项目文档 | `tech-solution` | 归项目区（+`project`） | `book` |
 
 ## 核心流程
 
@@ -22,6 +22,7 @@ description: 当用户要求把 AI 调研结果发布到 Vicky 知识平台、�
 2. `GET /api/narratives` — 选叙事方式（7 种章节组织法）
 3. `POST /api/validate` — dry 预检，`violations` 必改，`warnings` 自觉修订
 4. `POST /api/reports` — 提交；同 `slug` 再次 POST = 修订
+5. 项目架构 = 项目面板（不走报告、不走丛书）：`PUT /api/arch/{project}` 提交骨架、`PUT /api/arch/{project}/module/{id}` 写模块正文、`GET /api/arch/{project}/search` 搜模块——详见 `GET /api/guide`「架构导航器」
 
 ```bash
 curl -s http://192.168.12.15:9093/api/guide
