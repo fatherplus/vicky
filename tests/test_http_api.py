@@ -130,6 +130,30 @@ class TestReportContentEndpoint(unittest.TestCase):
             status, _, _ = http_get("/api/reports/no-such/content")
             self.assertEqual(status, 404)
 
+    def test_get_content_backfills_legacy_meta(self):
+        """旧快照缺 category（category 机制引入前提交）→ 用 reports 表补齐。"""
+        with tmp_env(server):
+            http_post("/api/reports", {
+                "title": "旧格式", "slug": "legacy-meta", "tag": "x",
+                "category": "research", "content": CONTENT})
+            # 模拟旧快照：删除 payload 里的 category 字段
+            from vicky import store
+            conn = store.get_db()
+            rep = store.get_report_by_slug(conn, "legacy-meta")
+            sub = store.get_submission(conn, rep["current_rev"])
+            conn.close()
+            import json
+            pp = sub["payload_path"]
+            with open(pp) as f:
+                env = json.load(f)
+            del env["payload"]["category"]
+            with open(pp, "w") as f:
+                json.dump(env, f, ensure_ascii=False)
+            # GET content 应补齐 category=research（reports 表值）
+            status, body, _ = http_get("/api/reports/legacy-meta/content")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body)["category"], "research")
+
 
 class TestReportMetaPatch(unittest.TestCase):
     """A2：PATCH /api/reports/{slug} 轻量更新元数据，不动 content、不触发订徽章。"""

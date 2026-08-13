@@ -112,7 +112,22 @@ def load_report_payload(slug: str) -> dict | None:
             return None
         with open(sub["payload_path"], encoding="utf-8") as f:
             envelope = json.load(f)
-        return envelope.get("payload")
+        payload = envelope.get("payload")
+        if payload is None:
+            return None
+        # 旧快照可能缺 category/project 等字段（category 机制引入前提交），
+        # 用 reports 表当前元数据补齐（content 仍以快照为准）。
+        for k, fallback in (
+                ("category", rep.get("category") or "research"),
+                ("project", rep.get("project") or ""),
+                ("narrative", rep.get("narrative") or ""),
+                ("tag", rep.get("tag") or ""),
+                ("subtitle", rep.get("subtitle") or ""),
+                ("template", rep.get("template") or "book"),
+                ("series", rep.get("series") or ""),
+        ):
+            payload.setdefault(k, fallback)
+        return payload
     except (FileNotFoundError, json.JSONDecodeError):
         return None
     finally:
