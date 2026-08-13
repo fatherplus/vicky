@@ -136,7 +136,7 @@ function copyPrompt(){
    curl -s ${API}/api/skill -o ~/.claude/skills/vicky-writer/SKILL.md
 
 2. 若你的 harness skills 目录不同，请替换上面路径：
-   Claude Code → ~/.claude/skills/，Codex → ~/.codex/skills/，pi → ~/.pi/agent/skills/
+   Claude Code → ~/.claude/skills/，Codex → ~/.codex/skills/，OpenCode → ~/.config/opencode/skills/，pi → ~/.pi/agent/skills/
 
 3. 安装完成后，当识别到「把调研结果发布到 Vicky」「写汇报简报」「为项目写技术方案/架构文档」类任务时，自动加载 vicky-writer 技能并按指引执行。`;
   copyText(p).then(function(){toast('已复制到剪贴板');})
