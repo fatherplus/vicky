@@ -36,6 +36,7 @@ from . import l3_feedback
 from . import store
 from . import ui  # D 阶段：project_slug 用于 POST /api/projects slug 生成
 from . import arch  # B2 阶段：架构导航器 API（骨架/模块读写 + 搜索）
+from . import seed  # 启动自举：空库部署从源码种子创建 README（序）
 from .l0_ingest import (clean_slug, validate_slug_not_empty, save_images,
                         load_report_payload)
 
@@ -597,6 +598,8 @@ def serve_static(request: Request, path: str):
 # 启动
 # ============================================================
 def main():
+    # 启动自举：空库部署也从源码种子创建 README（序），再重建索引
+    seed.bootstrap()
     # 启动时重建索引（手动操作/迁移后索引可能过期）
     reports = l1_publish.list_reports()
     config.INDEX_PATH.write_text(l1_publish.build_index(reports), encoding="utf-8")

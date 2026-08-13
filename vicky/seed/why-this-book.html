@@ -1,0 +1,66 @@
+<section class="reveal"><div class="wrap">
+  <span class="section-label">00 · 这本书是什么</span>
+  <h2>为什么是这本书</h2>
+  <p><strong>Vicky 是一个个人知识平台</strong>：任何 AI agent 调研完一个技术，把内容 POST 过来，平台自动套用统一的「书」风格渲染、发布、归档，并经 L0–L3 蒸馏成可持续演化的知识 Wiki。这一页是它的 README——讲清它现在长什么样、每个决定背后的理由。</p>
+  <div class="callout note">
+    <p><strong>一句话立身</strong>：让 pi 适应你的工作流，而不是你去适应 pi——同理，让 agent 适应你的知识体系，而不是你适应 agent。视觉 taste 由 server 模板强制（agent 碰不到 CSS），内容 taste 由门禁强制，框内的画完全放开。</p>
+  </div>
+</div></section>
+
+<section class="reveal"><div class="wrap">
+  <span class="section-label">01 · 为什么是「书」</span>
+  <h2>统一 taste，人读有书架，Agent 有 .md</h2>
+  <p>不同 agent、不同时间写的报告风格五花八门，研究结论散落单篇、难以复用。解法是把所有报告收敛成<strong>同一本书的章节</strong>：宋体标题、黑体正文、等宽代码、纸墨配色，版式由 server 端模板强制——agent 只交内容，碰不到视觉。人读有书架（HTML），agent 消费给 <code>.md</code> 孪生（省 token 约 70%）。</p>
+  <table class="data-table">
+    <thead><tr><th>层</th><th>谁拥有</th><th>为什么</th></tr></thead>
+    <tbody>
+      <tr><td>视觉（配色/字体/版式）</td><td>server 模板 + book-style.css</td><td>taste 不可被 agent 改坏</td></tr>
+      <tr><td>表述形态（裸表格/无结论对比）</td><td>server 门禁</td><td>形态不合格直接拒收</td></tr>
+      <tr><td>语义（词汇/叙事）</td><td>表述规范 + 叙事宪法</td><td>软约束，agent 自觉</td></tr>
+      <tr><td>框内的画（动效/图表/组件）</td><td>agent 自由</td><td>放开创造力</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<section class="reveal"><div class="wrap">
+  <span class="section-label">02 · 三分类骨架</span>
+  <h2>research / brief / tech-solution，arch-doc 退场</h2>
+  <p>报告按<strong>用途</strong>分三类，各走各的归宿：</p>
+  <div class="steps">
+    <div class="step"><strong>research（技术文库）</strong>：调研沉淀，唯一进知识库蒸馏的分类。</div>
+    <div class="step"><strong>brief（简报）</strong>：向上汇报、用完即弃，不进知识库。</div>
+    <div class="step"><strong>tech-solution（技术方案）</strong>：讲「做什么/为什么」，归项目区聚合，其 .md 是给三方 agent 的实现契约。</div>
+  </div>
+  <div class="callout warn">
+    <p><strong>arch-doc 为什么退场</strong>：架构不该是「一类报告」，而是<strong>项目的一个视图</strong>。旧的「丛书多卷」把架构拆成多篇文章靠 series 串联，点不动、改一处拉全部。现在架构 = 项目固有面板（交互式分层路由树），四分类顺势简化成三类。</p>
+  </div>
+</div></section>
+
+<section class="reveal"><div class="wrap">
+  <span class="section-label">03 · 项目空间</span>
+  <h2>先建项目，架构是项目的固有面板</h2>
+  <p><strong>先建项目</strong>：project 把报告归入项目区，同一项目的 tech-solution 聚合在一起。<strong>架构导航器</strong>是项目的固有面板——进入即一张分层路由树（一/二/三层），模块是可点开的子文章、可被 agent 搜索；路由器是一等公民节点，出边带条件。骨架（<code>arch_graphs</code>）与模块正文（<code>arch_modules</code>）分家，各自增量读写——改结构不拉全文，改模块不动骨架。</p>
+</div></section>
+
+<section class="reveal"><div class="wrap">
+  <span class="section-label">04 · L0–L3 管线</span>
+  <h2>每层产物可由下层再生</h2>
+  <table class="data-table">
+    <thead><tr><th>层</th><th>职责</th><th>存储</th></tr></thead>
+    <tbody>
+      <tr><td>L0 原始</td><td>提交快照（不可变档案）</td><td>data/l0 + submissions 表</td></tr>
+      <tr><td>L1 表述</td><td>门禁→模板→HTML+MD 孪生 + 索引/首页/项目页</td><td>public/reports + reports 表</td></tr>
+      <tr><td>L2 知识</td><td>research 蒸馏成 knowledge Wiki</td><td>knowledge/{topic}/</td></tr>
+      <tr><td>L3 回写</td><td>使用账本 + 仲裁 → 采纳回灌 L2</td><td>feedbacks 表</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<section class="reveal"><div class="wrap">
+  <span class="section-label">05 · Agent 怎么进来</span>
+  <h2>Skill + 直连 HTTP，渐进式读写</h2>
+  <p>不靠 MCP，靠 <strong>skill（vicky-writer）+ 直连 HTTP</strong>：agent 装好 skill，按 <code>/api/guide</code> 的规范写稿，POST 投稿；读知识走 <code>knowledge_query</code>。读写都是<strong>渐进式</strong>的——先看总览，再针对特定模块读/编辑，不一股脑拉全部。</p>
+  <div class="callout note">
+    <p><strong>内容方法论</strong>：先讲「为什么」再讲「是什么」；黄金结构（定位→痛点→为什么→方案→验证）不可颠倒；结论先行 + MECE；读者即上级——agent 的调研本质是向上汇报。</p>
+  </div>
+</div></section>
