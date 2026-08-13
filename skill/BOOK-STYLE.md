@@ -67,7 +67,7 @@ description: >-
 |------|------|------|------|
 | 标题 / 章节（Display） | `'Noto Serif SC'`（思源宋体） | 600 / 900 | 书的骨架，必须用宋体 |
 | 正文（Body） | `'Noto Sans SC'` | 400 / 500 / 700 | 屏幕阅读更清晰 |
-| 代码 / 日期 / 元信息 | `'JetBrains Mono'` / `'SF Mono'` | 400 / 600 | 等宽，用于日期、页码、标签 |
+| 代码 / 日期 / 元信息 | `'JetBrains Mono'` / `'SF Mono'` | 400 / 600 | 等宽，用于日期、页码、标签。等宽字体无 CJK 字形：`--mono` 栈尾必须挂 `'Noto Sans SC'` 兜底；眉标（`.section-label`/`.opener .kicker`）中文落宋体 600 |
 
 **字号阶梯（强对比）**：
 - 章标题（h1）：`clamp(36px, 5vw, 52px)`，行高 1.25，字重 900

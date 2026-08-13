@@ -7,7 +7,7 @@
   --accent:#0C4A6E; --seal:#A63A2E; --dark:#16212C; --dark2:#22303E;
   --hair:rgba(32,36,44,.07);
   --serif:'Noto Serif SC',serif; --sans:'Noto Sans SC',-apple-system,'PingFang SC',sans-serif;
-  --mono:'JetBrains Mono','SF Mono',Menlo,monospace;
+  --mono:'JetBrains Mono','SF Mono',Menlo,'Noto Sans SC','PingFang SC',monospace; /* 中文兜底：等宽字体无 CJK 字形，不给中文留已加载的 fallback，系统默认字渲染会发糊 */
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
@@ -36,7 +36,8 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
 /* 章节扉页（深色） */
 .opener{background:radial-gradient(1000px 620px at 82% 8%,var(--dark2),var(--dark) 62%);color:#F5F2EA;padding:128px 0 108px;position:relative;overflow:hidden}
 .opener .wrap{position:relative;z-index:2}
-.opener .kicker{font-family:var(--mono);font-size:13px;letter-spacing:.26em;text-transform:uppercase;color:#8FBEDB;margin-bottom:30px;display:flex;align-items:center;gap:16px}
+/* 扉页眉标/章节眉标：拉丁与数字走等宽，中文落宋体 600（模板只加载 600/900 两档） */
+.opener .kicker{font-family:'JetBrains Mono','Noto Serif SC',Menlo,monospace;font-weight:600;font-size:13px;letter-spacing:.26em;text-transform:uppercase;color:#8FBEDB;margin-bottom:30px;display:flex;align-items:center;gap:16px}
 .opener .kicker::after{content:'';width:64px;height:1px;background:rgba(245,242,234,.32)}
 .opener h1{font-family:var(--serif);font-weight:900;font-size:clamp(40px,6vw,60px);line-height:1.22;letter-spacing:.01em;max-width:840px;margin-bottom:24px}
 .opener .subtitle{font-size:19px;line-height:1.75;color:rgba(245,242,234,.72);max-width:700px}
@@ -52,7 +53,7 @@ main section.alt{background:var(--paper-alt)}
 @media(max-width:640px){main section{padding:64px 0}}
 
 /* 标题阶梯（大字号） */
-.section-label{font-family:var(--mono);font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:14px}
+.section-label{font-family:'JetBrains Mono','Noto Serif SC',Menlo,monospace;font-weight:600;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);display:block;margin-bottom:14px}
 h2{font-family:var(--serif);font-weight:900;font-size:34px;line-height:1.32;letter-spacing:.01em;margin-bottom:18px}
 h3{font-family:var(--serif);font-weight:700;font-size:22px;margin:40px 0 14px}
 p{margin-bottom:18px}

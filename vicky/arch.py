@@ -13,7 +13,10 @@ def put_graph(project: str, graph: dict) -> tuple[bool, str | None]:
         return False, f"项目 '{project}' 未注册——先建项目再建架构"
     if not isinstance(graph, dict) or "nodes" not in graph:
         return False, "graph 必须是含 nodes 的对象"
-    node_ids = [n.get("id") for n in graph.get("nodes", []) if n.get("id")]
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list) or not all(isinstance(n, dict) for n in nodes):
+        return False, "graph.nodes 必须是节点对象数组"
+    node_ids = [n.get("id") for n in nodes if n.get("id")]
     conn = store.get_db()
     try:
         store.save_arch_graph(project, graph, conn)
@@ -44,7 +47,15 @@ def get_module(project: str, node_id: str) -> dict | None:
 
 
 def search(project: str, q: str) -> list[dict]:
-    return store.search_arch_modules(project, q)
+    """FTS 搜模块，结果补 node label（规格要求 {node_id, label, snippet}）。
+    骨架里没有该 node 时 label=node_id（不改 store 层，避免 schema 变更）。"""
+    g = store.get_arch_graph(project)
+    labels = {n.get("id"): (n.get("label") or n.get("id"))
+              for n in (g or {}).get("nodes", []) if isinstance(n, dict)}
+    items = store.search_arch_modules(project, q)
+    for it in items:
+        it["label"] = labels.get(it["node_id"], it["node_id"])
+    return items
 
 
 def render_arch_page(project: str, graph: dict) -> str:

@@ -59,6 +59,16 @@ class TestArchModule(unittest.TestCase):
             self.assertIn("core", ids)
             self.assertNotIn("old", ids)
 
+    def test_orphan_revives_when_re_added(self):
+        with tmp_env(server):
+            store.save_arch_module("vicky", "core", "module", "会话运行时枢纽")
+            store.mark_arch_orphans("vicky", [])  # core → orphan
+            self.assertEqual(store.get_arch_module("vicky", "core")["status"], "orphan")
+            store.mark_arch_orphans("vicky", ["core"])  # core → active（复活）
+            self.assertEqual(store.get_arch_module("vicky", "core")["status"], "active")
+            hits = store.search_arch_modules("vicky", "会话运行时")
+            self.assertIn("core", {h["node_id"] for h in hits})
+
 
 class TestArchService(unittest.TestCase):
     def test_put_graph_requires_registered_project(self):
@@ -80,6 +90,31 @@ class TestArchService(unittest.TestCase):
             self.assertTrue(ok, err)
             m = store.get_arch_module("vicky", "old")
             self.assertEqual(m["status"], "orphan")
+
+    def test_put_graph_bad_nodes_rejected(self):
+        with tmp_env(server):
+            from vicky import arch
+            store.create_project("vicky", "vicky")
+            ok, err = arch.put_graph("vicky",
+                                     {"nodes": ["x"], "edges": [], "layout": {}})
+            self.assertFalse(ok)
+            self.assertIn("nodes", err)
+            ok2, err2 = arch.put_graph("vicky",
+                                       {"nodes": {}, "edges": [], "layout": {}})
+            self.assertFalse(ok2)
+
+    def test_search_returns_label(self):
+        with tmp_env(server):
+            from vicky import arch
+            store.create_project("vicky", "vicky")
+            g = {"nodes": [{"id": "core", "kind": "module", "layer": 1,
+                            "label": "会话运行时", "summary": ""}],
+                 "edges": [], "layout": {}}
+            store.save_arch_graph("vicky", g)
+            store.save_arch_module("vicky", "core", "module", "会话运行时枢纽")
+            items = arch.search("vicky", "会话")
+            self.assertTrue(items)
+            self.assertEqual(items[0]["label"], "会话运行时")
 
 
 class TestArchAPI(unittest.TestCase):

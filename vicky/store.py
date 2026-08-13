@@ -933,29 +933,41 @@ def get_arch_module(project: str, node_id: str,
 
 def mark_arch_orphans(project: str, keep_ids: list[str],
                       conn: sqlite3.Connection | None = None) -> int:
-    """骨架里已消失的模块 → status='orphan' 且移出 FTS。keep_ids=骨架现存节点。
-    返回被标记为孤儿的行数。软标记，不删正文（防误删）。"""
+    """单趟双向：骨架里已消失的 active 模块 → 'orphan' 且移出 FTS；
+    keep_ids 里已存在的 orphan 模块 → 复活为 'active' 且重新进 FTS。
+    返回被变更（孤儿或复活）的行数。软标记，不删正文（防误删）。"""
     own = conn is None
     if own:
         conn = get_db()
     try:
         rows = conn.execute(
-            "SELECT node_id FROM arch_modules WHERE project=? AND status='active'",
+            "SELECT node_id, status, body_md FROM arch_modules WHERE project=?",
             (project,)).fetchall()
         keep = set(keep_ids)
-        orphaned = 0
+        changed = 0
         for r in rows:
             nid = r["node_id"]
-            if nid not in keep:
+            if nid in keep and r["status"] == "orphan":
+                # 节点加回骨架 → 模块复活：active + 重新进 FTS（body_md 用现有值）
+                conn.execute(
+                    "UPDATE arch_modules SET status='active' WHERE project=? AND node_id=?",
+                    (project, nid))
+                conn.execute("DELETE FROM arch_modules_fts WHERE project=? AND node_id=?",
+                             (project, nid))
+                conn.execute(
+                    "INSERT INTO arch_modules_fts (project, node_id, body_md)"
+                    " VALUES (?,?,?)", (project, nid, r["body_md"]))
+                changed += 1
+            elif nid not in keep and r["status"] == "active":
                 conn.execute(
                     "UPDATE arch_modules SET status='orphan' WHERE project=? AND node_id=?",
                     (project, nid))
                 conn.execute("DELETE FROM arch_modules_fts WHERE project=? AND node_id=?",
                              (project, nid))
-                orphaned += 1
+                changed += 1
         if own:
             conn.commit()
-        return orphaned
+        return changed
     finally:
         if own:
             conn.close()
@@ -963,7 +975,8 @@ def mark_arch_orphans(project: str, keep_ids: list[str],
 
 def search_arch_modules(project: str, q: str, limit: int = 20,
                         conn: sqlite3.Connection | None = None) -> list[dict]:
-    """FTS 搜某项目 active 模块。返回 [{node_id, snippet}]，按相关度升序。"""
+    """FTS 搜某项目 active 模块。返回 [{node_id, snippet}]，按相关度升序。
+    trigram 盲区（1-2 字中文）或无命中时退回 arch_modules 表 LIKE 兜底。"""
     q = (q or "").strip()
     if not q:
         return []
@@ -978,8 +991,17 @@ def search_arch_modules(project: str, q: str, limit: int = 20,
         except sqlite3.OperationalError:
             rows = conn.execute(sql, (project, '"' + q.replace('"', '""') + '"',
                                       limit)).fetchall()
-        return [{"node_id": r["node_id"],
-                 "snippet": (r["body_md"] or "")[:160]} for r in rows]
+        items = [{"node_id": r["node_id"],
+                  "snippet": (r["body_md"] or "")[:160]} for r in rows]
+        if not items and _has_short_cjk(q):
+            # trigram 对 1-2 字中文无效：LIKE 兜底（只搜 active 模块）
+            like_rows = conn.execute(
+                "SELECT node_id, body_md FROM arch_modules"
+                " WHERE project=? AND status='active' AND body_md LIKE ? LIMIT ?",
+                (project, f"%{q}%", limit)).fetchall()
+            items = [{"node_id": r["node_id"],
+                      "snippet": (r["body_md"] or "")[:160]} for r in like_rows]
+        return items
     finally:
         if own:
             conn.close()
