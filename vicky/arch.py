@@ -71,48 +71,102 @@ def _inline(s: str) -> str:
     return s
 
 
+def _table_row(ln: str):
+    """| a | b | → [a, b]；非表格行返回 None。"""
+    s = ln.strip()
+    if not (s.startswith("|") and s.endswith("|")):
+        return None
+    return [c.strip() for c in s[1:-1].split("|")]
+
+
+def _is_sep(cells: list) -> bool:
+    return bool(cells) and all(_re.fullmatch(r":?-{2,}:?", c) for c in cells)
+
+
 def render_md(md: str) -> str:
-    """极简 Markdown → HTML（服务端，供模块子页）。先整体转义再应用语法：
-    #~#### 标题、``` 代码块、-/数字 列表、**bold**、`code`、段落。
-    ponytail：不引第三方库，够架构正文用；转义在前，杜绝 <script> 注入。"""
+    """极简 Markdown → HTML（服务端）。先整体转义再应用语法：
+    标题、``` 代码块、markdown 表格、> 引用块、-/数字 列表、**bold**、`code`、段落。
+    标题带「N. 标题」前缀时 N 用 <span class="n"> 徽标；引用块 → .arch-callout（取舍块）。"""
     lines = _html.escape(md or "").split("\n")
-    out, in_code, code_buf, list_buf = [], False, [], []
+    out, in_code, code_buf, list_buf, quote_buf = [], False, [], [], []
+    i, n = 0, len(lines)
 
     def flush_list():
         if list_buf:
             out.append("<ul>" + "".join(f"<li>{x}</li>" for x in list_buf) + "</ul>")
             list_buf.clear()
 
-    for ln in lines:
+    def flush_quote():
+        if quote_buf:
+            out.append('<div class="arch-callout">' + "<br>".join(quote_buf) + "</div>")
+            quote_buf.clear()
+
+    def heading(text):
+        m = _re.match(r"^(\d+)[.)]\s*(.*)", text)
+        if m:
+            return f'<span class="n">{m.group(1)}</span>{_inline(m.group(2))}'
+        return _inline(text)
+
+    while i < n:
+        ln = lines[i]
         if ln.startswith("```"):
             if in_code:
+                flush_quote(); flush_list()
                 out.append("<pre><code>" + "\n".join(code_buf) + "</code></pre>")
                 code_buf, in_code = [], False
             else:
-                flush_list()
-                in_code = True
+                flush_quote(); flush_list(); in_code = True
+            i += 1
             continue
         if in_code:
-            code_buf.append(ln)
+            code_buf.append(ln); i += 1
             continue
+        row = _table_row(ln)
+        if row and i + 1 < n:
+            nxt = _table_row(lines[i + 1])
+            if nxt and _is_sep(nxt):
+                flush_quote(); flush_list()
+                header, body = row, []
+                i += 2
+                while i < n:
+                    r = _table_row(lines[i])
+                    if not r:
+                        break
+                    body.append(r); i += 1
+                th = "".join(f"<th>{_inline(c)}</th>" for c in header)
+                trs = "".join("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in r) + "</tr>"
+                              for r in body)
+                out.append(f'<table class="data-table"><thead><tr>{th}</tr></thead>'
+                           f'<tbody>{trs}</tbody></table>')
+                continue
         m = _re.match(r"^(#{1,4})\s+(.*)", ln)
         if m:
-            flush_list()
+            flush_quote(); flush_list()
             lvl = len(m.group(1)) + 1
-            out.append(f"<h{lvl}>{_inline(m.group(2))}</h{lvl}>")
+            out.append(f"<h{lvl}>{heading(m.group(2))}</h{lvl}>")
+            i += 1
+            continue
+        if ln.lstrip().startswith("&gt;"):
+            flush_list()
+            quote_buf.append(_inline(_re.sub(r"^\s*&gt;\s?", "", ln)))
+            i += 1
             continue
         if _re.match(r"^\s*[-*]\s+", ln):
+            flush_quote()
             list_buf.append(_inline(_re.sub(r"^\s*[-*]\s+", "", ln)))
+            i += 1
             continue
         m = _re.match(r"^\s*\d+[.)]\s+(.*)", ln)
         if m:
+            flush_quote()
             list_buf.append(_inline(m.group(1)))
+            i += 1
             continue
-        flush_list()
-        if not ln.strip():
-            continue
-        out.append(f"<p>{_inline(ln)}</p>")
-    flush_list()
+        flush_quote(); flush_list()
+        if ln.strip():
+            out.append(f"<p>{_inline(ln)}</p>")
+        i += 1
+    flush_quote(); flush_list()
     if in_code and code_buf:
         out.append("<pre><code>" + "\n".join(code_buf) + "</code></pre>")
     return "\n".join(out)

@@ -336,5 +336,31 @@ class TestArchMarkdownSafe(unittest.TestCase):
         self.assertIn("<strong>x</strong>", html)
 
 
+class TestArchMarkdownExtras(unittest.TestCase):
+    def _render(self, md):
+        from vicky import arch
+        return arch.render_md(md)
+
+    def test_table(self):
+        md = "| 条件 | 走向 |\n|---|---|\n| 代码任务 | 代码理解插件组 |"
+        html = self._render(md)
+        self.assertIn('<table class="data-table">', html)
+        self.assertIn("<th>条件</th>", html)
+        self.assertIn("<td>代码理解插件组</td>", html)
+
+    def test_blockquote_callout(self):
+        html = self._render("> 进程内沙箱而非独立进程：延迟与调试体验优先")
+        self.assertIn('<div class="arch-callout">', html)
+        self.assertIn("进程内沙箱", html)
+
+    def test_heading_badge(self):
+        html = self._render("## 1. 输入与输出")
+        self.assertIn('<h3><span class="n">1</span>输入与输出</h3>', html)
+
+    def test_no_badge_plain_heading(self):
+        html = self._render("## 输入与输出")
+        self.assertIn("<h3>输入与输出</h3>", html)
+
+
 if __name__ == "__main__":
     unittest.main()
