@@ -298,6 +298,10 @@ def validate_content(content: str, title: str = "", template: str = "",
     bare = [m for m in SECTION_RE.findall(content) if _section_lacks_wrap(m[1])]
     if bare:
         warnings.append(f"{len(bare)} 个 section 缺 .wrap 版心（server 已自动补；提交时请包 <div class=\"wrap\">）")
+    if not bare and 'class="wrap"' not in content and \
+            re.search(r"<(?:h1|h2)\b", content):
+        warnings.append("正文含 h1/h2 标题但无 .wrap 版心（server 未自动补；"
+                        "请包 <div class=\"wrap\"> 或 <section class=\"reveal\"><div class=\"wrap\">）")
     cw = code_block_warning(content, category)
     if cw:
         warnings.append(cw)

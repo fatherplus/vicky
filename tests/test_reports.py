@@ -93,5 +93,20 @@ class TestIndexChips(unittest.TestCase):
         self.assertIn('技术文库<span class="n">3</span>', idx)
         self.assertIn('全部<span class="n">3</span>', idx)
 
+
+class TestBareWrapWarning(unittest.TestCase):
+    def test_bare_content_without_wrap_warns(self):
+        from vicky.l1_publish import validate_content
+        content = '<h2>一、背景</h2><p>正文</p><table class="data-table"></table>'
+        errors, warnings = validate_content(content, "标题", "book", "tech-solution")
+        self.assertEqual(errors, [])
+        self.assertTrue(any("wrap" in w for w in warnings))
+
+    def test_wrapped_content_no_warning(self):
+        from vicky.l1_publish import validate_content
+        errors, warnings = validate_content(CONTENT, "标题", "book", "tech-solution")
+        self.assertEqual(errors, [])
+        self.assertFalse(any("wrap" in w for w in warnings))
+
 if __name__ == "__main__":
     unittest.main()
