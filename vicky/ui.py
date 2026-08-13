@@ -43,12 +43,12 @@ def load_view(name: str) -> str:
 # ============================================================
 # 重构蓝图（2026-08-12）：四区索引 + 项目空间片段
 # 分类徽章：.row-cat.{modifier} 色块，modifier 映射到 category 色
-# （research/tech-solution→蓝、brief→灰、arch-doc→红）。domain 语义已彻底删除。
+# （research/tech-solution→蓝、brief→灰）。arch-doc 已彻底删除（架构走 /arch/{slug}.html）。
 # ============================================================
 CATEGORY_LABEL = {"research": "技术", "brief": "简报", "tech-solution": "方案",
-                  "arch-doc": "架构", "design": "设计"}
+                  "design": "设计"}
 CATEGORY_MOD_CLS = {"research": "tech", "tech-solution": "tech", "brief": "ephemeral",
-                    "arch-doc": "arch", "design": "design"}
+                    "design": "design"}
 
 
 def project_slug(name: str) -> str:
@@ -195,6 +195,21 @@ def project_nav(projects: list, current: str) -> str:
             items.append(f'<a class="chip" href="/projects/{slug}.html"'
                          f' style="text-decoration:none">{esc}</a>')
     return "\n    ".join(items)
+
+
+def arch_entry_html(project: str, has_arch: bool) -> str:
+    """项目页卷首「架」入口：有骨架→链到 arch.html；无→灰态占位（不隐藏，可见「该有架构」）。"""
+    slug = html_mod.escape(project_slug(project), quote=True)
+    if has_arch:
+        return (f'<a class="fm-item reveal" href="/arch/{slug}.html">'
+                f'<span class="fm-seal" aria-hidden="true">架</span>'
+                f'<span class="fm-body"><span class="fm-title">架构树</span>'
+                f'<span class="fm-desc">分层路由树 · 点节点钻取模块详情</span></span>'
+                f'<span class="fm-arrow">→</span></a>')
+    return ('<div class="fm-item" style="opacity:.5">'
+            '<span class="fm-seal" aria-hidden="true">架</span>'
+            '<span class="fm-body"><span class="fm-title">架构树</span>'
+            '<span class="fm-desc">暂无架构 · 待 agent 生成</span></span></div>')
 
 
 def frontmatter_html(front: list[dict]) -> str:

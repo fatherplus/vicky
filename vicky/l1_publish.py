@@ -649,23 +649,26 @@ def rebuild_index():
 
 # ============================================================
 # 项目空间（重构蓝图 §04-B）——public/projects/{slug}.html
-# 每项目一页：项目名 + 文档时间线（倒序、tech-solution/arch-doc 类型徽章）+ 页间互链。
-# 聚合口径与索引页项目空间区一致：tech-solution / arch-doc 且带 project。
+# 每项目一页：项目名 + 文档时间线（倒序、tech-solution 类型徽章）+ 页间互链。
+# 聚合口径与索引页项目空间区一致：tech-solution 且带 project。
 # ============================================================
 def build_project_page(project: dict, docs: list[dict], all_projects: list[dict]) -> str:
     """单项目页组装：文档时间线（倒序）+ 页间互链（其他项目）。
-    docs 已按时间倒序且限定 tech-solution/arch-doc；空文档给占位提示。"""
+    docs 已按时间倒序且限定 tech-solution；空文档给占位提示。"""
     rows_html = "\n    ".join(ui.project_doc_row(r, i) for i, r in enumerate(docs, 1))
     if not docs:
-        rows_html = '<div class="zone-empty">暂无已归档文档（tech-solution / arch-doc）</div>'
+        rows_html = '<div class="zone-empty">暂无已归档文档（tech-solution）</div>'
     year = docs[0]["date"][:4] if docs else str(datetime.now().year)
+    pname = project["project"]
+    has_arch = store.get_arch_graph(pname) is not None
     tpl = ui.load_view("project.html")
     return (tpl
-            .replace("__PROJECT_NAME__", html_mod.escape(project["project"]))
+            .replace("__PROJECT_NAME__", html_mod.escape(pname))
             .replace("__COUNT__", str(len(docs)))
             .replace("__YEAR__", year)
+            .replace("__ARCH_ENTRY__", ui.arch_entry_html(pname, has_arch))
             .replace("__DOCS__", rows_html)
-            .replace("__PROJECT_NAV__", ui.project_nav(all_projects, project["project"])))
+            .replace("__PROJECT_NAV__", ui.project_nav(all_projects, pname)))
 
 
 def build_project_pages() -> int:
@@ -683,7 +686,7 @@ def build_project_pages() -> int:
     proj_dir.mkdir(parents=True, exist_ok=True)
     for p in projects:
         docs = [d for d in docs_by.get(p["project"], [])
-                if d.get("category") in ("tech-solution", "arch-doc")]
+                if d.get("category") == "tech-solution"]
         _annotate_rows(docs, "方案")
         page = build_project_page(p, docs, projects)
         (proj_dir / f"{ui.project_slug(p['project'])}.html").write_text(

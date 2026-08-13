@@ -26,3 +26,4 @@ convert_to_book.py
 
 # P1 L0+store：sqlite DB + 不可变快照档案（data/l0/{slug}/{rev}/）
 data/
+public/arch/

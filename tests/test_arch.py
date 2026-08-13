@@ -117,6 +117,22 @@ class TestArchAPI(unittest.TestCase):
             self.assertFalse(r["ok"])
 
 
+class TestProjectPageArchEntry(unittest.TestCase):
+    def test_arch_entry_present_with_graph(self):
+        with tmp_env(server):
+            from vicky import ui
+            html = ui.arch_entry_html("vicky", has_arch=True)
+            self.assertIn("架", html)
+            self.assertIn("/arch/vicky.html", html)
+
+    def test_arch_entry_empty_state(self):
+        with tmp_env(server):
+            from vicky import ui
+            html = ui.arch_entry_html("vicky", has_arch=False)
+            self.assertIn("待 agent 生成", html)
+            self.assertNotIn("/arch/vicky.html", html)
+
+
 class TestArchRender(unittest.TestCase):
     def test_render_contains_nodes_and_conditions(self):
         with tmp_env(server):
