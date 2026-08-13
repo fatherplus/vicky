@@ -193,28 +193,29 @@ def slug_has_submissions(conn: sqlite3.Connection, slug: str) -> bool:
 # ============================================================
 def upsert_report(conn: sqlite3.Connection, slug: str, file: str, title: str,
                   tag: str = "", subtitle: str = "",
-                  template: str = "book", series: str = "", series_order: int = 0,
+                  template: str = "book",
                   created_date: str = "", updated_date: str = "",
                   current_rev: int = 0, category: str = "research",
                   narrative: str = "", project: str = ""):
     """插入或更新 reports 表一行。slug 为主键，存在则 UPDATE。
-    A 阶段重构：domain 参数已删除；category（四分类骨架）/ narrative（叙事方式）/
-    project（归档维度）三字段与模板正交，一并落库。"""
+    A 阶段重构：domain 参数已删除；category（三分类骨架）/ narrative（叙事方式）/
+    project（归档维度）三字段与模板正交，一并落库。
+    D 阶段：series/series_order 不再读写（DDL 物理列保留，仅停止读写）。"""
     conn.execute(
         """INSERT INTO reports (slug, file, title, tag, subtitle, template,
-           series, series_order, created_date, updated_date, current_rev,
+           created_date, updated_date, current_rev,
            category, narrative, project)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
            ON CONFLICT(slug) DO UPDATE SET
            file=excluded.file, title=excluded.title, tag=excluded.tag,
            subtitle=excluded.subtitle,
-           template=excluded.template, series=excluded.series,
-           series_order=excluded.series_order, updated_date=excluded.updated_date,
+           template=excluded.template,
+           updated_date=excluded.updated_date,
            current_rev=excluded.current_rev,
            category=excluded.category, narrative=excluded.narrative,
            project=excluded.project""",
         (slug, file, title, tag, subtitle, template,
-         series, series_order, created_date, updated_date, current_rev,
+         created_date, updated_date, current_rev,
          category, narrative, project))
 
 
@@ -232,9 +233,6 @@ def _report_row_dict(r: sqlite3.Row) -> dict:
         "date": date,
         "date_display": date[5:] if len(date) >= 10 else date,
         "updated": d.get("updated_date") or "",
-        "series": d.get("series") or "",
-        "series_order": d.get("series_order") or 0,
-        "series_total": 0,      # 丛书总数由 maintain_series_siblings 维护
         "template": d.get("template") or "book",
         "category": d.get("category") or "research",
         "narrative": d.get("narrative") or "",

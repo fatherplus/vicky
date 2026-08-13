@@ -29,7 +29,7 @@ VOID_TAGS = {"img", "br", "hr", "meta", "link", "input", "source", "wbr"}
 SKIP_TAGS = {"script", "style", "nav", "noscript"}
 SKIP_CLASSES = {
     "topbar", "bar-top", "bar-title", "bar-tabs", "bar-seal", "back",
-    "ribbon", "seal", "ghost", "colophon", "volume-nav", "series-badge",
+    "ribbon", "seal", "ghost", "colophon",
     "tabs", "toc", "progress",
 }
 

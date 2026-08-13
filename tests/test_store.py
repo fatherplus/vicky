@@ -80,7 +80,7 @@ def test_report_upsert():
             # INSERT
             store.upsert_report(conn, "r1", "2026-08-10-r1.html", "标题1",
                                 tag="测试", subtitle="副标题",
-                                template="book", series="", series_order=0,
+                                template="book",
                                 created_date="2026-08-10", updated_date="",
                                 current_rev=sub_id)
             conn.commit()
@@ -97,7 +97,7 @@ def test_report_upsert():
             conn.commit()
             store.upsert_report(conn, "r1", "2026-08-10-r1.html", "标题1修订",
                                 tag="测试", subtitle="副标题2",
-                                template="book", series="", series_order=0,
+                                template="book",
                                 created_date="2026-08-10", updated_date="2026-08-11",
                                 current_rev=sub_id2)
             conn.commit()

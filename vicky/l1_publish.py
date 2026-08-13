@@ -75,10 +75,9 @@ _INDEX_TPL = None  # P3 前端抢救：启动时由 _init_index_tpl() 填充
 
 
 def _annotate_rows(rows: list, default_tag: str) -> None:
-    """给目录行打 _tag/_series/_category/_project 供 ui 构建器使用。"""
+    """给目录行打 _tag/_category/_project 供 ui 构建器使用。"""
     for r in rows:
         r["_tag"] = (r.get("tag") or default_tag).strip() or default_tag
-        r["_series"] = normalize_series(r["series"]) if r.get("series") else ""
         r["_category"] = r.get("category") or "research"
         r["_project"] = r.get("project") or ""
 
@@ -237,16 +236,6 @@ def validate_template(name: str, manifest: dict, tpl_html: str, rationale: str) 
     return violations
 
 
-# arch-node 节点卷三段硬契约（spec §2）：依序必含 输入与输出 → 内部工作流 → 架构方案
-ARCH_NODE_SECTIONS = ("输入与输出", "内部工作流", "架构方案")
-H2_RE = re.compile(r"<h2\b[^>]*>([\s\S]*?)</h2>", re.I)
-
-
-def _h2_texts(content: str) -> list:
-    """提取全部 <h2> 文本（去内层标签），按出现顺序。"""
-    return [re.sub(r"<[^>]+>", "", h).strip() for h in H2_RE.findall(content)]
-
-
 def _ai_word_stats(text: str) -> tuple[list, int]:
     """AI 腔词命中统计（「闭环」做正当技术语境豁免：生产-消费闭环等不算）。
     返回 (命中词列表, 命中总次数)。"""
@@ -268,21 +257,10 @@ def validate_content(content: str, title: str = "", template: str = "",
                      category: str = "") -> tuple:
     """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
     errors 触发 400 拒收；warnings 只随响应返回，agent 自觉修订。
-    template="arch-node" 时追加节点卷三段硬契约校验（缺段/顺序错均拒收）。
     category="tech-solution" 时追加实施代码软提醒（代码块超过约 15 行）。
     重构蓝图：category 参数可选（不传 = 不检分类相关提醒），签名向后兼容。"""
     errors = []
-    # --- errors：机器可判定的硬伤（原三条保留）---
-    if template == "arch-node":
-        headings = _h2_texts(content)
-        pos = {s: next((i for i, h in enumerate(headings) if s in h), -1)
-               for s in ARCH_NODE_SECTIONS}
-        missing = [s for s in ARCH_NODE_SECTIONS if pos[s] == -1]
-        if missing:
-            errors.append(f"arch-node 节点卷缺段：{'、'.join(missing)}——三段依序必含："
-                          f"{' → '.join(ARCH_NODE_SECTIONS)}")
-        elif not (pos["输入与输出"] < pos["内部工作流"] < pos["架构方案"]):
-            errors.append(f"arch-node 节点卷三段顺序错误：必须依序出现 {' → '.join(ARCH_NODE_SECTIONS)}")
+    # --- errors：机器可判定的硬伤 ---
     for tag in re.findall(r"<table\b[^>]*>", content, re.I):
         m = re.search(r"class\s*=\s*[\"']([^\"']*)[\"']", tag)
         classes = set(m.group(1).split()) if m else set()
@@ -322,13 +300,6 @@ def validate_content(content: str, title: str = "", template: str = "",
     return errors, warnings
 
 
-# ============================================================
-# 丛书
-# ============================================================
-def normalize_series(name: str) -> str:
-    return re.sub(r"\s+", " ", (name or "").strip())
-
-
 SECTION_RE = re.compile(r"(<section\b[^>]*>)([\s\S]*?)</section>", re.I)
 
 
@@ -346,47 +317,6 @@ def normalize_wrap(content: str) -> str:
     return SECTION_RE.sub(fix, content)
 
 
-def check_series_conflict(series: str, order: int, exclude_file, reports: list) -> str | None:
-    """同丛书同卷号已被其他文件占用 → 返回错误文案；否则 None。"""
-    series = normalize_series(series)
-    for r in reports:
-        if (r.get("series") and normalize_series(r["series"]) == series
-                and r.get("series_order") == order and r["file"] != exclude_file):
-            return f"《{series}》第 {order} 卷已被 {r['file']} 占用"
-    return None
-
-
-def _series_siblings(series: str, reports: list) -> list:
-    series = normalize_series(series)
-    sibs = [r for r in reports if r.get("series") and normalize_series(r["series"]) == series]
-    return sorted(sibs, key=lambda r: r["series_order"])
-
-
-# P3 前端抢救：volume_nav_html 迁入 ui.py，此处保留别名供存量调用方（maintain_series_siblings 等）
-volume_nav_html = ui.volume_nav_html
-
-
-NAV_RE = re.compile(r'<nav class="volume-nav"[\s\S]*?</nav>')
-TOTAL_META_RE = re.compile(r'(<meta name="series-total" content=")\d+(")')
-BADGE_TOTAL_RE = re.compile(r'(第 \d+ 卷 · 共 )\d+( 卷)')
-
-
-def maintain_series_siblings(series: str):
-    """重算同丛书所有卷的导航/总数/徽章片段（定向替换，不碰正文与 head 资源）。"""
-    reports = list_reports()
-    siblings = _series_siblings(series, reports)
-    total = len(siblings)
-    for r in siblings:
-        path = REPORTS_DIR / r["file"]
-        text = path.read_text(encoding="utf-8")
-        nav = volume_nav_html(series, r["series_order"], siblings)
-        new = NAV_RE.sub(nav, text)
-        new = TOTAL_META_RE.sub(rf"\g<1>{total}\g<2>", new)
-        new = BADGE_TOTAL_RE.sub(rf"\g<1>{total}\g<2>", new)
-        if new != text:
-            path.write_text(new, encoding="utf-8")
-
-
 def _existing_for_slug(slug: str) -> list:
     """按文件名格式精确匹配同 slug 报告（杜绝后缀误命中）"""
     pat = re.compile(rf"^\d{{4}}-\d{{2}}-\d{{2}}-{re.escape(slug)}\.html$")
@@ -397,13 +327,13 @@ def _existing_for_slug(slug: str) -> list:
 # 创建/修订报告
 # ============================================================
 def create_report(title: str, slug: str, tag: str, content: str, subtitle: str = "",
-                  series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
+                  template: str = DEFAULT_TEMPLATE,
                   base_url: str = "",
                   images: list | None = None, client_ip: str = "127.0.0.1",
                   category: str = "", narrative: str = "", project: str = "",
                   mark_updated: bool = True, skip_content_gate: bool = False) -> dict:
     """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
-    category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）三字段显式指定，
+    category（三分类骨架）/ narrative（叙事方式）/ project（归档维度）三字段显式指定，
     与模板正交；category 非法直接拒收（validate_category，domain 语义已彻底删除），
     tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。
     mark_updated=False 用于元数据更新（PATCH）：不追加 updated meta、不触发「订」徽章。
@@ -430,7 +360,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         filename = f"{today}-{slug}.html"
         created = True
 
-    # ── 模板级硬契约门禁（arch-node 三段等）──
+    # ── 模板级硬契约门禁 ──
     # web.py 已预检过（400），此处兜底直调方（cli/测试），防止绕门禁
     violations, _ = validate_content(content, title, template, category)
     if violations and not skip_content_gate:
@@ -444,7 +374,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     # ── L0：不可变快照存档 ──
     payload = {
         "title": title, "slug": slug, "tag": tag, "content": content,
-        "subtitle": subtitle, "series": series, "order": order,
+        "subtitle": subtitle,
         "template": template,
         "category": category, "narrative": narrative, "project": project,
     }
@@ -464,23 +394,13 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     meta_tags.append(f'<meta name="template" content="{template}">')
     if not created and mark_updated:
         meta_tags.append(f'<meta name="updated" content="{today}">')
-    series = normalize_series(series)
-    if series:
-        meta_tags.append(f'<meta name="series" content="{html_mod.escape(series)}">')
-        meta_tags.append(f'<meta name="series-order" content="{order}">')
-        meta_tags.append(f'<meta name="series-total" content="1">')
     meta_html = "\n".join(meta_tags)
-
-    series_badge = (f'<span class="series-badge">《{html_mod.escape(series)}》第 {order} 卷 · 共 1 卷</span>'
-                    if series else "")
-    volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(series)}"></nav>' if series else ""
 
     content = normalize_wrap(content)
     comp_head, comp_hits = component_head(content)
     html_out = render(tpl,
         TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=today,
         CONTENT=content, COMPONENT_HEAD=comp_head, META=meta_html,
-        SERIES_BADGE=series_badge, VOLUME_NAV=volume_nav,
     )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -503,7 +423,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         else:
             updated_date = today if not created else ""
         store.upsert_report(conn, slug, filename, title, tag, subtitle,
-                            template=template, series=series, series_order=order,
+                            template=template,
                             created_date=created_date, updated_date=updated_date,
                             current_rev=sub_id,
                             category=category, narrative=narrative, project=project)
@@ -517,9 +437,6 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     INDEX_PATH.write_text(index_html, encoding="utf-8")
     refresh_home()
     refresh_projects()
-
-    if series:
-        maintain_series_siblings(series)
 
     result = {
         "ok": True,
@@ -536,7 +453,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
 
 # 可经 PATCH 更新的元数据字段（不含 content——正文修订走 POST /api/reports）
 META_UPDATE_FIELDS = ("title", "subtitle", "tag", "category", "narrative",
-                      "project", "template", "series", "order")
+                      "project", "template")
 
 
 def update_report_meta(slug: str, updates: dict) -> dict:
@@ -554,7 +471,6 @@ def update_report_meta(slug: str, updates: dict) -> dict:
     result = create_report(
         title=merged.get("title", ""), slug=slug, tag=merged.get("tag", ""),
         content=merged.get("content", ""), subtitle=merged.get("subtitle", ""),
-        series=merged.get("series", ""), order=merged.get("order") or 0,
         template=merged.get("template") or DEFAULT_TEMPLATE,
         category=merged.get("category", ""), narrative=merged.get("narrative", ""),
         project=merged.get("project", ""), mark_updated=False, skip_content_gate=True)
@@ -572,12 +488,12 @@ def render_from_l0(slug: str) -> dict:
     try:
         # 查 reports 表获取当前文件名与 current_rev
         rep = conn.execute(
-            "SELECT file, title, tag, subtitle, template, series, series_order, "
+            "SELECT file, title, tag, subtitle, template, "
             "current_rev FROM reports WHERE slug=?", (slug,)).fetchone()
         if not rep:
             return {"ok": False, "error": f"slug '{slug}' 不在 reports 表中——先 backfill"}
 
-        filename, title, tag, subtitle, template, series, order, cur_rev = rep
+        filename, title, tag, subtitle, template, cur_rev = rep
 
         # 从 submissions 表取快照路径
         sub = conn.execute(
@@ -603,23 +519,13 @@ def render_from_l0(slug: str) -> dict:
     meta_tags = [
         f'<meta name="template" content="{template}">',
     ]
-    s = normalize_series(series)
-    if s:
-        meta_tags.append(f'<meta name="series" content="{html_mod.escape(s)}">')
-        meta_tags.append(f'<meta name="series-order" content="{order}">')
-        meta_tags.append(f'<meta name="series-total" content="1">')
     meta_html = "\n".join(meta_tags)
-
-    series_badge = (f'<span class="series-badge">《{html_mod.escape(s)}》第 {order} 卷 · 共 1 卷</span>'
-                    if s else "")
-    volume_nav = f'<nav class="volume-nav" data-series="{html_mod.escape(s)}"></nav>' if s else ""
 
     content = normalize_wrap(content)
     comp_head, comp_hits = component_head(content)
     html_out = render(tpl,
         TITLE=title, HERO_TAG=tag, SUBTITLE=subtitle, DATE=date_str,
         CONTENT=content, COMPONENT_HEAD=comp_head, META=meta_html,
-        SERIES_BADGE=series_badge, VOLUME_NAV=volume_nav,
     )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -631,20 +537,12 @@ def render_from_l0(slug: str) -> dict:
 
 
 def rebuild_index():
-    """重建索引页 + 首页 + 项目页 + 丛书（render --all 后调用）。
+    """重建索引页 + 首页 + 项目页（render --all 后调用）。
     审核治理（curate 软下架/硬删除）也走此入口——项目页随之重算，hidden 文档自动消失。"""
     reports = list_reports()
     INDEX_PATH.write_text(build_index(reports), encoding="utf-8")
     refresh_home()
     refresh_projects()
-    # 全量丛书维护
-    conn = store.get_db()
-    try:
-        for r in conn.execute("SELECT DISTINCT series FROM reports WHERE series!=''").fetchall():
-            if r[0]:
-                maintain_series_siblings(r[0])
-    finally:
-        conn.close()
 
 
 # ============================================================

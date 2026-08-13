@@ -43,7 +43,7 @@ def _extract_main_content(html: str) -> str:
 
 
 def _extract_meta(html: str) -> dict:
-    """从成品 HTML 提取元数据（tag / subtitle / series 等）。
+    """从成品 HTML 提取元数据（tag / subtitle / template / domain 等）。
     P1 backfill：存量报告无 <meta name="template"> 等标签，从 HTML 内容推断。"""
     meta = {"template": "book", "domain": "tech"}  # 默认值
 
@@ -66,14 +66,6 @@ def _extract_meta(html: str) -> dict:
     dm = re.search(r'<meta\s+name="domain"\s+content="([^"]*)"', html)
     if dm:
         meta["domain"] = dm.group(1)
-
-    # series（如有 meta 标签）
-    srm = re.search(r'<meta\s+name="series"\s+content="([^"]*)"', html)
-    if srm:
-        meta["series"] = srm.group(1)
-    som = re.search(r'<meta\s+name="series-order"\s+content="(\d+)"', html)
-    if som:
-        meta["series_order"] = int(som.group(1))
 
     # updated（如有 meta 标签）
     um = re.search(r'<meta\s+name="updated"\s+content="([^"]*)"', html)
@@ -138,8 +130,6 @@ def backfill(force: bool = False):
                 tag = meta.get("tag", "研究报告")
                 subtitle = meta.get("subtitle", "")
                 template = meta.get("template", "book")
-                series = meta.get("series", "")
-                series_order = meta.get("series_order", 0)
                 # 存量 HTML 的 <meta name="domain"> 一次性迁移映射为 category
                 # （domain 语义已彻底删除，仅 backfill 兼容老文件时借它推断分类归属）
                 _BACKFILL_DOMAIN_TO_CATEGORY = {
@@ -152,7 +142,6 @@ def backfill(force: bool = False):
                 payload = {
                     "title": title, "slug": slug, "tag": tag,
                     "content": content, "subtitle": subtitle,
-                    "series": series, "order": series_order,
                     "template": template, "category": category,
                 }
 
@@ -179,7 +168,7 @@ def backfill(force: bool = False):
                 updated_date = meta.get("updated", "")
                 store.upsert_report(
                     conn, slug, name, title, tag, subtitle=subtitle,
-                    template=template, series=series, series_order=series_order,
+                    template=template,
                     created_date=date_str, updated_date=updated_date, current_rev=sub_id,
                     category=category)
 

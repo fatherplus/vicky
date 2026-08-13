@@ -38,22 +38,6 @@ def validate_slug_not_empty(slug: str) -> str | None:
     return None
 
 
-def validate_series_params(series: str, order) -> tuple[int, str | None]:
-    has_series = bool((series or "").strip())
-    has_order = order is not None
-    if has_series != has_order:
-        return 0, "series 与 order 必须同时提供"
-    if not has_series:
-        return 0, None
-    try:
-        order_int = int(order)
-        if order_int < 1:
-            raise ValueError
-    except (TypeError, ValueError):
-        return 0, "order 必须是 ≥1 的整数"
-    return order_int, None
-
-
 # ============================================================
 # L0 快照目录
 # ============================================================
@@ -124,7 +108,6 @@ def load_report_payload(slug: str) -> dict | None:
                 ("tag", rep.get("tag") or ""),
                 ("subtitle", rep.get("subtitle") or ""),
                 ("template", rep.get("template") or "book"),
-                ("series", rep.get("series") or ""),
         ):
             payload.setdefault(k, fallback)
         return payload

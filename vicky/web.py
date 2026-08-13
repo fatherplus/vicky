@@ -37,7 +37,7 @@ from . import store
 from . import ui  # D 阶段：project_slug 用于 POST /api/projects slug 生成
 from . import arch  # B2 阶段：架构导航器 API（骨架/模块读写 + 搜索）
 from .l0_ingest import (clean_slug, validate_slug_not_empty, save_images,
-                        validate_series_params, load_report_payload)
+                        load_report_payload)
 
 app = FastAPI(title="Vicky", version="2.0", docs_url="/docs", redoc_url=None)
 
@@ -355,19 +355,6 @@ async def api_validate(request: Request):
         ce = l1_publish.validate_category(category)
         if ce:
             violations.append(ce)
-    series, order = data.get("series"), data.get("order")
-    _, series_err = validate_series_params(series, order)
-    if series_err:
-        violations.append(series_err)
-    elif series:
-        order_int = int(order)
-        clean_s = clean_slug(slug) if slug else ""
-        existing = l1_publish._existing_for_slug(clean_s) if clean_s else []
-        exclude_file = existing[-1].name if existing else None
-        conflict = l1_publish.check_series_conflict(series, order_int, exclude_file=exclude_file,
-                                                    reports=l1_publish.list_reports())
-        if conflict:
-            violations.append(conflict)
     _, hits = l1_publish.component_head(content)
     return _json({"ok": not violations, "violations": violations,
                   "warnings": warnings, "components": hits})
@@ -495,23 +482,8 @@ async def api_report_submit(request: Request):
     if cat_err:
         return _json({"ok": False, "error": cat_err}, 400)
 
-    # 清理 slug（提前到丛书校验之前：校验要用清理后的 slug 匹配 upsert 本卷文件名）
+    # 清理 slug
     slug = clean_slug(slug)
-
-    series = (data.get("series") or "").strip()
-    order = data.get("order")
-    order_int, series_err = validate_series_params(series, order)
-    if series_err:
-        return _json({"ok": False, "error": series_err}, 400)
-
-    if series:
-        # upsert 本卷自己占自己的卷号不算冲突（同 slug upsert 且 order 不变 → 允许）
-        existing = l1_publish._existing_for_slug(slug)
-        exclude_file = existing[-1].name if existing else None
-        conflict = l1_publish.check_series_conflict(series, order_int, exclude_file=exclude_file,
-                                                    reports=l1_publish.list_reports())
-        if conflict:
-            return _json({"ok": False, "error": conflict}, 400)
 
     # D 阶段：project 字段校验——若传了 project，检查是否为已建项目（宽松匹配：先 slug 再 name）。
     # 未建项目不拒收，追加 warning 提示「建议先 POST /api/projects」。
@@ -539,7 +511,7 @@ async def api_report_submit(request: Request):
     try:
         host = request.headers.get("host", f"127.0.0.1:{config.PORT}")
         result = l1_publish.create_report(title, slug, tag, content, subtitle,
-                                          series=series, order=order_int or 0, template=template,
+                                          template=template,
                                           base_url=f"http://{host}",
                                           category=category, narrative=narrative, project=project)
         result.setdefault("warnings", []).extend(warnings)
@@ -549,7 +521,7 @@ async def api_report_submit(request: Request):
     except KeyError as e:
         return _json({"ok": False, "error": e.args[0] if e.args else str(e)}, 400)
     except ValueError as e:
-        # create_report 内门禁兜底（arch-node 三段 / category 非法等）
+        # create_report 内门禁兜底（category 非法等）
         return _json({"ok": False, "error": str(e)}, 400)
     except Exception as e:
         return _json({"ok": False, "error": str(e)}, 500)
@@ -568,21 +540,14 @@ def api_report_content(slug: str):
 
 @app.patch("/api/reports/{slug}")
 async def api_report_update_meta(slug: str, request: Request):
-    """轻量更新报告元数据（title/subtitle/tag/category/narrative/project/template/
-    series/order），不动 content、不触发「订」徽章。body 只含要改的字段。"""
+    """轻量更新报告元数据（title/subtitle/tag/category/narrative/project/template），
+    不动 content、不触发「订」徽章。body 只含要改的字段。"""
     data, err = await _read_json(request)
     if err:
         return _json({"ok": False, "error": err}, 400)
     data = data or {}
     if not any(k in data for k in l1_publish.META_UPDATE_FIELDS):
         return _json({"ok": False, "error": f"无可更新字段：仅接受 {', '.join(l1_publish.META_UPDATE_FIELDS)}"}, 400)
-    series, order = data.get("series"), data.get("order")
-    if (series is not None) != (order is not None):
-        return _json({"ok": False, "error": "series 与 order 必须同时提供"}, 400)
-    if series is not None:
-        _, series_err = validate_series_params(series, order)
-        if series_err:
-            return _json({"ok": False, "error": series_err}, 400)
     slug = clean_slug(slug)
     result = l1_publish.update_report_meta(slug, data)
     return _json(result, 200 if result.get("ok") else 404)

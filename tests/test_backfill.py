@@ -81,7 +81,6 @@ def test_backfill_payload_roundtrip():
     payload = {
         "title": title, "slug": slug, "tag": meta.get("tag", "研究报告"),
         "content": content, "subtitle": meta.get("subtitle", ""),
-        "series": meta.get("series", ""), "order": meta.get("series_order", 0),
         "template": meta.get("template", "book"), "category": category,
     }
 
@@ -144,11 +143,10 @@ def test_backfill_domain_meta_maps_to_category_no_param_shift():
         conn = store.get_db()
         try:
             row = conn.execute(
-                "SELECT slug, category, template, series FROM reports WHERE slug=?",
+                "SELECT slug, category, template FROM reports WHERE slug=?",
                 ("regress-slug",)).fetchone()
         finally:
             conn.close()
         assert row is not None, "backfill 应成功入库"
         assert row["category"] == "brief", "domain=ephemeral 应映射为 category=brief"
         assert row["template"] == "brief", "template 不应被 domain 值顶替（曾因位置参数错位污染）"
-        assert row["series"] == "", "series 不应被污染"

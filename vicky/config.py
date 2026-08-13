@@ -110,8 +110,7 @@ IMG_MAX_BYTES = 10 * 1024 * 1024  # 10MB per image
 # 模板门禁常量
 # ============================================================
 REQUIRED_PLACEHOLDERS = ("{{TITLE}}", "{{CONTENT}}", "{{HERO_TAG}}", "{{SUBTITLE}}",
-                         "{{DATE}}", "{{META}}", "{{COMPONENT_HEAD}}",
-                         "{{SERIES_BADGE}}", "{{VOLUME_NAV}}")
+                         "{{DATE}}", "{{META}}", "{{COMPONENT_HEAD}}")
 
 ROOT_TOKEN_RE = re.compile(
     r':root[^}]*--(?:paper|ink|sub|accent|seal|dark|hair|serif|sans|mono)\s*:', re.I)

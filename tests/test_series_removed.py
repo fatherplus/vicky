@@ -27,5 +27,30 @@ class TestArchDocGone(unittest.TestCase):
             self.assertNotEqual(r.get("category"), "arch-doc")
 
 
+class TestSeriesGone(unittest.TestCase):
+    def test_series_submit_no_volume_nav_in_output(self):
+        with tmp_env(server):
+            st, r = http_post("/api/reports", {
+                "title": "卷一", "slug": "s1",
+                "content": "<section class='reveal'><div class='wrap'><p>正文</p></div></section>",
+                "category": "research", "series": "某丛书", "order": 1})
+            # 带 series 字段的提交仍能成功（series 已不再处理，作为多余字段忽略，不报卷号冲突）
+            self.assertEqual(st, 201, r)
+            # 产物 HTML 无丛书导航 / series 徒章残留
+            html = (config.REPORTS_DIR / r["file"]).read_text(encoding="utf-8") \
+                if r.get("file") else ""
+            if not html:
+                # 后端未回 file 字段时，按目录取唯一产物
+                htmls = list(config.REPORTS_DIR.glob("*s1*.html"))
+                html = htmls[0].read_text(encoding="utf-8") if htmls else ""
+            self.assertNotIn("volume-nav", html)
+            self.assertNotIn("series-badge", html)
+
+    def test_book_template_no_series_placeholder(self):
+        tpl = (config.TEMPLATES_DIR / "book" / "template.html").read_text(encoding="utf-8")
+        self.assertNotIn("SERIES_BADGE", tpl)
+        self.assertNotIn("VOLUME_NAV", tpl)
+
+
 if __name__ == "__main__":
     unittest.main()

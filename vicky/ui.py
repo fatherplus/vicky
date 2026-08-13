@@ -1,7 +1,7 @@
 """
 ui.py — HTML 片段构建器。全项目成段 HTML 标记只允许出现在 views/ 与 ui.py 两处。
 P3 前端抢救：从 l1_publish / l2_distill 提取 toc_row、chips、frontmatter 条目、
-_render_card、volume_nav_html 等循环标记。
+_render_card 等循环标记。
 
 铁律：此模块之外无人写成段 HTML（views/ 模板除外）。
 """
@@ -59,9 +59,9 @@ def project_slug(name: str) -> str:
 
 
 def _row_search(r: dict) -> str:
-    """关键词搜索串：标题 + 副题 + 标签 + 项目 + 丛书，小写（Alpine 前端模糊匹配）。"""
+    """关键词搜索串：标题 + 副题 + 标签 + 项目，小写（Alpine 前端模糊匹配）。"""
     parts = [r["title"], r.get("subtitle") or "", r.get("_tag") or "",
-             r.get("_project") or "", r.get("_series") or ""]
+             r.get("_project") or ""]
     return " ".join(p for p in parts if p).lower()
 
 
@@ -74,7 +74,6 @@ def toc_row(r: dict, num: int) -> str:
     data-category / data-project / data-search 供 Alpine 按分类、项目、标签、关键词筛选。"""
     delay = (num % 12) * 0.04
     esc_tag = html_mod.escape(r["_tag"], quote=True)
-    esc_series = html_mod.escape(r["_series"], quote=True)
     cat = r["_category"]
     label = CATEGORY_LABEL.get(cat, cat)
     mod = CATEGORY_MOD_CLS.get(cat, "tech")
@@ -83,14 +82,11 @@ def toc_row(r: dict, num: int) -> str:
     badges = (f'<span class="row-cat {mod}" data-type="category" data-f="{cat}">'
               f'{html_mod.escape(label, quote=True)}</span> '
               f'<span class="row-tag" data-type="tag" data-f="{esc_tag}">{esc_tag}</span>')
-    if r["_series"]:
-        badges += (f' <span class="row-series" data-type="series" data-f="{esc_series}">'
-                   f'《{esc_series}》第 {r.get("series_order") or "?"} 卷</span>')
     sub = (f'<span class="toc-sub">{html_mod.escape(r["subtitle"])}</span>'
            if r.get("subtitle") else "")
     updated = (' <span class="toc-updated">订</span>' if r.get("updated") else "")
     return (f'<a class="toc-item reveal" style="--d:{delay:.2f}s" href="/reports/{r["file"]}"'
-            f' data-tag="{esc_tag}" data-series="{esc_series}"'
+            f' data-tag="{esc_tag}"'
             f' data-category="{cat}" data-project="{esc_proj}" data-search="{search}"'
             f' x-show="visible($el)">'
             f'<span class="toc-num">{num:02d}</span>'
@@ -226,19 +222,6 @@ def frontmatter_html(front: list[dict]) -> str:
     ]
     return ('<div class="frontmatter">\n    <div class="fm-label">卷首 · 关于本书</div>\n    '
             + "\n    ".join(fm) + "\n  </div>")
-
-
-def volume_nav_html(series: str, order: int, siblings: list) -> str:
-    """丛书卷内导航——P3 从 l1_publish 迁入 ui.py。"""
-    prev_r = next((r for r in siblings if r["series_order"] == order - 1), None)
-    next_r = next((r for r in siblings if r["series_order"] == order + 1), None)
-    links = ""
-    if prev_r:
-        links += f'<a class="vol prev" href="{prev_r["file"]}">← 上一卷 · {html_mod.escape(_clean_title(prev_r["title"]))}</a>'
-    if next_r:
-        links += f'<a class="vol next" href="{next_r["file"]}">下一卷 · {html_mod.escape(_clean_title(next_r["title"]))} →</a>'
-    safe_series = html_mod.escape(re.sub(r"\s+", " ", (series or "").strip()))
-    return f'<nav class="volume-nav" data-series="{safe_series}">{links}</nav>'
 
 
 # ============================================================

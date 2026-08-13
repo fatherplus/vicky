@@ -4,8 +4,8 @@ from tests.util import load_server, tmp_env
 GOOD_TPL = "".join([
     "<html><head><title>{{TITLE}}</title>{{META}}",
     '<link rel="stylesheet" href="../assets/book-style.css">{{COMPONENT_HEAD}}</head>',
-    "<body><h1>{{TITLE}}</h1><div>{{HERO_TAG}}{{SUBTITLE}}{{DATE}}{{SERIES_BADGE}}</div>",
-    "{{VOLUME_NAV}}{{CONTENT}}</body></html>"])
+    "<body><h1>{{TITLE}}</h1><div>{{HERO_TAG}}{{SUBTITLE}}{{DATE}}</div>",
+    "{{CONTENT}}</body></html>"])
 GOOD_MANIFEST = {"name": "test-tpl", "purpose": "测试用模板",
                  "document_types": ["测试"], "narrative_contract": ["why-first"]}
 
