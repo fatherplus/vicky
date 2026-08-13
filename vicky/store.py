@@ -55,7 +55,8 @@ CREATE TABLE IF NOT EXISTS projects (
   slug TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL);
+  created_at TEXT NOT NULL,
+  archived INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS feedbacks (
   id INTEGER PRIMARY KEY,
@@ -106,6 +107,10 @@ _KNOWLEDGE_ITEM_MIGRATION_COLUMNS = [
     ("category", "TEXT NOT NULL DEFAULT 'ai'"),
 ]
 
+_PROJECT_MIGRATION_COLUMNS = [
+    ("archived", "INTEGER NOT NULL DEFAULT 0"),
+]
+
 
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     row = conn.execute(
@@ -135,6 +140,12 @@ def _migrate_schema(conn: sqlite3.Connection) -> bool:
         for name, ddl in _KNOWLEDGE_ITEM_MIGRATION_COLUMNS:
             if name not in cols:
                 conn.execute(f"ALTER TABLE knowledge_items ADD COLUMN {name} {ddl}")
+                changed = True
+    if _table_exists(conn, "projects"):
+        cols = _table_columns(conn, "projects")
+        for name, ddl in _PROJECT_MIGRATION_COLUMNS:
+            if name not in cols:
+                conn.execute(f"ALTER TABLE projects ADD COLUMN {name} {ddl}")
                 changed = True
     if changed:
         conn.commit()
@@ -781,8 +792,27 @@ def get_project(slug: str, conn: sqlite3.Connection | None = None) -> dict | Non
             conn.close()
 
 
-def list_projects_meta(conn: sqlite3.Connection | None = None) -> list[dict]:
-    """列出全部项目元信息（projects 表），按创建时间倒序。
+def archive_project(slug: str, archived: bool = True,
+                   conn: sqlite3.Connection | None = None) -> bool:
+    """软删除/归档项目元信息（projects.archived），可逆。返回是否命中行。
+    仅动 projects 表；reports.project 引用不受影响（报告仍在，只是项目元信息归档）。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        cur = conn.execute("UPDATE projects SET archived=? WHERE slug=?",
+                           (1 if archived else 0, slug))
+        if own:
+            conn.commit()
+        return cur.rowcount > 0
+    finally:
+        if own:
+            conn.close()
+
+
+def list_projects_meta(conn: sqlite3.Connection | None = None,
+                      include_archived: bool = False) -> list[dict]:
+    """列出项目元信息（projects 表），按创建时间倒序，默认排除归档。
     区别于 list_projects（按 reports.project 聚合，用于索引页项目卡片）；
     本函数是「先建项目」API 的数据源——返回元信息版供 POST/GET /api/projects 使用。
     conn 省略时自动开/关。"""
@@ -790,8 +820,11 @@ def list_projects_meta(conn: sqlite3.Connection | None = None) -> list[dict]:
     if own:
         conn = get_db()
     try:
-        rows = conn.execute(
-            "SELECT * FROM projects ORDER BY created_at DESC").fetchall()
+        sql = "SELECT * FROM projects"
+        if not include_archived:
+            sql += " WHERE archived = 0"
+        sql += " ORDER BY created_at DESC"
+        rows = conn.execute(sql).fetchall()
         return [dict(r) for r in rows]
     finally:
         if own:

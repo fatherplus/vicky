@@ -52,9 +52,9 @@ CATEGORY_MOD_CLS = {"research": "tech", "tech-solution": "tech", "brief": "ephem
 
 
 def project_slug(name: str) -> str:
-    """项目页文件名 slug：保留中英文与连字符，其余替换为 -（URL 安全）。"""
+    """项目 slug：由 name 规范化生成（保留中英文、统一 lowercase、其余替换为 -，URL 安全）。"""
     s = re.sub(r"[^\w-]+", "-", (name or "").strip(), flags=re.UNICODE)
-    s = re.sub(r"-{2,}", "-", s).strip("-")
+    s = re.sub(r"-{2,}", "-", s).strip("-").lower()
     return s or "unnamed"
 
 

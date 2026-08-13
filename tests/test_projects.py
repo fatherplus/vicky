@@ -22,22 +22,22 @@ class TestProjectsCRUD(unittest.TestCase):
             self.assertTrue(data["ok"])
             proj = data["project"]
             self.assertEqual(proj["name"], "Vicky 知识平台")
-            self.assertIn("Vicky", proj["slug"])  # ui.project_slug 生成，中文保留
+            self.assertEqual(proj["slug"], "vicky-知识平台")  # name 生成 + lowercase
             self.assertEqual(proj["description"], "个人知识管理")
 
-    def test_create_project_with_explicit_slug(self):
-        """显式指定 slug → 用传入值。"""
+    def test_create_project_slug_generated_from_name(self):
+        """slug 由 name 规范化生成，显式 slug 被忽略（name→slug 定死，防重复/大小写分裂）。"""
         with tmp_env(server):
             status, data = http_post("/api/projects", {
-                "name": "冒烟", "slug": "smoke-test"})
+                "name": "冒烟", "slug": "ignored-slug"})
             self.assertEqual(status, 201)
-            self.assertEqual(data["project"]["slug"], "smoke-test")
+            self.assertEqual(data["project"]["slug"], "冒烟")
 
     def test_create_duplicate_rejected(self):
-        """重复 slug → 409 报错。"""
+        """相同 name → 相同 slug → 409 报错（name→slug 定死）。"""
         with tmp_env(server):
-            http_post("/api/projects", {"name": "第一次", "slug": "dup"})
-            status, data = http_post("/api/projects", {"name": "第二次", "slug": "dup"})
+            http_post("/api/projects", {"name": "重复项目"})
+            status, data = http_post("/api/projects", {"name": "重复项目"})
             self.assertEqual(status, 409)
             self.assertFalse(data["ok"])
             self.assertIn("已存在", data["error"])
@@ -60,17 +60,17 @@ class TestProjectsCRUD(unittest.TestCase):
     def test_list_projects_with_meta_and_aggregation(self):
         """建项目 + 投报告 → GET /api/projects 含 count/latest 聚合。"""
         with tmp_env(server):
-            # 1. 先建项目
-            http_post("/api/projects", {"name": "项目甲", "slug": "proj-a"})
+            # 1. 先建项目（slug 由 name 生成）
+            http_post("/api/projects", {"name": "项目甲"})
 
             # 2. 投两篇报告该项目
             http_post("/api/reports", {
                 "title": "方案1", "slug": "sol-1", "tag": "方案",
-                "category": "tech-solution", "project": "proj-a",
+                "category": "tech-solution", "project": "项目甲",
                 "content": CONTENT})
             http_post("/api/reports", {
                 "title": "方案2", "slug": "sol-2", "tag": "方案",
-                "category": "tech-solution", "project": "proj-a",
+                "category": "tech-solution", "project": "项目甲",
                 "content": CONTENT})
 
             # 3. GET /api/projects
@@ -78,7 +78,7 @@ class TestProjectsCRUD(unittest.TestCase):
             self.assertEqual(status, 200)
             projects = json.loads(body)["projects"]
             self.assertGreaterEqual(len(projects), 1)
-            proj = next(p for p in projects if p["slug"] == "proj-a")
+            proj = next(p for p in projects if p["slug"] == "项目甲")
             self.assertEqual(proj["name"], "项目甲")
             self.assertEqual(proj["count"], 2)
             self.assertNotEqual(proj["latest"], "")
@@ -90,10 +90,10 @@ class TestProjectValidationInReports(unittest.TestCase):
     def test_submit_with_registered_project_ok(self):
         """project 已注册 → 正常投稿，无 warning。"""
         with tmp_env(server):
-            http_post("/api/projects", {"name": "已建项目", "slug": "registered"})
+            http_post("/api/projects", {"name": "已建项目"})
             status, data = http_post("/api/reports", {
                 "title": "测试", "slug": "with-proj", "tag": "x",
-                "category": "tech-solution", "project": "registered",
+                "category": "tech-solution", "project": "已建项目",
                 "content": CONTENT})
             self.assertEqual(status, 201)
             warnings = data.get("warnings", [])

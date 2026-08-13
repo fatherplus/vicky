@@ -33,7 +33,9 @@ NARRATIVES = config.NARRATIVES
 COMPONENTS = config.COMPONENTS
 FIGURE_RE = config.FIGURE_RE
 AI_WORDS = config.AI_WORDS
+CLOSED_LOOP_OK_RE = config.CLOSED_LOOP_OK_RE
 EMOJI_RE = config.EMOJI_RE
+EMOJI_WHITELIST = config.EMOJI_WHITELIST
 DEPRECATED_CLASSES = config.DEPRECATED_CLASSES
 ROOT_TOKEN_RE = config.ROOT_TOKEN_RE
 REQUIRED_PLACEHOLDERS = config.REQUIRED_PLACEHOLDERS
@@ -245,6 +247,23 @@ def _h2_texts(content: str) -> list:
     return [re.sub(r"<[^>]+>", "", h).strip() for h in H2_RE.findall(content)]
 
 
+def _ai_word_stats(text: str) -> tuple[list, int]:
+    """AI 腔词命中统计（「闭环」做正当技术语境豁免：生产-消费闭环等不算）。
+    返回 (命中词列表, 命中总次数)。"""
+    hits, total = [], 0
+    for w in AI_WORDS:
+        cnt = text.count(w)
+        if cnt == 0:
+            continue
+        if w == "闭环":
+            cnt -= len(CLOSED_LOOP_OK_RE.findall(text))  # 豁免正当技术语境
+            if cnt <= 0:
+                continue
+        hits.append(w)
+        total += cnt
+    return hits, total
+
+
 def validate_content(content: str, title: str = "", template: str = "",
                      category: str = "") -> tuple:
     """表述规范门禁 + 软提醒（spec §7）。返回 (errors, warnings)：
@@ -286,10 +305,10 @@ def validate_content(content: str, title: str = "", template: str = "",
         if "fig-note" not in fig:
             warnings.append(f"第 {i} 个 figure 缺图注（所以呢）")
     text = title + content
-    hit = [w for w in AI_WORDS if w in text]
+    hit, ai_total = _ai_word_stats(text)
     if hit:
-        warnings.append(f"AI 腔词 ×{sum(text.count(w) for w in hit)}：{'、'.join(hit)}（禁止清单）")
-    emoji = EMOJI_RE.findall(text)
+        warnings.append(f"AI 腔词 ×{ai_total}：{'、'.join(hit)}（禁止清单）")
+    emoji = [e for e in EMOJI_RE.findall(text) if e not in EMOJI_WHITELIST]
     if emoji:
         warnings.append(f"标题/正文含 emoji ×{len(emoji)}")
     if COMPONENTS["mermaid"]["detect"](content) and 'class="figure"' not in content:
@@ -381,11 +400,13 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
                   series: str = "", order: int = 0, template: str = DEFAULT_TEMPLATE,
                   base_url: str = "",
                   images: list | None = None, client_ip: str = "127.0.0.1",
-                  category: str = "", narrative: str = "", project: str = "") -> dict:
+                  category: str = "", narrative: str = "", project: str = "",
+                  mark_updated: bool = True) -> dict:
     """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
     category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）三字段显式指定，
     与模板正交；category 非法直接拒收（validate_category，domain 语义已彻底删除），
-    tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。"""
+    tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。
+    mark_updated=False 用于元数据更新（PATCH）：不追加 updated meta、不触发「订」徽章。"""
     today = datetime.now().strftime("%Y-%m-%d")
 
     # ── 骨架分类门禁（重构蓝图 §02）：未指定 category 时默认 research；
@@ -439,7 +460,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
 
     meta_tags = []
     meta_tags.append(f'<meta name="template" content="{template}">')
-    if not created:
+    if not created and mark_updated:
         meta_tags.append(f'<meta name="updated" content="{today}">')
     series = normalize_series(series)
     if series:
@@ -473,7 +494,12 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
             "SELECT id FROM submissions WHERE slug=? AND rev=?", (slug, rev)).fetchone()
         sub_id = sub_row[0] if sub_row else 0
         created_date = filename[:10] if len(filename) >= 10 else today
-        updated_date = today if not created else ""
+        if not created and not mark_updated:
+            # 元数据更新不改 updated_date：不触发「订」徽章，保留原修订痕迹
+            prev = store.get_report_by_slug(conn, slug)
+            updated_date = (prev or {}).get("updated_date") or ""
+        else:
+            updated_date = today if not created else ""
         store.upsert_report(conn, slug, filename, title, tag, subtitle,
                             template=template, series=series, series_order=order,
                             created_date=created_date, updated_date=updated_date,
@@ -505,6 +531,33 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
         result["updated"] = today
     return result
 
+
+# 可经 PATCH 更新的元数据字段（不含 content——正文修订走 POST /api/reports）
+META_UPDATE_FIELDS = ("title", "subtitle", "tag", "category", "narrative",
+                      "project", "template", "series", "order")
+
+
+def update_report_meta(slug: str, updates: dict) -> dict:
+    """轻量更新报告元数据（不动 content、不触发「订」徽章）。
+    读 L0 快照拿原 payload（含 content），合并新元数据后复用 create_report 渲染管线
+    （mark_updated=False 保持 updated_date 不变）。返回 create_report 结果 + updated_fields。
+    slug 不存在返回 {"ok": False, "error"}。"""
+    payload = l0_ingest.load_report_payload(slug)
+    if not payload:
+        return {"ok": False, "error": f"slug '{slug}' 不存在"}
+    changed = {k: updates[k] for k in META_UPDATE_FIELDS if k in updates}
+    if not changed:
+        return {"ok": False, "error": f"无可更新字段：仅接受 {', '.join(META_UPDATE_FIELDS)}"}
+    merged = {**payload, **changed}
+    result = create_report(
+        title=merged.get("title", ""), slug=slug, tag=merged.get("tag", ""),
+        content=merged.get("content", ""), subtitle=merged.get("subtitle", ""),
+        series=merged.get("series", ""), order=merged.get("order") or 0,
+        template=merged.get("template") or DEFAULT_TEMPLATE,
+        category=merged.get("category", ""), narrative=merged.get("narrative", ""),
+        project=merged.get("project", ""), mark_updated=False)
+    result["updated_fields"] = sorted(changed.keys())
+    return result
 
 # ============================================================
 # 从 L0 快照重渲染（render --all / --slug，P5 实现）

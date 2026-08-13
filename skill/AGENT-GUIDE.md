@@ -27,12 +27,12 @@ curl -X POST http://192.168.12.15:9093/api/reports \
   }'
 ```
 
-- **正式环境**：`http://192.168.12.15:9093`；**本地开发**：`http://localhost:9091`
+- **投稿一律用正式环境**：`http://192.168.12.15:9093`（`localhost:9091` 仅本地开发调试用）
 - 返回：`{"ok": true, "file": "...", "created": true, "components": ["mermaid"], "warnings": [...], "url": ".../reports/..."}`
 
 > **修订即重交**：同 `slug` 再次 POST 会覆盖原文件（保留原日期，索引显示「订」徽章），不产生新报告。
 > **链接约定**：报告间互链一律用 canonical 相对路径 `reports/{file}`（或同目录报告互链直接写文件名）。
-> **MD 孪生链接**：每篇报告提交时自动生成同名的 `.md`（`reports/{slug}.md`，体积约 HTML 的 1/4）。**要把报告交给另一个 AI 执行/消费时，给 `.md` 链接而非 `.html`**——无视觉噪音、token 省 ~70%、MD 是 LLM 母语。人读用 `.html`，AI 读用 `.md`。
+> **MD 孪生链接**：每篇报告提交时自动生成同名的 `.md`——文件名 = HTML 文件名把 `.html` 换成 `.md`（如 `reports/2026-08-12-{slug}.md`，体积约 HTML 的 1/4）。**要把报告交给另一个 AI 执行/消费时，给 `.md` 链接而非 `.html`**——无视觉噪音、token 省 ~70%、MD 是 LLM 母语。人读用 `.html`，AI 读用 `.md`。
 
 > **tag 约定**：一般技术报告用主题标签（如"向量检索"）；**平台介绍 / 设计说明类文档用 `META` 开头的 tag**（如"META · 关于这本书"）——会自动归入首页「卷首」区，不混进时间目录。
 
@@ -50,7 +50,7 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 
 核心解耦：**归档（去哪）与模板（怎么讲）是两个正交字段**。一篇"项目里的技术方案"=
 归档维度是 `project=某项目` + 骨架 `tech-solution` + 叙事 `对比擂台`——不需要为这种组合单独做模板。
-**AI 不再猜分类**——旧模型的 `domain`（tech/design/ephemeral/arch）已废弃，由 agent 显式指定新字段。
+**AI 不再猜分类**——旧模型的 `domain` 字段已彻底废弃，不要提交 `domain`，一律用 `category`（见下节）。
 
 ---
 
@@ -65,8 +65,6 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 | `tech-solution` | 技术方案——讲"做什么 / 为什么" | 归项目区聚合（建议带 `project`） | `book` | ⚠️ **止步示意层**：架构 + 表结构示意，**不含实施代码**（大段实施代码 server 给 warning） |
 | `arch-doc` | 项目架构详情——当前架构全貌 + 演进 | 归项目区聚合（建议带 `project`） | `arch-overview` | 丛书卷号唯一；`arch-node` 节点卷三段 h2 硬契约（400 拒收） |
 
-> **存量迁移**：旧 `domain` 自动映射——`tech → research`、`ephemeral → brief`、`arch → arch-doc`；
-> `design`（前端卡片）为 **legacy，不再开放提交**。提交时一律用新字段。
 > **蒸馏只处理 `research`**——`brief` / `tech-solution` / `arch-doc` 不进知识库。
 
 ### 技术方案（tech-solution）的边界
@@ -92,7 +90,9 @@ curl -X POST http://192.168.12.15:9093/api/reports \
 
 - **项目文档（tech-solution / arch-doc）建议必填**，如 `"project": "vicky"`
 - research / brief 一般不填——它们按时间线归档
-- 同一项目 = 同一个 `project` 字符串（用英文连字符 slug），大小写敏感，先查 `GET /api/reports` 看已用值再定
+- **先建项目**：`POST /api/projects`（body `{"name": "..."}`，slug 由 name 规范化生成、统一 lowercase）
+- 同一项目 = 同一个 `project` slug；先 `GET /api/projects` 查已建项目，未注册的 project 投稿给 warning 不拒收
+- **`.vicky` 联动**：在项目仓库根目录放 `.vicky` 两行文件（`project=<slug>` / `endpoint=http://192.168.12.15:9093`），agent 投稿前读它自动带 project，无需每次手动传
 
 ```json
 { "category": "tech-solution", "project": "vicky", "title": "Vicky L2 蒸馏方案" }
@@ -376,11 +376,16 @@ flowchart LR
 | `GET /api/templates` | 模板目录与各模板的叙事契约 manifest |
 | `POST /api/templates` | 创建新模板（须附 rationale + narrative_contract） |
 | `GET /api/guide` | 本指南（text/markdown） |
-| `GET /api/skill` | 下载本指南（.md 文件） |
+| `GET /api/skill` | 下载规范 skill（vicky-writer/SKILL.md，含 frontmatter，可被 skill 系统识别） |
 | `GET /api/template` | 查看完整 HTML 模板（了解页面框架） |
 | `GET /api/design` | 设计 token 总纲（design.md，text/markdown；存量资源，稳定别名） |
 | `GET /api/design.css` | 设计 CSS 资源包（下载 `book-style.css`，单文件） |
 | `GET /api/reports` | 列出所有已发布报告 |
+| `GET /api/reports/{slug}/content` | 取报告原始 content（修订 / 归项目前先取原文） |
+| `PATCH /api/reports/{slug}` | 轻量更新元数据（project/tag/category/subtitle/narrative 等，不动 content） |
+| `POST /api/projects` | 新建项目（body `{name, description?}`，slug 由 name 生成） |
+| `GET /api/projects` | 项目清单（含已建项目 slug/name） |
+| `DELETE /api/projects/{slug}` | 归档项目（软删除，可逆） |
 | `GET /api/health` | 健康检查 |
 
 > **平台无 MCP**：不提供 MCP 服务器，agent 交互一律走上面的 HTTP 端点。

@@ -37,6 +37,24 @@ def http_post(path: str, body: dict):
         return r.status_code, {"raw": r.text}
 
 
+def http_patch(path: str, body: dict):
+    """PATCH JSON → (status, parsed_json)。"""
+    r = client().patch(path, json=body)
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"raw": r.text}
+
+
+def http_delete(path: str):
+    """DELETE → (status, parsed_json)。"""
+    r = client().delete(path)
+    try:
+        return r.status_code, r.json()
+    except ValueError:
+        return r.status_code, {"raw": r.text}
+
+
 @contextlib.contextmanager
 def live_server():
     """起真实 uvicorn 服务（随机空闲端口）——仅用于需要裸 socket 的场景

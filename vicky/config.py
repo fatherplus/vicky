@@ -144,7 +144,11 @@ COMPONENTS = {
 # ============================================================
 FIGURE_RE = re.compile(r'<figure\b[^>]*>([\s\S]*?)</figure>', re.I)
 AI_WORDS = ("赋能", "闭环", "打通", "一站式", "全方位", "引领")
+# 「闭环」的正当技术语境（非 AI 腔）——生产-消费闭环 / 反馈闭环等不告警
+CLOSED_LOOP_OK_RE = re.compile(r"(生产-消费|反馈|控制|数据|迭代|知识|业务)闭环")
 EMOJI_RE = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
+# 平台规范规定的布尔/警示符号（guide 对比表硬规则 ✓/✗/⚠），不算 emoji 不告警
+EMOJI_WHITELIST = ("✓", "✗", "⚠")
 
 # 弃用类名映射（spec §7）
 DEPRECATED_CLASSES = {

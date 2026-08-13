@@ -98,6 +98,27 @@ def ingest_submission(slug: str, payload: dict, client_ip: str = "127.0.0.1",
         conn.close()
 
 
+def load_report_payload(slug: str) -> dict | None:
+    """读某报告最新快照的原始 payload（含 content 与全部元数据）。
+    修订 / 元数据更新 / 归项目三类操作的地基：reports 表只存元数据，
+    content 唯一真相在 L0 快照 submission.json。返回 None 表示 slug 不存在。"""
+    conn = store.get_db()
+    try:
+        rep = store.get_report_by_slug(conn, slug)
+        if not rep:
+            return None
+        sub = store.get_submission(conn, rep["current_rev"])
+        if not sub:
+            return None
+        with open(sub["payload_path"], encoding="utf-8") as f:
+            envelope = json.load(f)
+        return envelope.get("payload")
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    finally:
+        conn.close()
+
+
 def save_l0_images(slug: str, rev: int, images: list) -> tuple[list[str], str | None]:
     """保存上传图片到 data/l0/{slug}/{rev:04d}/img/（原件保留）。
     L1 发布时从这拷到 public/assets/img/{slug}/。

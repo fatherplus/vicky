@@ -71,6 +71,21 @@ class TestValidateContent(unittest.TestCase):
         _, warnings = self.v("<p>hello</p>", title="研究 🚀 报告")
         self.assertTrue(any("emoji" in w for w in warnings))
 
+    def test_emoji_whitelist_symbols_not_flagged(self):
+        """平台规范符号 ✓ ✗ ⚠（guide 对比表硬规则）不算 emoji。"""
+        _, warnings = self.v("<p>✓ 支持 / ✗ 需重建 / ⚠ 注意</p>")
+        self.assertFalse(any("emoji" in w for w in warnings))
+
+    def test_closed_loop_technical_term_not_flagged(self):
+        """「生产-消费闭环」是正当技术术语，不算 AI 腔。"""
+        _, warnings = self.v("<p>记忆系统生产-消费闭环</p>")
+        self.assertFalse(any("闭环" in w for w in warnings))
+
+    def test_closed_loop_ai_slang_still_flagged(self):
+        """「形成闭环」仍是 AI 腔。"""
+        _, warnings = self.v("<p>形成闭环</p>")
+        self.assertTrue(any("闭环" in w for w in warnings))
+
     def test_mermaid_no_figure_warning(self):
         _, warnings = self.v('<pre class="mermaid">flowchart LR</pre>')
         self.assertTrue(any("装裱" in w for w in warnings))

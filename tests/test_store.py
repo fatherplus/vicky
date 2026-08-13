@@ -491,7 +491,7 @@ def test_projects_table_in_ddl():
         try:
             conn = store.get_db()
             cols = {r[1] for r in conn.execute("PRAGMA table_info(projects)")}
-            assert cols == {"slug", "name", "description", "created_at"}
+            assert cols == {"slug", "name", "description", "created_at", "archived"}
             conn.close()
         finally:
             config.DATA_DIR = orig

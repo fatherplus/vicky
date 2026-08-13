@@ -35,7 +35,8 @@ from . import l2_distill  # /api/knowledge 列表条目读 frontmatter 补 categ
 from . import l3_feedback
 from . import store
 from . import ui  # D 阶段：project_slug 用于 POST /api/projects slug 生成
-from .l0_ingest import clean_slug, validate_slug_not_empty, save_images, validate_series_params
+from .l0_ingest import (clean_slug, validate_slug_not_empty, save_images,
+                        validate_series_params, load_report_payload)
 
 app = FastAPI(title="Vicky", version="2.0", docs_url="/docs", redoc_url=None)
 
@@ -374,7 +375,7 @@ async def api_validate(request: Request):
 @app.post("/api/projects")
 async def api_project_create(request: Request):
     """新建项目（决策3：先建项目 + .vicky 联动）。
-    body: {slug?, name, description?}；slug 缺省由 name 生成。
+    body: {name, description?}；slug 由 name 规范化生成（不接受显式覆盖）。
     重复 slug 返回 {"ok":false,"error":...}；成功返回 {"ok":true, project:{...}}。"""
     data, err = await _read_json(request)
     if err:
@@ -382,12 +383,8 @@ async def api_project_create(request: Request):
     name = (data.get("name") or "").strip()
     if not name:
         return _json({"ok": False, "error": "name 必填"}, 400)
-    slug = (data.get("slug") or "").strip()
-    if not slug:
-        # slug 缺省由 name 生成（与 ui.project_slug 口径一致）
-        slug = ui.project_slug(name)
-    if not slug:
-        return _json({"ok": False, "error": "slug 不可为空"}, 400)
+    # slug 由 name 规范化生成（name→slug 关系定死：不接受显式覆盖，防重复/大小写分裂）
+    slug = ui.project_slug(name)
     description = (data.get("description") or "").strip()
     try:
         store.create_project(slug, name, description)
@@ -404,6 +401,14 @@ async def api_project_create(request: Request):
         conn.close()
     return _json({"ok": True, "project": proj}, 201)
 
+
+@app.delete("/api/projects/{slug}")
+def api_project_delete(slug: str):
+    """软删除 / 归档项目元信息（可逆，不动 reports.project 引用）。"""
+    slug = ui.project_slug(slug)
+    if not store.archive_project(slug):
+        return _json({"ok": False, "error": f"项目 '{slug}' 不存在"}, 404)
+    return _json({"ok": True, "slug": slug, "archived": True})
 
 @app.post("/api/reports")
 async def api_report_submit(request: Request):
@@ -497,6 +502,37 @@ async def api_report_submit(request: Request):
         return _json({"ok": False, "error": str(e)}, 500)
 
 
+@app.get("/api/reports/{slug}/content")
+def api_report_content(slug: str):
+    """返回报告原始 content（L0 快照 payload.content）——修订 / 迁移 / 归项目的地基。
+    报告列表 API 不返回 content（省 token），此端点按需取。"""
+    slug = clean_slug(slug)
+    payload = load_report_payload(slug)
+    if not payload:
+        return _json({"ok": False, "error": f"slug '{slug}' 不存在"}, 404)
+    return _json({"ok": True, "slug": slug, **payload})
+
+
+@app.patch("/api/reports/{slug}")
+async def api_report_update_meta(slug: str, request: Request):
+    """轻量更新报告元数据（title/subtitle/tag/category/narrative/project/template/
+    series/order），不动 content、不触发「订」徽章。body 只含要改的字段。"""
+    data, err = await _read_json(request)
+    if err:
+        return _json({"ok": False, "error": err}, 400)
+    data = data or {}
+    if not any(k in data for k in l1_publish.META_UPDATE_FIELDS):
+        return _json({"ok": False, "error": f"无可更新字段：仅接受 {', '.join(l1_publish.META_UPDATE_FIELDS)}"}, 400)
+    series, order = data.get("series"), data.get("order")
+    if (series is not None) != (order is not None):
+        return _json({"ok": False, "error": "series 与 order 必须同时提供"}, 400)
+    if series is not None:
+        _, series_err = validate_series_params(series, order)
+        if series_err:
+            return _json({"ok": False, "error": series_err}, 400)
+    slug = clean_slug(slug)
+    result = l1_publish.update_report_meta(slug, data)
+    return _json(result, 200 if result.get("ok") else 404)
 # ============================================================
 # 静态自伺服（catch-all，必须在所有 API 路由之后声明）
 # ============================================================
