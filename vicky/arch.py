@@ -182,7 +182,9 @@ def _layout_nodes(nodes: list):
     """自动分层布局：同层同 y、层内水平居中。返回 (id→(x,y), 世界宽, 世界高)。"""
     layers = {}
     for nd in nodes:
-        layers.setdefault(int(nd.get("layer", 1) or 1), []).append(nd)
+        lv = nd.get("layer", 1)
+        layer = int(lv) if lv not in (None, "") else 1
+        layers.setdefault(layer, []).append(nd)
     pos, max_x, max_y = {}, 0, 0
     for layer in sorted(layers):
         row = layers[layer]

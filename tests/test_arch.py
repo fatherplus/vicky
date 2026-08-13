@@ -397,6 +397,16 @@ class TestArchLayout(unittest.TestCase):
         self.assertEqual(tops["a"], tops["b"])   # 同层同 y
         self.assertGreater(tops["c"], tops["a"])  # 下一层更靠下
 
+    def test_layer_zero_above_layer_one(self):
+        g = {"nodes": [{"id": "entry", "kind": "entry", "layer": 0, "label": "E"},
+                       {"id": "rt", "kind": "module", "layer": 1, "label": "R"}],
+             "edges": []}
+        html = self._page(g)
+        import re
+        tops = {m.group(1): int(m.group(2)) for m in
+                re.finditer(r'data-id="([^"]+)"[^>]*style="left:-?\d+px;top:(-?\d+)px"', html)}
+        self.assertLess(tops["entry"], tops["rt"])   # layer 0 在 layer 1 之上
+
     def test_world_size_on_svg(self):
         g = {"nodes": [{"id": "a", "kind": "module", "layer": 1, "label": "A"}], "edges": []}
         html = self._page(g)
