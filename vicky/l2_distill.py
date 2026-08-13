@@ -7,7 +7,7 @@ L2 知识层（P0 包化：从 distill.py 搬迁，行为零变化）。
 
 流程（对应治理链路 关2-3）：
   1. 扫描 public/reports/*.html，对比 log.md 已处理列表
-  2. 只蒸 category==research 的报告（brief / tech-solution / arch-doc 跳过）
+  2. 只蒸 category==research 的报告（brief / tech-solution 跳过）
   3. 提取知识条目（结论/被否假设/陷阱/数据），每条标来源
   4. AGREE 追加到 knowledge/{topic}/overview.md（B 阶段：目录扁平，不再按 domain 分层）
   5. 更新 index.md、追加 log.md
@@ -182,7 +182,7 @@ def _md_tables(md_content: str) -> list[str]:
     return results
 
 
-# B 阶段重构：蒸馏只进 research 分类（brief/tech-solution/arch-doc 不进知识库）
+# B 阶段重构：蒸馏只进 research 分类（brief/tech-solution 不进知识库）
 # 统一走 extract_tech_md 一个提取器（不再按 domain 分发）
 _DISTILL_CATEGORY = "research"
 

@@ -134,7 +134,7 @@ def backfill(force: bool = False):
                 # （domain 语义已彻底删除，仅 backfill 兼容老文件时借它推断分类归属）
                 _BACKFILL_DOMAIN_TO_CATEGORY = {
                     "tech": "research", "ephemeral": "brief",
-                    "arch": "arch-doc", "design": "design",
+                    "arch": "tech-solution", "design": "design",
                 }
                 category = _BACKFILL_DOMAIN_TO_CATEGORY.get(meta.get("domain", "tech"), "research")
 
