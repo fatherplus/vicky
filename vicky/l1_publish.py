@@ -87,16 +87,16 @@ def build_index(reports: list[dict]) -> str:
     """生成四区书风格索引页（重构蓝图 §04）——技术文库 / 项目空间 / 简报·知识库。
     - hidden=1 与 legacy design（category=design）不进入任何区；
     - META 开头 tag 钉住「卷首」（关于本书），不进目录流；
-    - 技术文库（research）与简报（brief）时间倒序；项目空间（tech-solution / arch-doc 带 project）
+    - 技术文库（research）与简报（brief）时间倒序；项目空间（tech-solution 带 project）
       按项目聚合，链到 /projects/{slug}.html；
     - Alpine 前端筛选：分类 / 项目 / 标签 + 关键词，默认时间倒序（行序即 server 时间倒序）。"""
     visible = [r for r in reports if not r.get("hidden")]
     front = [r for r in visible if r.get("tag", "").upper().startswith("META")]
     research = [r for r in visible if r.get("category") == "research"]
     briefs = [r for r in visible if r.get("category") == "brief"]
-    # 项目区聚合 tech-solution + arch-doc 且带 project（蓝图 §04-B：项目空间 = 方案 + 架构归档）
+    # 项目区聚合 tech-solution 且带 project（蓝图 §04-B：项目空间 = 方案归档；arch-doc 已退场）
     project_docs = [r for r in visible
-                    if r.get("project") and r.get("category") in ("tech-solution", "arch-doc")]
+                    if r.get("project") and r.get("category") == "tech-solution"]
     _annotate_rows(research, "研究报告")
     _annotate_rows(briefs, "简报")
     for docs in _group_projects(project_docs).values():
