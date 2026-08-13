@@ -108,8 +108,12 @@ def build_index(reports: list[dict]) -> str:
         tag_counts[tag] = tag_counts.get(tag, 0) + 1
     tag_list = sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
-    # 项目卡片 + 项目筹码（按最新日期倒序）
+    # 项目卡片 + 项目筹码（按最新日期倒序）；项目空间以项目表为准——
+    # 含仅有架构、无报告的项目（pi 型：arch_graphs 有骨架但 reports 为空）
     proj_map = _group_projects(project_docs)
+    for meta in store.list_projects_meta():
+        if meta["slug"] not in proj_map and store.get_arch_graph(meta["slug"]) is not None:
+            proj_map[meta["slug"]] = []
     proj_sorted = sorted(proj_map.items(),
                          key=lambda kv: (kv[1][0]["date"] if kv[1] else ""), reverse=True)
     cards = [ui.project_card(name, docs) for name, docs in proj_sorted]
@@ -575,7 +579,15 @@ def build_project_pages() -> int:
     审核治理（curate 软下架/硬删除）经 rebuild_index 一并生效。"""
     conn = store.get_db()
     try:
-        projects = store.list_projects(conn)  # 已排除 hidden 与空 project
+        # 项目空间以 projects 表为准：含仅有架构、无报告的项目（pi 型）
+        projects = []
+        for meta in store.list_projects_meta(conn):
+            slug = meta["slug"]
+            has_report = conn.execute(
+                "SELECT 1 FROM reports WHERE project=? AND hidden=0 LIMIT 1",
+                (slug,)).fetchone()
+            if has_report or store.get_arch_graph(slug) is not None:
+                projects.append({"project": slug})
         docs_by = {p["project"]: store.list_reports(conn, project=p["project"])
                    for p in projects}
     finally:

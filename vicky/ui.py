@@ -145,6 +145,7 @@ def project_card(name: str, docs: list) -> str:
     slug = html_mod.escape(project_slug(name), quote=True)
     latest = docs[0]["date"] if docs else ""
     latest_d = latest[5:] if len(latest) >= 10 else latest
+    desc = f"{len(docs)} 篇文档 · 最新 {latest_d}" if docs else "架构导航器 · 暂无方案文档"
     search = html_mod.escape((name + " " + " ".join(d["title"] for d in docs)).lower(),
                              quote=True)
     return (f'<a class="fm-item reveal" href="/projects/{slug}.html"'
@@ -152,7 +153,7 @@ def project_card(name: str, docs: list) -> str:
             f' data-search="{search}" x-show="visible($el)">'
             f'<span class="fm-seal" aria-hidden="true">项</span>'
             f'<span class="fm-body"><span class="fm-title">{html_mod.escape(name)}</span>'
-            f'<span class="fm-desc">{len(docs)} 篇文档 · 最新 {latest_d}</span></span>'
+            f'<span class="fm-desc">{desc}</span></span>'
             f'<span class="fm-arrow">→</span></a>')
 
 
