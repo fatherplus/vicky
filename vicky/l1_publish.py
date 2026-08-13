@@ -401,12 +401,14 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
                   base_url: str = "",
                   images: list | None = None, client_ip: str = "127.0.0.1",
                   category: str = "", narrative: str = "", project: str = "",
-                  mark_updated: bool = True) -> dict:
+                  mark_updated: bool = True, skip_content_gate: bool = False) -> dict:
     """创建或修订报告（P1：L0 快照 → 渲染 → DB upsert）。
     category（四分类骨架）/ narrative（叙事方式）/ project（归档维度）三字段显式指定，
     与模板正交；category 非法直接拒收（validate_category，domain 语义已彻底删除），
     tech-solution 内容含大段实施代码给 warning。同 slug 已存在 → 覆盖原文件、保留原日期、rev 递增。
-    mark_updated=False 用于元数据更新（PATCH）：不追加 updated meta、不触发「订」徽章。"""
+    mark_updated=False 用于元数据更新（PATCH）：不追加 updated meta、不触发「订」徽章。
+    skip_content_gate=True（PATCH 元数据）：content 原样保留，跳过 content 硬门禁重校验
+    （旧报告可能有历史遗留裸 table，当初已发布；元数据更新不该因 content 旧内容被拒）。"""
     today = datetime.now().strftime("%Y-%m-%d")
 
     # ── 骨架分类门禁（重构蓝图 §02）：未指定 category 时默认 research；
@@ -431,7 +433,7 @@ def create_report(title: str, slug: str, tag: str, content: str, subtitle: str =
     # ── 模板级硬契约门禁（arch-node 三段等）──
     # web.py 已预检过（400），此处兜底直调方（cli/测试），防止绕门禁
     violations, _ = validate_content(content, title, template, category)
-    if violations:
+    if violations and not skip_content_gate:
         raise ValueError("内容不符合表述规范：" + "；".join(violations))
 
     # ── tech-solution 实施代码软提醒（方案止步于架构与表结构示意）──
@@ -555,7 +557,7 @@ def update_report_meta(slug: str, updates: dict) -> dict:
         series=merged.get("series", ""), order=merged.get("order") or 0,
         template=merged.get("template") or DEFAULT_TEMPLATE,
         category=merged.get("category", ""), narrative=merged.get("narrative", ""),
-        project=merged.get("project", ""), mark_updated=False)
+        project=merged.get("project", ""), mark_updated=False, skip_content_gate=True)
     result["updated_fields"] = sorted(changed.keys())
     return result
 

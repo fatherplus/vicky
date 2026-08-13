@@ -181,6 +181,19 @@ class TestReportMetaPatch(unittest.TestCase):
             status, data = http_patch("/api/reports/no-such", {"tag": "x"})
             self.assertEqual(status, 404)
 
+    def test_patch_legacy_bare_table_content_ok(self):
+        """旧报告 content 含历史遗留裸 table，PATCH 元数据不应被 content 门禁拒收。"""
+        with tmp_env(server):
+            from vicky import l1_publish
+            l1_publish.create_report(
+                title="旧表", slug="legacy-table", tag="x",
+                content='<section class="reveal"><div class="wrap"><table><tr><td>裸表</td></tr></table></div></section>',
+                category="research", skip_content_gate=True)
+            status, data = http_patch("/api/reports/legacy-table", {"tag": "新标签"})
+            self.assertEqual(status, 200)
+            self.assertTrue(data["ok"])
+            self.assertEqual(data["updated_fields"], ["tag"])
+
     def test_patch_no_valid_fields_400(self):
         """content 不是可更新字段 → 无可更新字段报 400。"""
         with tmp_env(server):
