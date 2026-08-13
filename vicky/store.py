@@ -855,6 +855,44 @@ def list_projects_meta(conn: sqlite3.Connection | None = None,
             conn.close()
 
 
+# ============================================================
+# arch_graphs / arch_modules（架构导航器：骨架 + 模块正文）
+# ============================================================
+def save_arch_graph(project: str, graph: dict,
+                    conn: sqlite3.Connection | None = None) -> None:
+    """整体覆盖某项目的架构骨架（JSON）。upsert：主键 project。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute(
+            "INSERT INTO arch_graphs (project, graph, updated_at) VALUES (?,?,?)"
+            " ON CONFLICT(project) DO UPDATE SET graph=excluded.graph,"
+            " updated_at=excluded.updated_at",
+            (project, json.dumps(graph, ensure_ascii=False), now))
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def get_arch_graph(project: str,
+                   conn: sqlite3.Connection | None = None) -> dict | None:
+    """取某项目骨架 JSON（dict）；无 → None。"""
+    own = conn is None
+    if own:
+        conn = get_db()
+    try:
+        row = conn.execute("SELECT graph FROM arch_graphs WHERE project=?",
+                           (project,)).fetchone()
+        return json.loads(row["graph"]) if row else None
+    finally:
+        if own:
+            conn.close()
+
+
 def count_submissions(conn: sqlite3.Connection, slug: str) -> int:
     """某 slug 的提交快照行数（审核清单展示用）。conn 必传。"""
     row = conn.execute(

@@ -21,5 +21,20 @@ class TestArchTables(unittest.TestCase):
             self.assertIn("arch_modules_fts", tables)
 
 
+class TestArchGraph(unittest.TestCase):
+    def test_graph_roundtrip(self):
+        with tmp_env(server):
+            g = {"nodes": [{"id": "core", "kind": "module", "layer": 2,
+                            "label": "core", "summary": "枢纽"}],
+                 "edges": [], "layout": {}}
+            store.save_arch_graph("vicky", g)
+            got = store.get_arch_graph("vicky")
+            self.assertEqual(got, g)
+
+    def test_graph_missing_returns_none(self):
+        with tmp_env(server):
+            self.assertIsNone(store.get_arch_graph("nope"))
+
+
 if __name__ == "__main__":
     unittest.main()
