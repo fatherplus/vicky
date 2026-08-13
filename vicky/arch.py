@@ -172,6 +172,29 @@ def render_md(md: str) -> str:
     return "\n".join(out)
 
 
+NODE_W, NODE_H = 200, 86
+LAYER_GAP_Y = 170
+NODE_GAP_X = 250
+CANVAS_CX = 700
+
+
+def _layout_nodes(nodes: list):
+    """自动分层布局：同层同 y、层内水平居中。返回 (id→(x,y), 世界宽, 世界高)。"""
+    layers = {}
+    for nd in nodes:
+        layers.setdefault(int(nd.get("layer", 1) or 1), []).append(nd)
+    pos, max_x, max_y = {}, 0, 0
+    for layer in sorted(layers):
+        row = layers[layer]
+        y = (layer - 1) * LAYER_GAP_Y
+        for idx, nd in enumerate(row):
+            x = int(CANVAS_CX + (idx - (len(row) - 1) / 2) * NODE_GAP_X - NODE_W / 2)
+            pos[nd.get("id")] = (x, y)
+            max_x = max(max_x, x + NODE_W)
+            max_y = max(max_y, y + NODE_H)
+    return pos, max_x + 60, max_y + 60
+
+
 def render_arch_page(project: str, graph: dict) -> str:
     """骨架 JSON → arch.html：分层节点 + 服务端 SVG 边骨架。
     每边出一个 <path class=\"arch-edge\" data-from data-to>（含箭头 marker），
@@ -179,27 +202,23 @@ def render_arch_page(project: str, graph: dict) -> str:
     模块正文不进导航页（渐进式：抽屉按需拉 /api/…，或走子页深读）。"""
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
-    layers = {}
-    for n in nodes:
-        layers.setdefault(n.get("layer", 1), []).append(n)
+    pos, world_w, world_h = _layout_nodes(nodes)
     parts = []
-    for layer in sorted(layers):
-        parts.append(f'<div class="arch-layer" data-layer="{layer}">')
-        for n in layers[layer]:
-            kind = str(n.get("kind", "module"))
-            cls = "arch-node router" if kind == "router" else "arch-node"
-            nid = _html.escape(str(n.get("id", "")), quote=True)
-            label = _html.escape(str(n.get("label", n.get("id", ""))), quote=True)
-            summary = _html.escape(str(n.get("summary", "")))
-            klabel = _html.escape(KIND_LABEL.get(kind, kind))
-            parts.append(f'<div class="{cls}" data-id="{nid}" data-label="{label}" '
-                         f'data-kind="{_html.escape(kind, quote=True)}">'
-                         f'<span class="arch-node-kind">{klabel}</span>'
-                         f'<b>{label}</b><small>{summary}</small></div>')
-        parts.append("</div>")
+    for n in nodes:
+        kind = str(n.get("kind", "module"))
+        cls = "arch-node router" if kind == "router" else "arch-node"
+        nid = _html.escape(str(n.get("id", "")), quote=True)
+        label = _html.escape(str(n.get("label", n.get("id", ""))), quote=True)
+        summary = _html.escape(str(n.get("summary", "")))
+        klabel = _html.escape(KIND_LABEL.get(kind, kind))
+        x, y = pos.get(n.get("id"), (0, 0))
+        parts.append(f'<div class="{cls}" data-id="{nid}" data-label="{label}" '
+                     f'data-kind="{_html.escape(kind, quote=True)}" style="left:{x}px;top:{y}px">'
+                     f'<span class="arch-node-kind">{klabel}</span>'
+                     f'<b>{label}</b><small>{summary}</small></div>')
     # SVG 边骨架：server 出 <path>/<text>，前端按节点实际位置补 d/x/y
     edge_parts = [
-        '<svg id="edges" aria-hidden="true">',
+        f'<svg id="edges" width="{world_w}" height="{world_h}" aria-hidden="true">',
         '<defs><marker id="arch-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" '
         'orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#A63A2E"/></marker></defs>']
     for e in edges:

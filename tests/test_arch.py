@@ -378,3 +378,27 @@ class TestArchModuleBodyHtml(unittest.TestCase):
             data = json.loads(body)
             self.assertEqual(st, 200)
             self.assertIn('<table class="data-table">', data["body_html"])
+
+
+class TestArchLayout(unittest.TestCase):
+    def _page(self, g):
+        from vicky import arch
+        return arch.render_arch_page("demo", g)
+
+    def test_same_layer_same_top(self):
+        g = {"nodes": [{"id": "a", "kind": "module", "layer": 1, "label": "A"},
+                       {"id": "b", "kind": "module", "layer": 1, "label": "B"},
+                       {"id": "c", "kind": "module", "layer": 2, "label": "C"}],
+             "edges": []}
+        html = self._page(g)
+        import re
+        tops = {m.group(1): int(m.group(2)) for m in
+                re.finditer(r'data-id="([^"]+)"[^>]*style="left:\d+px;top:(\d+)px"', html)}
+        self.assertEqual(tops["a"], tops["b"])   # 同层同 y
+        self.assertGreater(tops["c"], tops["a"])  # 下一层更靠下
+
+    def test_world_size_on_svg(self):
+        g = {"nodes": [{"id": "a", "kind": "module", "layer": 1, "label": "A"}], "edges": []}
+        html = self._page(g)
+        self.assertIn('<svg id="edges" width="', html)
+        self.assertIn('height="', html)
