@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>__PROJECT_NAME__ · 架构树 — Vicky</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;900&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/index.css">
+<style>
+.arch-node{background:#fff;border:1.5px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:10px 14px;margin:6px;display:inline-flex;flex-direction:column;cursor:pointer}
+.arch-node.router{border-color:var(--seal);border-left-color:var(--seal);color:var(--seal)}
+.arch-cond{font-family:var(--mono);font-size:11px;color:var(--seal)}
+.arch-layer{border-left:3px solid var(--line);padding:12px 0 12px 18px;margin-bottom:8px}
+</style>
+</head>
+<body>
+<main class="page">
+  <h1>__PROJECT_NAME__ · 架构树</h1>
+  <div id="tree">__TREE__</div>
+  <aside id="drawer" x-data></aside>
+</main>
+<script>__DATA_JSON__</script>
+<script>
+document.querySelectorAll('.arch-node').forEach(function(n){
+  n.addEventListener('click',function(){
+    var d=window.ARCH_MODULES[n.dataset.id];
+    document.getElementById('drawer').textContent = d ? d : '（模块正文待补，点「编辑」写入）';
+  });
+});
+</script>
+</body>
+</html>

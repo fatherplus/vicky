@@ -117,5 +117,23 @@ class TestArchAPI(unittest.TestCase):
             self.assertFalse(r["ok"])
 
 
+class TestArchRender(unittest.TestCase):
+    def test_render_contains_nodes_and_conditions(self):
+        with tmp_env(server):
+            from vicky import arch
+            store.create_project("vicky", "vicky")
+            g = {"nodes": [
+                    {"id": "cli", "kind": "module", "layer": 1, "label": "cli", "summary": "入口"},
+                    {"id": "r1", "kind": "router", "layer": 1, "label": "模式路由", "summary": "分流"}],
+                 "edges": [{"from": "cli", "to": "r1"},
+                           {"from": "r1", "to": "cli", "condition": "无参 → interactive"}],
+                 "layout": {}}
+            arch.put_graph("vicky", g)
+            html = arch.render_arch_page("vicky", g)
+            self.assertIn("cli", html)
+            self.assertIn("模式路由", html)
+            self.assertIn("无参 → interactive", html)
+
+
 if __name__ == "__main__":
     unittest.main()
